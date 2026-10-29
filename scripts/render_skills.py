@@ -17,6 +17,11 @@ Inputs (per facility, from facilities/<dir>/):
                            Optional — a missing file falls back to a short
                            generic pointer at get_facility/search_docs, so a
                            facility PR can add real notes incrementally.
+  skills/<name>/SKILL.md  a workflow only this facility has, copied (with
+                           scalar placeholders resolved) to <slug>-<name>/.
+  skills/<name>/**        any other files beside it (scripts/, references/)
+                           are mirrored into the same output folder; text
+                           files get the scalar placeholders too.
 
 Inputs (shared, from templates/skills/):
   <workflow>.md.tmpl       one per workflow (configuring, submitting-jobs,
@@ -71,7 +76,6 @@ def skills_dir(fac: dict) -> Path:
 
 def render_one(template_text: str, fac: dict, workflow: str) -> str:
     slug = fac["slug"]
-    env_prefix = slug.upper().replace("-", "_")
     notes_path = fac["_dir"] / "skill_notes" / f"{workflow}.md"
     notes = notes_path.read_text().rstrip() if notes_path.exists() else _FALLBACK_NOTES.format(slug=slug)
     # {{FACILITY_NOTES}} is substituted FIRST, before the scalar placeholders
@@ -95,11 +99,76 @@ def render_one(template_text: str, fac: dict, workflow: str) -> str:
     text = template_text.replace("{{FACILITY_NOTES}}", notes)
     text = text.replace("{{CONFIG_EXAMPLE}}", config_example)
     text = text.replace("{{SETUP_HELP}}", setup_help)
-    text = text.replace("{{SLUG}}", slug)
+    return substitute_scalars(text, fac)
+
+
+def substitute_scalars(text: str, fac: dict) -> str:
+    """Resolve the four scalar tokens, which mean the same thing anywhere."""
+    env_prefix = fac["slug"].upper().replace("-", "_")
+    text = text.replace("{{SLUG}}", fac["slug"])
     text = text.replace("{{DISPLAY_NAME}}", fac["display_name"])
     text = text.replace("{{ENV_PREFIX}}", env_prefix)
     text = text.replace("{{CONFIG_STEM}}", env_prefix.lower())
     return text
+
+
+def _is_ignored(rel: Path) -> bool:
+    # .DS_Store, editor swap files, __pycache__: never part of a skill.
+    return any(part.startswith(".") or part == "__pycache__" for part in rel.parts)
+
+
+def render_supporting_file(source: Path, fac: dict) -> bytes:
+    """A file shipped beside a facility-unique SKILL.md (a script, a
+    reference page). Text gets the scalar tokens; anything that isn't UTF-8
+    is copied byte-for-byte."""
+    data = source.read_bytes()
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data
+    return substitute_scalars(text, fac).encode("utf-8")
+
+
+def sync_supporting_files(skill_dir: Path, out_dir: Path, fac: dict,
+                          check: bool) -> list[Path]:
+    """Mirror everything in skill_dir except SKILL.md into out_dir, keeping
+    the executable bit, and remove files that no longer have a source.
+    out_dir is generated from skill_dir in full, so a file there with no
+    source is a leftover from a rename or deletion, not hand-authored work.
+    Returns every path that was (or, under check, would be) changed."""
+    changed = []
+    expected = set()
+    for source in sorted(skill_dir.rglob("*")):
+        rel = source.relative_to(skill_dir)
+        if not source.is_file() or rel == Path("SKILL.md") or _is_ignored(rel):
+            continue
+        expected.add(rel)
+        out_path = out_dir / rel
+        rendered = render_supporting_file(source, fac)
+        executable = bool(source.stat().st_mode & 0o111)
+        if (out_path.exists() and out_path.read_bytes() == rendered
+                and bool(out_path.stat().st_mode & 0o111) == executable):
+            continue
+        changed.append(out_path)
+        if not check:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(rendered)
+            mode = out_path.stat().st_mode
+            out_path.chmod(mode | 0o111 if executable else mode & ~0o111)
+
+    if out_dir.exists():
+        for out_path in sorted(out_dir.rglob("*"), reverse=True):
+            rel = out_path.relative_to(out_dir)
+            if out_path.is_dir():
+                if not check and not any(out_path.iterdir()):
+                    out_path.rmdir()
+                continue
+            if rel == Path("SKILL.md") or _is_ignored(rel) or rel in expected:
+                continue
+            changed.append(out_path)
+            if not check:
+                out_path.unlink()
+    return changed
 
 
 def main() -> int:
@@ -125,6 +194,9 @@ def main() -> int:
     # give every other facility an empty skill. These are copied verbatim
     # from facilities/<slug>/skills/<name>/SKILL.md, with the same scalar
     # placeholders substituted so they can still say facility="{{SLUG}}".
+    # Anything else in that folder (scripts/, references/, ...) ships beside
+    # it, so a long build script can live in its own file and SKILL.md can
+    # point at it by relative path instead of inlining it.
     for fac in facilities:
         facility_skills = skills_dir(fac)
         for skill_dir in sorted((fac["_dir"] / "skills").glob("*/")):
@@ -133,6 +205,10 @@ def main() -> int:
                 continue
             out_dir = facility_skills / f"{fac['slug']}-{skill_dir.name.rstrip('/')}"
             out_path = out_dir / "SKILL.md"
+            supporting = sync_supporting_files(skill_dir, out_dir, fac, args.check)
+            stale.extend(supporting)
+            if not args.check:
+                written.extend(supporting)
             rendered = render_one(source.read_text(), fac, "__unique__")
             if out_path.exists() and out_path.read_text() == rendered:
                 continue
