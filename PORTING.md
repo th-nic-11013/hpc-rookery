@@ -624,6 +624,18 @@ involved — with the scalar placeholders (`{{SLUG}}`, `{{DISPLAY_NAME}}`,
 `facility="{{SLUG}}"` like any other skill. `{{FACILITY_NOTES}}` has no
 meaning here — the whole file is yours.
 
+Long scripts, job-script bodies, or reference pages don't have to be
+inlined into SKILL.md. Put them beside it — e.g.
+`facilities/<slug>/skills/<name>/scripts/build.sh` — and refer to them by
+path relative to the skill folder. The generator mirrors every other file
+in that folder into the generated skill, keeping the executable bit and
+substituting the same scalar placeholders in text files; a file you delete
+or rename is removed from the generated copy too. Dotfiles and
+`__pycache__/` are skipped. Remember these files land on the user's
+machine with the plugin, not on the cluster: the skill should tell the
+agent to `fs_upload` a script under `~/agent/work/` before running it, and
+to show the user what it will run first.
+
 It still needs YAML frontmatter whose `name:` matches the generated
 directory, i.e. `name: {{SLUG}}-<name>`. `tests/conformance.py` enforces
 this: Fugaku-Agent's original build skill shipped with no frontmatter at
