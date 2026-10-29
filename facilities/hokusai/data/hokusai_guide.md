@@ -16,10 +16,13 @@ through shared front-end login nodes. Three subsystems:
 - **MPC (Massively Parallel Computer)** — the workhorse: 312 standard nodes, each
   with 112 Intel Xeon cores (two 56-core sockets) and ~112 GiB of memory. Most
   work runs here.
-- **LMC (Large Memory)** — 2 nodes with ~2.7 TiB of memory each, for jobs that
-  need very large memory on a single host.
-- **GPU** — a small 4-node server with NVIDIA H100 GPUs, mainly for
-  postprocessing. Secondary; most HBW2 work is CPU/MPI.
+- **LMC (Large Memory)** — 2 nodes with 96 cores and 2880 GiB of usable
+  memory each, for jobs that need very large memory on a single host.
+- **GPU** — a small 4-node server, each node with 4 NVIDIA H100 GPUs, 112
+  cores and 448 GiB, mainly for postprocessing. Secondary; most HBW2 work is
+  CPU/MPI, and the GPU nodes are usually fully allocated.
+
+Compute nodes have hyper-threading off, so one CPU is one physical core.
 
 The practical consequence for working with the agent: think CPU and MPI first,
 describe jobs in nodes/processes/threads, and reach for GPUs only when a workload
@@ -34,8 +37,11 @@ before your first login. The portal also lists current application versions and
 hosts the official manuals.
 
 Login nodes are for editing, building, staging files, and submitting. They are
-shared and lightly resourced, so anything heavier than a quick check belongs in a
-job — have the agent submit it rather than running it on the front end.
+shared and lightly resourced (each user is limited to 256 processes and 48 GiB
+of virtual memory on a front-end node), so anything heavier than a quick check
+belongs in a job — have the agent submit it rather than running it on the front
+end. Avoid recursive scans (`find`, `du`, `ls -R`) over whole shared file
+systems; they load the Lustre metadata servers for every user.
 
 ## Projects and your compute budget
 
@@ -57,19 +63,41 @@ say otherwise: 1 hour of wall time, and a per-core memory share of 1 GiB on MPC,
 30 GiB on LMC, 4 GiB on GPU (asking for more memory can raise the number of cores
 you are billed for).
 
-| partition | use for | cores/node | memory/node | max wall time |
-|---|---|---|---|---|
-| `mpc` (default) | everyday CPU / MPI work | 112 | ~112 GiB | ~24 h |
-| `mpc_l` | longer CPU runs | 112 | ~112 GiB | ~72 h |
-| `lmc` | very-large-memory jobs | 96 | ~2.7 TiB | ~24 h |
-| `gpu` | GPU batch work | 112 | large | ~72 h |
-| `gpu_i` | interactive GPU sessions | 112 | large | ~24 h |
+| partition | use for | nodes | max nodes/job | cores/node | memory/node | max wall time |
+|---|---|---|---|---|---|---|
+| `mpc` (default) | everyday CPU / MPI work | 312 | 64 | 112 | 112 GiB | 24 h |
+| `mpc_l` | longer CPU runs | 156 | 8 | 112 | 112 GiB | 72 h |
+| `lmc` | very-large-memory jobs | 2 | 2 | 96 | 2880 GiB | 24 h |
+| `gpu` | GPU batch work | 3 | 1 | 112 | 448 GiB | 72 h |
+| `gpu_i` | interactive GPU sessions | 1 | 1 | 112 | 448 GiB | 24 h |
+
+`mpc_l` is the first half of the `mpc` nodes, not separate hardware. Each
+project also has caps shared by all its users: 7168 running cores and 5000
+submitted jobs on MPC, 192 cores and 100 jobs on LMC, 448 cores and 100 jobs on
+GPU.
+
+**A job that exceeds a partition limit is accepted but never runs.** It stays
+pending (reason `PartitionTimeLimit` or `PartitionNodeLimit`) until someone
+cancels it, so size jobs inside the table. A job may overrun its time limit by
+up to 30 minutes before it is killed. Maintenance reservations cover whole
+partitions; a job whose time limit reaches into one waits with reason
+`ReqNodeNotAvail, Reserved for maintenance`.
+
+### How a job is billed
+
+Billing is the largest of the weighted resources a job requests: on `mpc` and
+`mpc_l`, the larger of cores and GiB of memory; on `lmc`, the larger of cores
+and GiB/30; on the GPU partitions, the largest of cores, GiB/4 and 28 per GPU.
+So a single-core job asking for 112 GiB on `mpc` is billed as a whole node.
+Nodes are shared between jobs core by core; a job has a node to itself only if
+it asks for all its cores.
 
 How many nodes each partition has and how busy it is right now both change over
 time — let the agent read current state (`get_facility` / live status) and tell
 you where a job will start soonest, rather than planning around remembered counts.
-For a GPU job, request GPUs explicitly (one GPU also reserves roughly 28 CPU
-cores); the agent handles the GPU-specific scheduling details.
+For a GPU job, request GPUs explicitly (one GPU also reserves 28 CPU cores,
+14 on each socket, and 112 GiB, and is billed as 28 cores; a job is limited to
+one GPU node); the agent handles the GPU-specific scheduling details.
 
 ## Storage
 
@@ -78,12 +106,19 @@ Four places to keep data, each with a purpose:
 - `/home/<user>` — code, scripts, small files; ~4 TB quota.
 - `/data/<projectID>` — larger datasets and shared project results; requested
   through the portal and charged, so it is opt-in per project.
-- `/tmp_work` — shared scratch; its contents are cleaned up automatically once
-  they age past about a week, so copy anything you want to keep back to home or
-  project storage before a job ends.
-- node-local disk — fast storage that exists only for a job's duration; stage
-  inputs onto it for I/O-heavy stages and copy results back out before the job
-  releases the node, because it is wiped when the job ends.
+- `/tmp_work` — shared scratch on its own Lustre file system, with no user
+  quota; files are deleted once they have gone unmodified for a week, so copy
+  anything you want to keep back to home or project storage. It is flat and
+  world-writable: create `/tmp_work/<user>` and work inside it. **The GPU
+  nodes do not mount `/tmp_work`**, so stage GPU jobs through home or the
+  node's `/tmp`.
+- node-local disk — `/tmp` on each compute node (`TMPDIR=/tmp` in jobs), about
+  105 GB on MPC nodes and 339 GB on GPU nodes. It is shared with other jobs on
+  the node and out of reach once the job ends, so use a job-specific
+  subdirectory and copy results back before the job finishes.
+
+Home has an inode quota of 10 million files; workflows that write many small
+files hit it before the block quota, so archive per-step outputs.
 
 The shared filesystem is Lustre; the agent can report your current usage and quota
 on request.
@@ -94,22 +129,37 @@ Software is provided through environment modules. Because versions change, have
 the agent list what is installed live rather than relying on a frozen list — but a
 few stable conventions matter when building and launching:
 
-- **Intel oneAPI is the primary toolchain.** Loading the `intel` module brings in
-  the Intel compilers and **Intel MPI** together; this is the recommended default
-  for building and running MPI code on the Xeon nodes.
+- **Intel oneAPI is the primary toolchain.** Loading the `intel` module (default
+  25.3.0) brings in the Intel compilers and **Intel MPI** together; this is the
+  recommended default for building and running MPI code on the Xeon nodes.
+  25.3.0 provides only the LLVM compilers (`icx`, `icpx`, `ifx` and the
+  `mpiicx`/`mpiifx` wrappers). The classic `icc`, `icpc` and `ifort` — which the
+  official guide's examples still use — exist only under `intel/23.02.1`.
 - **Launch MPI work with `srun`.** Under Slurm, `srun` inherits the job's
   allocation, so you don't pass process counts on the launch line — the resources
-  you requested for the job determine them. This is true regardless of MPI flavor.
-- **Open MPI is available as an alternative**, but its module **conflicts with
-  Intel MPI** — load one or the other, not both (unload/`module purge` first if
-  switching). Choosing Open MPI changes which module you load, not how you launch:
-  it is still `srun` under Slurm.
+  you requested for the job determine them. Intel MPI works with plain `srun`.
+- **Open MPI is available as an alternative** (`openmpi/4.1.6`, usually with
+  `gcc/13.2.0`), but its module **conflicts with Intel MPI** — load one or the
+  other, not both (unload/`module purge` first if switching). Launch Open MPI
+  programs with `srun --mpi=pmix`.
 - **Threaded code must be told its thread count** (match it to the cores you
   reserve per process), or it may run with the wrong number and far slower.
+  HBW2 runs Slurm 23.02, where `srun` no longer inherits `--cpus-per-task` from
+  the job, so a threaded or hybrid job must also repeat it on the launch line
+  (`srun --cpus-per-task=<n>`); otherwise each process is pinned to one core.
+- **Job shells need the same modules as the build.** A job that runs a binary
+  built under `module load intel` must load it again, or it fails with
+  `error while loading shared libraries`. Do not submit with `--export=NONE`:
+  such a job cannot see the HOKUSAI module trees at all.
+
+There are no modules for CP2K, libxc, libint, ELPA or PLUMED, and no Python or
+conda module; build such dependencies in home, using MKL for BLAS, LAPACK,
+ScaLAPACK and FFTW. Other modules include GCC 13.2, `gcc-toolset` 15.1, CMake,
+FFTW, HDF5, NetCDF, Boost and CUDA 11.7 to 13.2.
 
 Major preinstalled applications include Gaussian, GROMACS, AMBER, NAMD, GAMESS,
-ADF, ROOT, VMD, and GaussView — but confirm availability and version live, since
-the catalogue evolves.
+ADF, ROOT, VMD, and GaussView, plus OpenMX, AkaiKKR, SMASH and NBO7 — but
+confirm availability and version live, since the catalogue evolves.
 
 ## Running work through the agent
 
@@ -136,7 +186,9 @@ container GPU access automatically.
 
 After submission, a job's queue position, state, and history come from the
 scheduler — ask the agent and it reports back in plain language, including why a
-waiting job is waiting (HBW2 orders jobs by fair-share priority). A job's console
+waiting job is waiting. HBW2 orders jobs by fair-share priority alone: waiting
+does not raise a job's priority and small jobs get no boost, so a project with
+heavy recent usage can wait a long time even for a tiny job. A job's console
 output is written to a file named `slurm-<jobid>.out` in the directory it was
 launched from, which the agent can read and summarize.
 
@@ -145,7 +197,10 @@ When a job misbehaves, the cause is usually one of a few:
 - No project was named, or the project's core-time is exhausted.
 - It ran out of memory — move to a bigger memory share or the `lmc` partition.
 - It hit its wall-time limit — raise the limit or use `mpc_l` for longer runs.
-- Its thread count was left unset, so performance collapsed.
+- Its thread count was left unset, or `srun` was not given `--cpus-per-task`,
+  so performance collapsed.
+- It asked for more than a partition allows, so it never started.
+- A GPU job tried to use `/tmp_work`, which the GPU nodes do not mount.
 - Conflicting MPI modules (Intel MPI and Open MPI) were loaded together.
 
 The agent can inspect the failed job's record and output to point at which it was.

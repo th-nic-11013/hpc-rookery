@@ -8,7 +8,8 @@
     "login_nodes": ["hokusai1", "hokusai2", "hokusai3", "hokusai4"],
     "auth": "SSH key only (no passwords) — register your public key via the portal before first login",
     "portal": "https://hokusai.riken.jp/hbw2/",
-    "note": "Login nodes are for editing, building, staging, and submitting only — anything heavier belongs in a job."
+    "note": "Login nodes are for editing, building, staging, and submitting only — anything heavier belongs in a job.",
+    "limits": "Per user on a front-end node: 256 processes, 48 GiB virtual memory."
   },
   "defaults": {
     "partition": "mpc",
@@ -24,39 +25,37 @@
   },
   "subsystems": {
     "MPC": {"name": "Massively Parallel Computer", "role": "the workhorse; most work runs here", "nodes": 312, "cores_per_node": 112, "sockets": "2 x 56-core Intel Xeon", "memory_per_node_gib": 112},
-    "LMC": {"name": "Large Memory", "role": "jobs needing very large memory on a single host", "nodes": 2, "memory_per_node_gib": 2764},
-    "GPU": {"name": "GPU server", "role": "mainly postprocessing; secondary", "nodes": 4, "gpu_model": "NVIDIA H100"}
+    "LMC": {"name": "Large Memory", "role": "jobs needing very large memory on a single host", "nodes": 2, "memory_per_node_gib": 2880, "cores_per_node": 96},
+    "GPU": {"name": "GPU server", "role": "mainly postprocessing; secondary", "nodes": 4, "gpu_model": "NVIDIA H100", "memory_per_node_gib": 448, "cores_per_node": 112}
   },
   "partitions": [
-    {"name": "mpc", "subsystem": "MPC", "use": "everyday CPU / MPI work", "cores_per_node": 112, "memory_per_node_gib": 112, "max_wall_time": "24:00:00", "default_mem_per_core_gib": 1, "default": true},
-    {"name": "mpc_l", "subsystem": "MPC", "use": "longer CPU runs", "cores_per_node": 112, "memory_per_node_gib": 112, "max_wall_time": "72:00:00", "default_mem_per_core_gib": 1},
-    {"name": "lmc", "subsystem": "LMC", "use": "very-large-memory jobs", "cores_per_node": 96, "memory_per_node_gib": 2764, "max_wall_time": "24:00:00", "default_mem_per_core_gib": 30},
-    {"name": "gpu", "subsystem": "GPU", "use": "GPU batch work", "cores_per_node": 112, "gpus_per_node": 4, "gpu_model": "NVIDIA H100", "max_wall_time": "72:00:00", "default_mem_per_core_gib": 4, "cores_per_gpu": 28},
-    {"name": "gpu_i", "subsystem": "GPU", "use": "interactive GPU sessions", "cores_per_node": 112, "gpus_per_node": 4, "gpu_model": "NVIDIA H100", "max_wall_time": "24:00:00", "default_mem_per_core_gib": 4, "cores_per_gpu": 28}
+    {"name": "mpc", "subsystem": "MPC", "use": "everyday CPU / MPI work", "cores_per_node": 112, "memory_per_node_gib": 112, "max_wall_time": "24:00:00", "default_mem_per_core_gib": 1, "default": true, "nodes": 312, "max_nodes_per_job": 64},
+    {"name": "mpc_l", "subsystem": "MPC", "use": "longer CPU runs", "cores_per_node": 112, "memory_per_node_gib": 112, "max_wall_time": "72:00:00", "default_mem_per_core_gib": 1, "nodes": 156, "max_nodes_per_job": 8, "note": "The first 156 mpc nodes, not separate hardware."},
+    {"name": "lmc", "subsystem": "LMC", "use": "very-large-memory jobs", "cores_per_node": 96, "memory_per_node_gib": 2880, "max_wall_time": "24:00:00", "default_mem_per_core_gib": 30, "nodes": 2, "max_nodes_per_job": 2},
+    {"name": "gpu", "subsystem": "GPU", "use": "GPU batch work", "cores_per_node": 112, "gpus_per_node": 4, "gpu_model": "NVIDIA H100", "max_wall_time": "72:00:00", "default_mem_per_core_gib": 4, "cores_per_gpu": 28, "nodes": 3, "max_nodes_per_job": 1, "memory_per_node_gib": 448},
+    {"name": "gpu_i", "subsystem": "GPU", "use": "interactive GPU sessions", "cores_per_node": 112, "gpus_per_node": 4, "gpu_model": "NVIDIA H100", "max_wall_time": "24:00:00", "default_mem_per_core_gib": 4, "cores_per_gpu": 28, "nodes": 1, "max_nodes_per_job": 1, "memory_per_node_gib": 448}
   ],
   "partition_defaults": {
     "wall_time": "01:00:00",
-    "note": "Asking for more memory than the per-core default share can raise the number of cores you are billed for. Node counts and live occupancy change over time — read them with get_resources."
+    "note": "Billing is the maximum of the weighted resources (PriorityFlags=MAX_TRES): mpc/mpc_l max(cores, GiB); lmc max(cores, GiB/30); gpu/gpu_i max(cores, GiB/4, 28 x GPUs). Nodes are shared core by core between jobs. A job over a partition limit is accepted but never starts (EnforcePartLimits=NO; reason PartitionTimeLimit/PartitionNodeLimit). OverTimeLimit=30 minutes. Node counts and live occupancy change over time — read them with get_resources.",
+    "per_project_caps": {"MPC": {"running_cores": 7168, "submitted_jobs": 5000}, "LMC": {"running_cores": 192, "submitted_jobs": 100}, "GPU": {"running_cores": 448, "submitted_jobs": 100}}
   },
   "storage": [
     {"path": "/home/<user>", "use": "code, scripts, small files", "quota": "~4 TB", "shared": true, "persistent": true},
     {"path": "/data/<projectID>", "use": "larger datasets and shared project results", "shared": true, "persistent": true, "note": "Opt-in per project, requested through the portal and charged."},
-    {"path": "/tmp_work", "use": "shared scratch", "shared": true, "persistent": false, "note": "Auto-purged once contents age past ~1 week — copy anything to keep back to home/project storage before a job ends."},
-    {"path": "node-local disk", "use": "fast per-job scratch for I/O-heavy stages", "shared": false, "persistent": false, "note": "Exists only for the job's duration; wiped when the job ends. Stage inputs in and copy results out before the node releases."}
+    {"path": "/tmp_work", "use": "shared scratch", "shared": true, "persistent": false, "note": "Separate Lustre file system, no user quota. Files deleted once unmodified for a week. Flat and world-writable: create /tmp_work/<user>. NOT mounted on the GPU nodes."},
+    {"path": "/tmp (node-local)", "use": "fast per-job scratch for I/O-heavy stages", "shared": false, "persistent": false, "note": "TMPDIR=/tmp in jobs; ~105 GB on MPC, ~339 GB on GPU nodes; shared with other jobs on the node. Use a job-specific subdirectory and copy results out before the job ends."}
   ],
   "filesystem": "Lustre (shared)",
   "software": {
     "modules": "environment modules",
-    "primary_toolchain": "Intel oneAPI — loading the `intel` module brings the Intel compilers and Intel MPI together (recommended default for building/running MPI on the Xeon nodes)",
-    "mpi": {
-      "default": "Intel MPI (via the intel module)",
-      "alternative": "Open MPI — available, but its module CONFLICTS with Intel MPI; load one or the other (module purge before switching)",
-      "launcher": "srun — inherits the job's allocation under Slurm, so you don't pass process counts on the launch line, regardless of MPI flavor"
-    },
+    "primary_toolchain": "Intel oneAPI — `module load intel` (default 25.3.0) brings the Intel compilers and Intel MPI together. 25.3.0 has only the LLVM compilers icx/icpx/ifx; the classic icc/icpc/ifort exist only under intel/23.02.1.",
+    "mpi": {"default": "Intel MPI (via the intel module)", "alternative": "Open MPI (openmpi/4.1.6, with gcc/13.2.0) — its module CONFLICTS with Intel MPI; load one or the other (module purge before switching). Launch Open MPI binaries with `srun --mpi=pmix`.", "launcher": "srun — inherits the job's allocation, so you don't pass process counts. Slurm is 23.02, so srun does NOT inherit --cpus-per-task: threaded/hybrid jobs need `srun --cpus-per-task=<n>`. Intel MPI: plain srun (I_MPI_PMI_LIBRARY is set in jobs). Open MPI: srun --mpi=pmix. Never submit with --export=NONE (the job then cannot see the HOKUSAI module trees)."},
     "threads": "Threaded code must be told its thread count (OMP_NUM_THREADS), matched to the cores reserved per process, or it runs far slower.",
     "containers": "Singularity — pull a public image or build your own; GPU container access is enabled automatically for GPU jobs",
-    "applications": ["Gaussian", "GROMACS", "AMBER", "NAMD", "GAMESS", "ADF", "ROOT", "VMD", "GaussView"],
-    "note": "Confirm availability and versions live (module avail) — the catalogue evolves."
+    "applications": ["Gaussian", "GROMACS", "AMBER", "NAMD", "GAMESS", "ADF", "ROOT", "VMD", "GaussView", "OpenMX", "AkaiKKR", "SMASH", "NBO7"],
+    "note": "Confirm availability and versions live (module avail) — the catalogue evolves.",
+    "missing_modules": ["CP2K", "libxc", "libint", "ELPA", "PLUMED", "standalone ScaLAPACK", "python/conda"]
   },
   "gpu": {
     "vendor": "NVIDIA",
@@ -65,7 +64,7 @@
     "request_flag": "--gpus=N (job-total count)",
     "container_flag": "--nv",
     "cores_per_gpu": 28,
-    "note": "One GPU also reserves roughly 28 CPU cores. GPU is secondary on HBW2 — reach for it only when a workload genuinely needs one."
+    "note": "One GPU also reserves 28 CPU cores (14 per socket) and 112 GiB, and is billed as 28 cores. Max 4 GPUs (one node) per job. GPU is secondary on HBW2 and usually full — reach for it only when a workload genuinely needs one."
   },
   "network": {
     "compute_nodes_internet": false,
