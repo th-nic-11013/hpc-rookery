@@ -44,8 +44,9 @@ export OMP_NUM_THREADS=T OMP_PLACES=cores OMP_PROC_BIND=close
 
 ## Front end
 
-- Python for the scripts: `/usr/bin/python3.12 -I` (it has no numpy;
-  the scripts need none).
+- Python for the scripts: `/usr/bin/python3.12 -I`. It has numpy (1.24.4,
+  checked 2026-11-03), which `make_cp2k_md_input.py` needs. `uv` and
+  `python3.12 -m venv` also work there, for anything more.
 - Parse-check an input in a scratch copy:
   `( source <env_script>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i NAME.inp )`.
 - `<env_script>` (and `CP2K_ENV` in the job scripts) is the

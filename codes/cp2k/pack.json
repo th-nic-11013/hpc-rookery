@@ -11,7 +11,7 @@
     "CP2K_PARTITION": "Slurm partition the benchmark job runs in",
     "CP2K_CORES_PER_NODE": "cores per node; a full-node layout R x T has R * T equal to this",
     "CP2K_SCAN_LAYOUTS": "space-separated full-node R x T layouts the scan stage times",
-    "CP2K_PYTHON": "front-end Python (3.8+, no numpy needed) that runs the helper scripts",
+    "CP2K_PYTHON": "front-end Python (3.8+, with numpy) that runs the helper scripts",
     "CP2K_SRUN_MPI": "srun flag selecting the MPI plugin the CP2K build needs, e.g. --mpi=pmix",
     "CP2K_SMOKE_LAYOUTS": "two full-node layouts the smoke stage runs (default SMOKE_LAYOUTS)",
     "CP2K_BUILD_CORES": "cores of the one-node build job",
