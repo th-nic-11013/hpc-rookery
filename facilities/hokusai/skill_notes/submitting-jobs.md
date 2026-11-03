@@ -176,8 +176,15 @@ container so MPI works.
 
 Compute nodes have no direct internet route. A job that must fetch
 something reaches the web through the front-end proxy at
-`http://$SLURM_SUBMIT_HOST:3128` — set `http_proxy`/`https_proxy` to it in
-`environment`.
+`http://$SLURM_SUBMIT_HOST:3128`. Export it in `pre_launch`, not in
+`environment`:
+
+```
+export http_proxy=http://$SLURM_SUBMIT_HOST:3128 https_proxy=http://$SLURM_SUBMIT_HOST:3128
+```
+
+`environment` values are written single-quoted, so a `$VAR` in them is
+passed literally and never expands.
 
 ## Before submitting
 
