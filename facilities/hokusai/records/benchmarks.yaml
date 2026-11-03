@@ -1,4 +1,4 @@
-# Shared CP2K benchmark records for HOKUSAI. Schema: schemas/records.yaml (provisional).
+# Shared CP2K benchmark records for HOKUSAI. Schema: hpc_codes/schemas/records.yaml (provisional).
 # Seeded 2026-11-03 from cp2k-benchmark/references/results.md; job IDs are kept per user.
 schema_version: 1
 records:

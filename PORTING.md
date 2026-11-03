@@ -671,7 +671,8 @@ to no single code (records, structure-making) form the `codes/common/` pack,
 which renders without a code prefix (`<slug>-records`) and opts in the same
 way, with `facilities/<slug>/codes/common/values.json`. Measured results
 (timings, best layouts) don't go in either place: they are records
-(`schemas/records.yaml`).
+(`hpc_codes/schemas/records.yaml`), read and written through the
+`records_*` tools of the `hpc-codes` server.
 
 **Do not edit `templates/skills/*.md.tmpl`** as part of a facility PR — a
 template is shared across every facility, so changing one is a deliberate,

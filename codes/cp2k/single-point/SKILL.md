@@ -25,7 +25,7 @@ submitting.
 - **A CP2K build:** its `env_script` (written `<env_script>` below) from
   `software_registry`, through `{{SLUG}}-records`. Unless the user names a
   build, take the default:
-  `records.py query software_registry code=cp2k default=true --fields=env_script,data_dir`.
+  `records_query(facility="{{SLUG}}", record_type="software_registry", filters={"code": "cp2k", "default": true}, fields=["env_script", "data_dir"])`.
   Builds are made by `{{SLUG}}-cp2k-build`.
 - **`subsys.inc`** for the structure, from `{{SLUG}}-structure-making` and
   its `cp2k/cp2k.md`.

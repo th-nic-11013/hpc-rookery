@@ -110,8 +110,12 @@ codes/                  Code packs: facility-neutral skills per simulation
                         codes/common/ (records, structure-making). Rendered
                         for facilities that opt in via
                         facilities/<slug>/codes/<code>/values.json.
-schemas/                records.yaml: the provisional schema of measured
-                        records (benchmarks, builds) skills read and write.
+hpc_codes/              The code-pack MCP server (hpc-codes-mcp): records_*
+                        tools over the records adapter (records.py) and
+                        schemas/records.yaml, the provisional schema of
+                        measured records (benchmarks, builds). Separate from
+                        hpc_mcp so a code tool can't stop the scheduler
+                        server from starting.
 scripts/                render_facility_tables.py (facility table codegen),
                         render_skills.py (per-facility skill codegen), and
                         render_plugins.py (marketplace/manifest codegen).

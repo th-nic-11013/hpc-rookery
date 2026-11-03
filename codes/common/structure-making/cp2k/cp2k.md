@@ -21,8 +21,9 @@ alike, and the method settings never get mixed up with the structure.
 
 `make_subsys.py` (next to this file) needs only numpy. Run it on the login
 node, against the data folder of the CP2K build that will run the input:
-that build's `data_dir` in `software_registry` (`records.py query software_registry code=cp2k default=true --fields=env_script,data_dir`
-through `{{SLUG}}-records`, for the default build).
+that build's `data_dir` in `software_registry`; for the default build,
+`records_query(facility="{{SLUG}}", record_type="software_registry", filters={"code": "cp2k", "default": true}, fields=["env_script", "data_dir"])`
+(see `{{SLUG}}-records`).
 
 ```bash
 cd ~/agent/work/<project>/structures/<system>

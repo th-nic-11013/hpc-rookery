@@ -31,18 +31,21 @@ dependencies = [
     "httpx",
     "numpy",
     "pydantic",
+    # the records adapter (hpc_codes/records.py) reads and writes YAML
+    "pyyaml",
 ]
 
 [project.scripts]
 hpc-mcp = "hpc_mcp.hpc_server:main"
 hpc-docs-mcp = "hpc_mcp.docs_server:main"
+hpc-codes-mcp = "hpc_codes.server:main"
 hpc-doctor = "hpc_mcp.doctor:main"
 
 [project.urls]
 Repository = "https://github.com/william-dawson/hpc-rookery"
 
 [tool.setuptools.packages.find]
-include = ["hpc_agent_core*", "hpc_mcp*", "facilities*"]
+include = ["hpc_agent_core*", "hpc_mcp*", "hpc_codes*", "facilities*"]
 
 # Each facility's data/ is read at runtime via Path(__file__).parent/"data"
 # (config.register_facility(data_dir=...)), so it MUST ship in the wheel —
@@ -56,4 +59,8 @@ include = ["hpc_agent_core*", "hpc_mcp*", "facilities*"]
     "data/*.json",
     "data/docs_index/*",
     "facility.json",
+    # shared records (facilities/<dir>/records/) and their schema
+    # (hpc_codes/schemas/), read by hpc_codes/records.py at call time
+    "records/*.yaml",
+    "schemas/*.yaml",
 ]

@@ -44,10 +44,12 @@ looks the way it does.
 
 Query before spending anything:
 
-```bash
-python3 -I <hokusai-records>/scripts/records.py query benchmarks code=cp2k \
-  run_type=<aimd_step|single_point|geo_opt> system.label=<label> valid=true \
-  --fields=nodes,ranks_per_node,threads_per_rank,metric.value,method.scf,date
+```text
+records_query(facility="hokusai", record_type="benchmarks",
+              filters={"code": "cp2k", "run_type": "<aimd_step|single_point|geo_opt>",
+                       "system.label": "<label>", "valid": true},
+              fields=["nodes", "ranks_per_node", "threads_per_rank", "metric.value",
+                      "method.scf", "date"])
 ```
 
 If nothing matches the label, query by `code`, `run_type` and
@@ -240,7 +242,7 @@ Append one `benchmarks` record per layout × node count through
   - A failed, timed-out or unconverged run gets `valid: false` and a
     `reason`.
 
-Run `records.py check` afterwards. Keep `bench/results.md` in the benchmark
+Run `records_check` afterwards. Keep `bench/results.md` in the benchmark
 folder for the full tables, if the user wants it. Records hold the numbers
 other skills use.
 

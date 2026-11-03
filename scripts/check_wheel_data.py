@@ -43,6 +43,16 @@ def main() -> int:
             failed = True
         else:
             print(f"✓ {needle}: {len(hits)} file(s)")
+    # hpc_codes reads the records schema and every facility's shared records
+    # through Path(__file__) too, so the same failure applies to them.
+    wanted = ["hpc_codes/schemas/records.yaml"] + sorted(
+        str(p.relative_to(ROOT)) for p in (ROOT / "facilities").glob("*/records/*.yaml"))
+    for rel in wanted:
+        if rel in names:
+            print(f"✓ {rel}")
+        else:
+            print(f"✗ {rel}: not in the wheel — hpc-codes would not find it")
+            failed = True
     shutil.rmtree(ROOT / "build", ignore_errors=True)
     for egg in ROOT.glob("*.egg-info"):
         shutil.rmtree(egg, ignore_errors=True)

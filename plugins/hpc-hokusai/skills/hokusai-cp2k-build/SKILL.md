@@ -38,13 +38,14 @@ Builds are `software_registry` records, read and written through
 
 Ask the registry:
 
-```bash
-records.py query software_registry code=cp2k \
-    --fields=version,variant.exe,toolchain,env_script,data_dir,build_system,test_status.level,test_status.result,default
+```text
+records_query(facility="hokusai", record_type="software_registry", filters={"code": "cp2k"},
+              fields=["version", "variant.exe", "toolchain", "env_script", "data_dir",
+                      "build_system", "test_status.level", "test_status.result",
+                      "default", "removed"])
 ```
 
-(`records.py` is `hokusai-records`' script; run it the way that skill
-says.) The record with `default: true` is the build the run skills use when
+(See `hokusai-records`.) The record with `default: true` is the build the run skills use when
 the user names none. Skip any record with `removed` set: its folder is
 gone. Prefer a GCC build that passed a regression or
 two-node test; a build tested only by a smoke run is a fallback.
