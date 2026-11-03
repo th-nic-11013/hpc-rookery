@@ -54,6 +54,8 @@ record_types:
       toolchain:    {type: str, required: true, doc: "compiler + MPI + math, e.g. 'GCC 13.2, Open MPI 4.1.6, MKL'"}
       install_path: {type: str, required: true, doc: "build folder on the facility, with ~ for home. Per user, so it appears only here"}
       env_script:   {type: str, required: true, doc: "file to source before running"}
+      data_dir:     {type: str, required: false, doc: "the build's data folder (basis sets, potentials, dftd3.dat), with ~ for home. Skills pass it to input generators"}
+      build_system: {type: "enum[toolchain-script|make|cmake]", required: false, doc: "how the code itself was built (CP2K: toolchain-script = build_cp2k.sh, make = Makefile + arch/, cmake = CMake by hand). A new build starts from the job script of a build with the same value"}
       build_job_id: {type: str, required: false, doc: "scheduler job ID of the successful build"}
       test_status:
         required: true

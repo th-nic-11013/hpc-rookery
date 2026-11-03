@@ -1,6 +1,6 @@
 """File-backed records adapter for HOKUSAI BigWaterfall2 (HBW2) (schema: ../schema.yaml).
 
-    records.py query <type> [field.path=value ...] [--fields a,b.c,...]
+    records.py query <type> [field.path=value ...] [--fields=a,b.c,...]
     records.py append <type> <record.yaml | ->
     records.py check
 
