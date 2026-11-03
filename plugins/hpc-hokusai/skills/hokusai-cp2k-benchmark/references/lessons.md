@@ -105,3 +105,43 @@ The reasons behind the rules in SKILL.md, in the order they were learned.
     separate files); `parse_bench.py` reads both. Leave out
     IGNORE_CONVERGENCE_FAILURE in single-point inputs so an unconverged SCF fails
     the run instead of producing a meaningless time.
+
+## Findings: why the measured layouts rank the way they do
+
+The numbers are `benchmarks` records (`hokusai-records`). This section is
+the explanation behind them, which is what transfers to a new system.
+
+- **What bounds the run picks the layout.** The bundled water inputs (LDA,
+  280 Ry) are DBCSR-bound: pure MPI spends about twice as long in
+  `dbcsr_multiply_generic`, which is where threads help, so the spread
+  between best and worst layout was 2.0×. UiO-66 at 450 Ry is grid-bound
+  (collocate and integrate are about 2/3 of the time), so the layout
+  matters less (spread 1.19×). At 450 Ry the same water also becomes
+  grid-bound, and the gain over pure MPI drops from 1.30× to 1.15×.
+- **Noise is under 1 %.** Two identical jobs, and a repeat inside stage 3,
+  agreed to < 1 %. A 3 % margin is therefore a safe threshold for a tie.
+- **The first MD step costs 7–10× a steady step** (the SCF starts from
+  the initial guess). It dominates short benchmark runs and sets the
+  timeouts. A layout that wins the first step (8×14 on 4 nodes) can lose
+  every steady step after it.
+- **Electrons don't predict cost.** The 114-atom MOF (484 e) cost 2.9× the
+  192-atom water (512 e) per MD step: 7 against 5 SCF steps, and about 2×
+  per SCF step. Four times the atoms (456 against 114) cost only 1.8× per
+  step.
+- **Memory was never the limit.** The peak was below 3.1 GB per rank
+  (4×28, 114-atom MOF), far below one NUMA domain.
+- **Why more nodes lose efficiency** (456 atoms, 1 → 2 → 4 nodes, 82 % then
+  57 %):
+  - the grid keeps scaling, FFT stops gaining after 2 nodes, and DBCSR
+    gains only 2× on 4;
+  - the 4-node losses are the FULL_ALL preconditioner's dense ELPA and
+    Cholesky steps (small per rank), the FFT alltoall, `mp_waitall`
+    (waiting on neighbours) and the serial parts: too little work per rank
+    to hide them;
+  - 28×4 per node loses in DBCSR and FFT.
+
+  So a cell this size runs cheapest on 1 node, 2 nodes is the efficient
+  faster choice, and 4 only when wall time matters.
+- **Single points tie between layouts** that MD separates: 16×7 and 56×2
+  were both ~1.27× pure MPI, because DBCSR dominates the many SCF steps
+  from the atomic guess.
