@@ -14,7 +14,7 @@ submitting.
 - **Reads:** `benchmarks` (the layout), through `{{SLUG}}-records`.
 - **Writes:** no records. It writes `single_point.out` and, if asked, the
   wavefunction.
-- **Tools:** `fs_upload`, `run_command_on_cluster` (parse check),
+- **Tools:** `fs_upload`, `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `fs_tail` / `fs_view`.
 - **Preconditions:** the two prerequisites below, and the user's approval
   of the input and the cost.
@@ -57,9 +57,12 @@ must stop the run, not produce an energy that looks valid.
 Check the syntax on the login node before any job. A serial parse takes a
 few seconds:
 
-```bash
-( source <env_script>; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i single_point.inp )
+```text
+cp2k_check_input(facility="{{SLUG}}", input_path="<run dir>/single_point.inp")
 ```
+
+It uses the default build unless you pass `build_id`, and returns
+`ok`, the `errors` CP2K printed, and the output's tail.
 
 This proves the syntax, including the `@INCLUDE`, but not that the SCF
 converges.

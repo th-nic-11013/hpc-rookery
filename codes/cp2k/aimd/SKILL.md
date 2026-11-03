@@ -16,7 +16,7 @@ give the core-hour estimate before every submission.
   `{{SLUG}}-records`.
 - **Writes:** no records. It writes the trajectory, `.ener` and restart
   files.
-- **Tools:** `fs_upload`, `run_command_on_cluster` (parse check),
+- **Tools:** `fs_upload`, `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `cancel_job`, `fs_tail` / `fs_view`.
 - **Preconditions:** the prerequisites below, and the user's approval of
   the core-hour estimate for every segment.
@@ -87,7 +87,8 @@ from the equilibrated run's restart (section 4) so it inherits the
 velocities.
 
 Parse-check on the login node:
-`( source <env_script>; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i aimd_nvt.inp )`.
+`cp2k_check_input(facility="{{SLUG}}", input_path="<run dir>/aimd_nvt.inp")` (the default build;
+pass `build_id` for another). `ok: false` comes with the `errors`.
 
 ## 3. Stage and submit
 

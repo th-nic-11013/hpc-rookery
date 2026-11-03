@@ -47,8 +47,8 @@ export OMP_NUM_THREADS=T OMP_PLACES=cores OMP_PROC_BIND=close
 - Python for the scripts: `/usr/bin/python3.12 -I`. It has numpy (1.24.4,
   checked 2026-11-03), which `make_cp2k_md_input.py` needs. `uv` and
   `python3.12 -m venv` also work there, for anything more.
-- Parse-check an input in a scratch copy:
-  `( source <env_script>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i NAME.inp )`.
+- Parse-check an input with `cp2k_check_input` (it runs from the input's
+  folder, so check a scratch copy if the folder must stay clean).
 - `<env_script>` (and `CP2K_ENV` in the job scripts) is the
   `env_script` of the build being timed, from `software_registry`; the
   scripts have no default build.
@@ -81,7 +81,7 @@ export OMP_NUM_THREADS=T OMP_PLACES=cores OMP_PROC_BIND=close
 `facilities/{{SLUG}}/codes/cp2k/values.json` in hpc-rookery fills these into
 the scripts and `SKILL.md`:
 - partition `{{CP2K_PARTITION}}`;
-- {{CP2K_CORES_PER_NODE}} cores per node (`parse_bench.py`'s `NODE_CORES`, so
+- {{CP2K_CORES_PER_NODE}} cores per node (`parse_bench.py --cores`, so
   its speed-up column is against `{{CP2K_CORES_PER_NODE}}x1`);
 - scan layouts `{{CP2K_SCAN_LAYOUTS}}` and smoke layouts
   `{{CP2K_SMOKE_LAYOUTS}}`;

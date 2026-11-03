@@ -26,11 +26,11 @@ Builds are `software_registry` records, read and written through
   which job script to start from).
 - **Writes:** `software_registry`, one record per finished build (user
   scope: install paths are personal).
-- **Tools:** `run_command_on_cluster` (read files, `--dry-run`, downloads,
-  `ldd`), `fs_view`, `submit_job`, `get_job_status`, `fs_tail`, and
+- **Tools:** `cp2k_check_build`, `run_command_on_cluster` (read files,
+  `--dry-run`, downloads), `fs_view`, `submit_job`, `get_job_status`, `fs_tail`, and
   `hokusai-records` locally.
 - **Preconditions:** the user's go-ahead for each job, with its cost.
-- **Done when:** the `ldd` check prints 0, the tests of procedure step 8
+- **Done when:** `cp2k_check_build` returns `ok`, the tests of procedure step 8
   pass, and the build is appended to `software_registry`; or the failure is
   reported with its log lines.
 
@@ -56,12 +56,17 @@ cluster (`ls -d ~/software/*/`; a case A build may have only
 below) instead of rebuilding. A recorded build whose folder is gone gets
 `removed: <date>`; tell the user, since that is an edit to their file.
 
-If a suitable build exists, stop here. Confirm that nothing is missing
-before relying on it (the answer must be `0`):
+If a suitable build exists, stop here. Confirm it still works before
+relying on it:
 
-```bash
-( source <env_script>; ldd "$(command -v cp2k.psmp)" | grep -c 'not found' )
+```text
+cp2k_check_build(facility="hokusai", build_id="<build_id>")   # omit build_id for the default
 ```
+
+`ok: true` means the env script exists, `cp2k.psmp` is found, no library
+is missing, the version matches the record and the data folder exists.
+Otherwise the fields say which part failed; a build whose folder is gone
+gets `removed` (below).
 
 ## 2. Build a new version (only when needed)
 

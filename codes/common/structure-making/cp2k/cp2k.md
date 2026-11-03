@@ -93,6 +93,6 @@ An odd valence-electron count, or any multiplicity > 1, needs
 login node and proves the syntax, including the `@INCLUDE`, but not that
 the SCF converges:
 
-```bash
-( source <env_script>; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i <input>.inp )
+```text
+cp2k_check_input(facility="{{SLUG}}", input_path="<run dir>/<input>.inp")
 ```

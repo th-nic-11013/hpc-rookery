@@ -15,7 +15,7 @@ submitting.
   `{{SLUG}}-records`.
 - **Writes:** no records. It writes the optimised geometry
   (`-FINAL-1_<step>.xyz` / `.cif`) and the restart files.
-- **Tools:** `fs_upload`, `run_command_on_cluster` (parse check),
+- **Tools:** `fs_upload`, `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `fs_tail` / `fs_view`, `fs_download`
   (final frame).
 - **Preconditions:** the prerequisites below, and the user's approval of
@@ -65,7 +65,8 @@ Settings to confirm:
   file before Slurm kills the job.
 
 Parse-check on the login node before submitting:
-`( source <env_script>; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i geo_opt.inp )`.
+`cp2k_check_input(facility="{{SLUG}}", input_path="<run dir>/geo_opt.inp")` (the default build;
+pass `build_id` for another). `ok: false` comes with the `errors`.
 Both templates passed `--check` and ran to completion on CP2K 2026.2.
 
 ## 2. Stage and submit

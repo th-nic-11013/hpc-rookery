@@ -25,8 +25,8 @@ looks the way it does.
 - **Writes:** `benchmarks`, one record per layout × node count, with the
   job ID.
 - **Tools:**
-  - `fs_upload`, `run_command_on_cluster` and `fs_view` / `fs_tail` on the
-    login node;
+  - `fs_upload`, `run_command_on_cluster` (the dry run), `cp2k_check_input`,
+    `cp2k_bench_parse` and `fs_view` / `fs_tail` on the login node;
   - `submit_job` and `get_job_status` for the job;
   - `hokusai-records` locally.
 - **Preconditions:**
@@ -176,13 +176,16 @@ spec sets the resources and the job runs in `directory`; the script's own
 
 ## 4. Read the results
 
-The job log (`slurm-<jobid>.out`) ends with the summary. To re-read:
+The job log (`slurm-<jobid>.out`) ends with the summary table. To re-read
+the results as data:
 
-```bash
-/usr/bin/python3.12 -I bench/parse_bench.py bench/runs/<jobid>/stage2
+```text
+cp2k_bench_parse(facility="hokusai",
+                 stage_dirs=["~/agent/work/cp2k-runs/<system>/bench/runs/<jobid>/stage2"])
 ```
 
-It reports, per layout:
+Per stage it returns `passed` (the gate the job used) and `ranked` (usable
+full-node layouts, fastest first); per run it reports:
 - s per step (or per single point) and the speed-up against pure MPI;
 - core-hours per step and peak memory per rank;
 - the main timers: grid, `dbcsr_multiply_generic`, FFT;
