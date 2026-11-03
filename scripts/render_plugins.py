@@ -172,6 +172,7 @@ def portable_mcp() -> dict:
         "mcpServers": {
             "hpc": {"type": "stdio", "command": "uv", "args": [*args_prefix, "hpc-mcp"], "env": {}},
             "hpc-docs": {"type": "stdio", "command": "uv", "args": [*args_prefix, "hpc-docs-mcp"], "env": {}},
+            "hpc-codes": {"type": "stdio", "command": "uv", "args": [*args_prefix, "hpc-codes-mcp"], "env": {}},
         },
     }
 

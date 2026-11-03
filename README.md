@@ -9,9 +9,10 @@ harnesses such as Claude Code, Codex, OpenCode, and Cline.
 
 https://github.com/user-attachments/assets/770e1f11-01c7-48f3-8c89-70efc3722e95
 
-The plugin starts two MCP servers: `hpc-mcp` provides facility information,
+The plugin starts three MCP servers: `hpc-mcp` provides facility information,
 filesystem operations, and scheduler tools; `hpc-docs-mcp` searches the
-bundled machine guides. Every operation names its target explicitly — for
+bundled machine guides; `hpc-codes-mcp` reads and writes the measured records
+(benchmarks, software builds) the code-pack skills use. Every operation names its target explicitly — for
 example, `submit_job(facility="rikyu", ...)` or
 `search_docs(facility="fugaku", ...)`. The agent calls `get_facilities()`
 when it does not already know which machine you mean.
@@ -63,8 +64,8 @@ catalog. The user may name more than one facility, or choose none yet.
 
 ### Codex plugins
 
-Install the base plugin once. It owns the shared `hpc` and `hpc-docs` MCP
-servers and the facility-discovery skill:
+Install the base plugin once. It owns the shared `hpc`, `hpc-docs` and
+`hpc-codes` MCP servers and the facility-discovery skill:
 
 ```sh
 codex plugin add hpc@hpc-marketplace
@@ -92,9 +93,10 @@ facility packs the user selected.
 
 ### Manual installation for any MCP-capable harness
 
-If the harness does not support plugins, register `hpc-mcp` and
-`hpc-docs-mcp` using its normal stdio-MCP configuration. From an editable
-checkout, point them at `.venv/bin/hpc-mcp` and `.venv/bin/hpc-docs-mcp`
+If the harness does not support plugins, register `hpc-mcp`,
+`hpc-docs-mcp` and `hpc-codes-mcp` using its normal stdio-MCP configuration.
+From an editable checkout, point them at `.venv/bin/hpc-mcp`,
+`.venv/bin/hpc-docs-mcp` and `.venv/bin/hpc-codes-mcp`
 (after installing this project into that environment). Then install only the
 selected skill directories:
 

@@ -26,6 +26,19 @@
         "hpc-docs-mcp"
       ],
       "env": {}
+    },
+    "hpc-codes": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "tool",
+        "run",
+        "--quiet",
+        "--from",
+        "git+https://github.com/william-dawson/hpc-rookery.git@main",
+        "hpc-codes-mcp"
+      ],
+      "env": {}
     }
   }
 }
