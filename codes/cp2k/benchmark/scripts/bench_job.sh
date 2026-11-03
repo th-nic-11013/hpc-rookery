@@ -46,7 +46,7 @@ echo "=== $(date) job ${SLURM_JOB_ID} on $(hostname)"; lscpu | grep -E "^NUMA no
 
 summary() {
     echo "=== $(date) summary"
-    {{CP2K_PYTHON}} -I ${BENCH}/parse_bench.py ${BENCH}/runs/${SLURM_JOB_ID}/stage*
+    {{CP2K_PYTHON}} -I ${BENCH}/parse_bench.py --cores={{CP2K_CORES_PER_NODE}} ${BENCH}/runs/${SLURM_JOB_ID}/stage*
 }
 
 for STAGE in stage1_smoke stage2_scan stage3_validate; do

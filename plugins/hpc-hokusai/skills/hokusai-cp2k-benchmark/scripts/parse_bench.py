@@ -1,7 +1,11 @@
 """Summarise the CP2K layout benchmark runs.
 
-Usage (text parsing only, fine on the front end):
-    /usr/bin/python3.12 -I parse_bench.py [runs/<jobid>/<stage> ...]
+Standard library only: the benchmark job runs it on compute nodes, and the
+hpc-codes tool cp2k_bench_parse sends this same file to the login node.
+
+Usage (text parsing only, fine on the front end). Every form takes
+--cores=N (cores per node; default $CP2K_CORES_PER_NODE) before the rest:
+    python3 -I parse_bench.py --cores=N [runs/<jobid>/<stage> ...]
         Without arguments it reads every runs/<jobid>/stage*/ folder next to this script.
         Prints a Markdown table per input. Only the no-argument (all runs) form writes
         results.csv next to this script, so a job's own summary never overwrites it.
@@ -14,6 +18,9 @@ Usage (text parsing only, fine on the front end):
     parse_bench.py --stats RxT runs/<jobid>/<stage>
         Print "<s_per_step> <first_step_s> <md_steps>" of the finished run of layout
         RxT there (rep 1). Used to predict the run time of a larger follow-up job.
+    parse_bench.py --json runs/<jobid>/<stage> ...
+        Print one JSON object: every run's metrics (no energy or force arrays) and,
+        per stage folder, whether it passes --check and its --pick ranking.
 
 Per run (folder <input>_<R>x<T>_r<rep>/cp2k.out):
   s_per_step  mean "MD| CPU time per MD step" over MD steps >= 3
@@ -38,13 +45,15 @@ single point, steps is 0, and scf_nc counts the (only) SCF too, so --check, --pi
 and --stats work unchanged on single-point stages.
 """
 import csv
+import json
+import os
 import re
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 NAME = re.compile(r"^(?P<inp>.+)_(?P<R>\d+)x(?P<T>\d+)_r(?P<rep>\d+)$")
-NODE_CORES = 112
+NODE_CORES = int(os.environ.get("CP2K_CORES_PER_NODE") or 0)   # --cores=N overrides
 ITER = re.compile(r"^\s+\d+\s+(OT\s|\S*Diag\.)")
 FORCES_TAG = re.compile(r"^ FORCES\|\s+\d+\s+(\S+)\s+(\S+)\s+(\S+)\s+\S+\s*$")   # 2026.x screen format
 FORCE = re.compile(r"^\s+\d+\s+\d+\s+[A-Z][a-z]?\s+(-?\d+\.\d+(?:[EDed][-+]?\d+)?)\s+(-?\d+\.\d+(?:[EDed][-+]?\d+)?)\s+(-?\d+\.\d+(?:[EDed][-+]?\d+)?)\s*$")
@@ -170,19 +179,49 @@ def check(jobdir):
     return 0 if rows and not bad else 1
 
 
-def pick(n, jobdir):
-    rows = [r for r in collect([Path(jobdir)])
-            if r["ok"] and r["s_per_step"] and r["R"] * r["T"] == NODE_CORES]
+def ranked(rows):
+    """Full-node layouts of usable runs, fastest first."""
     best = {}
-    for r in sorted(rows, key=lambda r: r["s_per_step"]):
+    for r in sorted((r for r in rows if r["ok"] and r["s_per_step"] and r["R"] * r["T"] == NODE_CORES),
+                    key=lambda r: r["s_per_step"]):
         best.setdefault(f"{r['R']}x{r['T']}", r["s_per_step"])
+    return list(best)
+
+
+def pick(n, jobdir):
+    best = ranked(collect([Path(jobdir)]))
     if not best:
         return 1
-    print(" ".join(list(best)[:n]))
+    print(" ".join(best[:n]))
+    return 0
+
+
+def as_json(jobdirs):
+    keep = ["job", "input", "R", "T", "rep", "done", "sp", "steps", "s_per_step", "first_s",
+            "cp2k_s", "grid_s", "dbcsr_s", "fft_s", "peak_mib", "dE_max", "dF_max",
+            "scf_nc", "scf_iters", "ok"]
+    runs, stages = [], {}
+    for jd in jobdirs:
+        rows = collect([Path(jd)])
+        runs += [{k: r[k] for k in keep} for r in rows]
+        stages[jd] = {"found": Path(jd).is_dir(), "runs": len(rows),
+                      "passed": bool(rows) and all(r["ok"] for r in rows),
+                      "ranked": ranked(rows)}
+    print(json.dumps({"node_cores": NODE_CORES, "runs": runs, "stages": stages}))
     return 0
 
 
 def main(argv):
+    global NODE_CORES
+    if argv[:1] == ["--cores"] and len(argv) > 1:
+        argv = [f"--cores={argv[1]}"] + argv[2:]
+    if argv and argv[0].startswith("--cores="):
+        NODE_CORES = int(argv[0].split("=", 1)[1])
+        argv = argv[1:]
+    if not NODE_CORES and argv[:1] != ["--check"]:
+        sys.exit("parse_bench.py: give --cores=N (cores per node) or set CP2K_CORES_PER_NODE")
+    if argv[:1] == ["--json"] and len(argv) > 1:
+        return as_json(argv[1:])
     if argv[:1] == ["--check"] and len(argv) == 2:
         return check(argv[1])
     if argv[:1] == ["--stats"] and len(argv) == 3:

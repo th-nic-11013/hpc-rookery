@@ -16,7 +16,7 @@
 
 BENCH=${BENCH:?export BENCH (the benchmark folder) in the job script}
 STAGEDIR=${BENCH}/runs/${SLURM_JOB_ID:?run inside the Slurm job}/${STAGE:?set STAGE first}
-PY="{{CP2K_PYTHON}} -I ${BENCH}/parse_bench.py"
+PY="{{CP2K_PYTHON}} -I ${BENCH}/parse_bench.py --cores={{CP2K_CORES_PER_NODE}}"
 mkdir -p "${STAGEDIR}"
 [ -f "${STAGEDIR}/status.tsv" ] || printf "input\tranks\tthreads\trep\texit\twall_s\n" > "${STAGEDIR}/status.tsv"
 
