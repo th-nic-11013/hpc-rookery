@@ -9,6 +9,21 @@ Every tool call uses `facility="hokusai"`. Show the user the key
 settings and the job spec, state the cost, and wait for permission before
 submitting.
 
+## Contract
+
+- **Reads:** `benchmarks` (layout and step time), through
+  `hokusai-records`.
+- **Writes:** no records. It writes the optimised geometry
+  (`-FINAL-1_<step>.xyz` / `.cif`) and the restart files.
+- **Tools:** `fs_upload`, `run_command_on_cluster` (parse check),
+  `submit_job`, `get_job_status`, `fs_tail` / `fs_view`, `fs_download`
+  (final frame).
+- **Preconditions:** the prerequisites below, and the user's approval of
+  the input and the cost.
+- **Done when:** `GEOMETRY OPTIMIZATION COMPLETED`, and the final frame
+  passes `geomcheck.py`. If the run stops before that, restart it
+  (section 4) or report why it can't continue.
+
 **Prerequisites:**
 - a CP2K build (`~/software/cp2k/cp2k_env.sh` by default; `hokusai-cp2k-build`);
 - `subsys.inc` (`hokusai-structure-making`, `cp2k/cp2k.md`);
@@ -60,22 +75,27 @@ Stage the input and `subsys.inc` in `~/agent/work/cp2k-runs/<system>/opt/`.
   "name": "cp2k-opt-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/opt",
   "pre_launch": "source $HOME/software/cp2k/cp2k_env.sh",
-  "launcher": "srun --mpi=pmix --cpus-per-task=7 --cpu-bind=cores --distribution=block:block",
+  "launcher": "srun --mpi=pmix --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i geo_opt.inp -o geo_opt.out",
-  "environment": {"OMP_NUM_THREADS": "7", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
-  "resources": {"node_count": 1, "processes_per_node": 16, "cpu_cores_per_process": 7},
+  "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
+  "resources": {"node_count": <N>, "processes_per_node": <R>, "cpu_cores_per_process": <T>},
   "attributes": {"queue_name": "mpc", "duration": "12:00:00"}
 }
 ```
 
-The layout (16 × 7 per node, measured fastest) and the binding rules are
-explained in `hokusai-cp2k-single-point`. Use more nodes only for large
-cells, with 16 × 7 per node: 456 atoms ran at 82% efficiency on 2 nodes.
+**R × T and N come from `benchmarks` records**, through `hokusai-records`.
+Query `run_type=geo_opt` (or `cell_opt`) for this system first. If there is
+none, use `run_type=aimd_step` for the same system and method. After the
+first step, each optimisation step is an ASPC-extrapolated SCF, like an MD
+step, so the MD ranking carries over. Take the fastest valid layout at the
+node count wanted, and name the record `id`. With no record at all, use the
+fastest `aimd_step` layout on `mpc` for a similar system and say so. The
+binding rules are in `hokusai-cp2k-single-point`. Use more nodes only for
+large cells; `extra.parallel_efficiency` in the records shows what they buy.
 
-Cost estimate. A step after the first costs about one ASPC-extrapolated
-SCF: a few seconds for ~100 atoms, ~10 s for 456 atoms on one node.
-Typical runs take 50–200 steps. Tell the user the worst case: nodes × 112
-× duration in hours.
+Cost estimate: one step after the first costs about the matched record's
+`metric.value` (s per MD step). Typical runs take 50–200 steps. Tell the
+user the worst case: nodes × 112 × duration in hours.
 
 ## 3. Check progress and the result
 

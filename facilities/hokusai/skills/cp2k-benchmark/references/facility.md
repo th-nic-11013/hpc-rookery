@@ -78,11 +78,12 @@ export OMP_NUM_THREADS=T OMP_PLACES=cores OMP_PROC_BIND=close
 
 ## Script defaults that are {{DISPLAY_NAME}}-specific
 
-Task 5 moves the scripts into a code pack. Until then these are hard-coded:
+The scripts are not facility-neutral yet. These values are hard-coded:
 
 - `parse_bench.py`: `NODE_CORES = 112`; the speed-up column is relative to
   `112x1`.
 - `stage2_scan.sh`: the default for `SCAN_LAYOUTS` is the six layouts above.
-- `multinode_layouts_job.sh`: `NODE_CORES` defaults to 112; `LAYOUTS` to
-  `16x7 8x14 28x4`.
+- `multinode_layouts_job.sh`: `NODE_CORES` defaults to 112, `LAYOUTS` to
+  `16x7 8x14 28x4` and `REF_LAYOUT` to `16x7`. Set them from the records for
+  the system.
 - `run_layouts.sh`, `bench_job.sh`: `/usr/bin/python3.12`, `srun --mpi=pmix`.

@@ -10,6 +10,21 @@ and the job spec, state the cost, and wait for permission before
 submitting. AIMD is usually the most expensive thing done with CP2K, so
 give the core-hour estimate before every submission.
 
+## Contract
+
+- **Reads:** `benchmarks` (layout and step time), through
+  `{{SLUG}}-records`.
+- **Writes:** no records. It writes the trajectory, `.ener` and restart
+  files.
+- **Tools:** `fs_upload`, `run_command_on_cluster` (parse check),
+  `submit_job`, `get_job_status`, `cancel_job`, `fs_tail` / `fs_view`.
+- **Preconditions:** the prerequisites below, and the user's approval of
+  the core-hour estimate for every segment.
+- **Done when:** each segment ended cleanly (SCF converged, conserved
+  quantity within the limits in section 5) and the next segment is
+  submitted or the run is complete. A failed segment is reported and its
+  dependents are dealt with.
+
 **Prerequisites:**
 - a CP2K build (`~/software/cp2k/cp2k_env.sh` by default; `{{SLUG}}-cp2k-build`);
 - `subsys.inc` (`{{SLUG}}-structure-making`), ideally relaxed first
@@ -30,19 +45,21 @@ give the core-hour estimate before every submission.
 | `STEPS` | 2000 (1 ps) | steps **in this job** (see section 4) |
 | `EPS_SCF` | 1e-6 | forces need it. A looser SCF shows up as conserved-quantity drift |
 
-**Estimate the cost from measured step times** (16 × 7 per node, revPBE-D3,
-450 Ry; `{{SLUG}}-cp2k-benchmark` `references/results.md`):
+**Estimate the cost from measured step times.** Query `benchmarks` through
+`{{SLUG}}-records` with `code=cp2k`, `run_type=aimd_step`,
+`system.label=<this system>` and `valid=true`, and take the fastest layout's
+`metric.value` (s per steady step) at the node count you plan:
 
-| system | nodes | s per steady step | core-h per ps (0.5 fs) |
-|---|---|---|---|
-| H2O-64 (192 atoms) | 1 | 1.80 | ~112 |
-| UiO-66 primitive (114 atoms) | 1 | 5.14 | ~320 |
-| UiO-66 conventional (456 atoms) | 1 / 2 / 4 | 9.34 / 5.72 / 4.11 | ~580 / ~710 / ~1020 |
+```text
+core-h = s_per_step × steps × nodes × 112 / 3600
+```
 
-- H2O-64 and the 114-atom cell were timed with `FULL_SINGLE_INVERSE`, and
-  the 456-atom cell with `FULL_ALL`, the template's choice. `FULL_ALL`
-  preconditioner builds took 16% of the 456-atom step time, so expect small
-  cells to run a little slower than listed with the template as written.
+- If the system has no record, look at records for systems of similar size
+  and the same method (`method.functional`, `method.cutoff_ry`,
+  `method.scf`) to get an order of magnitude, and say that is what it is.
+- Check `method.scf` on the record. Records timed with
+  `FULL_SINGLE_INVERSE` run a little faster than the template's
+  `FULL_ALL`, whose preconditioner builds took 16% of a 456-atom step.
 - The first step costs 7–10 steady steps (SCF from the atomic guess).
 - For a new system, run 20–50 steps first. Read `UsedTime` (the last
   column of `<PROJECT>-1.ener`) or `MD| CPU time per MD step`, skip the
@@ -79,18 +96,22 @@ Stage the input and `subsys.inc` in `~/agent/work/cp2k-runs/<system>/md/`.
   "name": "cp2k-md-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/md",
   "pre_launch": "source $HOME/software/cp2k/cp2k_env.sh",
-  "launcher": "srun --mpi=pmix --cpus-per-task=7 --cpu-bind=cores --distribution=block:block",
+  "launcher": "srun --mpi=pmix --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i aimd_nvt.inp -o aimd_nvt.out",
-  "environment": {"OMP_NUM_THREADS": "7", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
-  "resources": {"node_count": 1, "processes_per_node": 16, "cpu_cores_per_process": 7},
+  "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
+  "resources": {"node_count": <N>, "processes_per_node": <R>, "cpu_cores_per_process": <T>},
   "attributes": {"queue_name": "mpc", "duration": "24:00:00"}
 }
 ```
 
-The layout and binding rules are in `{{SLUG}}-cp2k-single-point`. 16 × 7
-per node is the measured best for AIMD on 1, 2 and 4 nodes. More nodes
-buy wall time at a falling efficiency (456 atoms: 82% on 2 nodes, 57% on
-4).
+**R × T and N come from `benchmarks` records** with `run_type=aimd_step`,
+the same query as for the cost estimate. Take the fastest valid layout at
+the node count you plan. If this system has none, take the fastest
+`aimd_step` layout on `mpc` for a similar system, and suggest
+`{{SLUG}}-cp2k-benchmark` before a long run. Name the record `id` you used.
+The binding rules are in `{{SLUG}}-cp2k-single-point`. More nodes buy wall
+time at a falling efficiency; `extra.parallel_efficiency` in the records at
+2 and 4 nodes shows how fast it falls.
 
 Wall time: `mpc` allows 24 h. `mpc_l` allows 72 h, but only 8 nodes, and
 long jobs find backfill gaps less easily. Prefer 24 h segments on `mpc`.

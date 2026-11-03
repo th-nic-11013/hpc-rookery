@@ -9,6 +9,18 @@ Every tool call uses `facility="hokusai"`. Show the user the input's key
 settings and the job spec, state the cost, and wait for permission before
 submitting.
 
+## Contract
+
+- **Reads:** `benchmarks` (the layout), through `hokusai-records`.
+- **Writes:** no records. It writes `single_point.out` and, if asked, the
+  wavefunction.
+- **Tools:** `fs_upload`, `run_command_on_cluster` (parse check),
+  `submit_job`, `get_job_status`, `fs_tail` / `fs_view`.
+- **Preconditions:** the two prerequisites below, and the user's approval
+  of the input and the cost.
+- **Done when:** the SCF converged and the energy (and forces) are
+  reported, or the failure is reported with no number quoted.
+
 **Prerequisites:**
 - **A CP2K build** and its `cp2k_env.sh`. The default is
   `~/software/cp2k/cp2k_env.sh` (CP2K 2026.2, GCC + Open MPI + MKL, full
@@ -64,44 +76,57 @@ Get the absolute home path once (`echo $HOME`); `directory` is passed to
   "name": "cp2k-sp-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/sp",
   "pre_launch": "source $HOME/software/cp2k/cp2k_env.sh",
-  "launcher": "srun --mpi=pmix --cpus-per-task=7 --cpu-bind=cores --distribution=block:block",
+  "launcher": "srun --mpi=pmix --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i single_point.inp -o single_point.out",
-  "environment": {"OMP_NUM_THREADS": "7", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
-  "resources": {"node_count": 1, "processes_per_node": 16, "cpu_cores_per_process": 7},
+  "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
+  "resources": {"node_count": <N>, "processes_per_node": <R>, "cpu_cores_per_process": <T>},
   "attributes": {"queue_name": "mpc", "duration": "01:00:00"}
 }
 ```
 
-### Layout: 16 ranks × 7 threads per node, from measurements
+### Layout: R ranks × T threads per node, from benchmark records
 
-An `mpc` node has 112 cores in **8 NUMA domains of 14 cores** (~16 GB of
-HBM each, no DDR). Every layout below keeps each rank inside one domain.
-The single-node benchmark results (`hokusai-cp2k-benchmark`,
-`references/results.md`):
+Don't guess the layout; read it. Through `hokusai-records`:
 
-| run type | measured on | best | close behind | avoid |
-|---|---|---|---|---|
-| single point (ENERGY_FORCE) | UiO-66 456 atoms, H2O-128 | **16×7** and 56×2 tie, ~1.27× pure MPI | 28×4, 8×14 | 4×28 (1.6× slower) |
-| AIMD step | H2O-64/128, UiO-66 114/456 atoms | **16×7** on 1, 2 and 4 nodes | 8×14, 28×4 | 4×28, 56×2 |
+1. Query `benchmarks` with `code=cp2k`, `run_type=single_point`,
+   `system.label=<this system>` and `valid=true`, and take the fastest.
+   Layouts within 3% of it are ties; any of them will do.
+2. If that finds nothing, query by `code=cp2k`, `run_type=single_point` and
+   `partition=mpc`. Use the fastest layout among systems with a similar size
+   and the same method (`method.functional`, `method.cutoff_ry`, the kind of
+   SCF).
+3. If still nothing matches, say so. Then either use the fastest
+   `single_point` layout on the partition as a provisional choice, or
+   suggest `hokusai-cp2k-benchmark` first if many single points will run.
 
-- **The launcher carries the binding.** `--cpus-per-task=<threads>` must be
+Don't reuse an `aimd_step` layout for single points: the two workloads rank
+layouts differently. Tell the user which record `id` the layout came from.
+
+The node values are in `hokusai-cp2k-benchmark`'s `references/facility.md`:
+- 112 cores in 8 NUMA domains of 14, so R × T = 112;
+- the `mpc` limits.
+
+The rules every layout follows:
+
+- **The launcher carries the binding.** `--cpus-per-task=<T>` must be
   repeated there, because Slurm 23.02's `srun` doesn't inherit it. With
   `--cpu-bind=cores --distribution=block:block` plus `OMP_PLACES=cores` and
-  `OMP_PROC_BIND=close`, rank r owns cores r×7 to r×7+6. Change all of
+  `OMP_PROC_BIND=close`, rank r owns cores r×T to r×T+T−1. Change all of
   `cpus-per-task`, `OMP_NUM_THREADS` and `cpu_cores_per_process` together.
 - **`--mpi=pmix` is required:** the build uses the site Open MPI.
 - **Memory:** leave `resources.memory` unset. All 112 cores bring 112 GiB,
   and memory above 1 GiB/core is billed as extra cores. Memory per rank ×
   ranks per NUMA domain must stay well under ~16 GB; CP2K prints
   `Estimated peak process memory`.
-- **Several nodes:** keep 16×7 per node (`node_count` N). For 456 atoms,
-  1 node is cheapest, 2 nodes run at 82% efficiency, and 4 nodes at 57%.
-  Use more nodes only when wall time matters. Limit: 64 nodes and 24 h on
-  `mpc`; a job over a limit is accepted but never starts.
+- **Several nodes:** keep the per-node layout and set `node_count`. Query
+  `benchmarks` at other node counts for the parallel efficiency
+  (`extra.parallel_efficiency`). Use more nodes only when wall time matters.
+  Limit: 64 nodes and 24 h on `mpc`; a job over a limit is accepted but
+  never starts.
 
 Tell the user the worst-case cost: nodes × 112 × duration in hours, in
-core-hours. A single point of a few hundred atoms takes about 1 minute on
-one node (456-atom UiO-66: 58 s at 16×7).
+core-hours. A matched record's `metric.value` (`wall_s`) gives the expected
+run time.
 
 ## 3. Check the result
 
