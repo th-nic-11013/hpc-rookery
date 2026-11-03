@@ -2121,12 +2121,12 @@ def check_repo() -> None:
                     raise AssertionError(f"values {bad} were accepted")
 
             values_path.write_text(json.dumps({"DEMO_CORES": 8}))
-            [(name, stage_dir, ov, values, notes)] = render_skills.code_pack_stages(fac)
-            assert (name, stage_dir, ov) == ("demo-fac-demo-run", stage, overlay)
+            [(name, stage_dir, ovs, values, notes)] = render_skills.code_pack_stages(fac)
+            assert (name, stage_dir, ovs) == ("demo-fac-demo-run", stage, (overlay,))
             assert notes == "site quirk on {{SLUG}}"
 
             out = tmp / "out"
-            render_skills.sync_supporting_files(stage, out, fac, False, (ov,), values)
+            render_skills.sync_supporting_files(stage, out, fac, False, ovs, values)
             assert (out / "scripts" / "x.sh").read_text() == "N=8\n"
             assert (out / "references" / "site.md").read_text() == "8 cores\n"
             assert not (out / "notes.md").exists(), "notes.md fills {{CODE_NOTES}}, not a file"
@@ -2134,11 +2134,26 @@ def check_repo() -> None:
             (overlay / "scripts").mkdir()
             (overlay / "scripts" / "x.sh").write_text("override\n")
             try:
-                render_skills.sync_supporting_files(stage, out, fac, True, (ov,), values)
+                render_skills.sync_supporting_files(stage, out, fac, True, ovs, values)
             except SystemExit:
                 pass
             else:
                 raise AssertionError("a facility file shadowed a pack file")
+
+            common = tmp / "codes" / "common" / "notes"
+            common.mkdir(parents=True)
+            (tmp / "codes" / "common" / "pack.json").write_text(json.dumps(
+                {"code": "common", "skill_prefix": "", "stages": ["notes"],
+                 "values": {}, "facility_dirs": {"notes": "records"}}))
+            (common / "SKILL.md").write_text("{{DEMO_CORES}}\n")
+            (fac_dir / "codes" / "common").mkdir()
+            (fac_dir / "codes" / "common" / "values.json").write_text("{}")
+            (fac_dir / "records").mkdir()
+            (fac_dir / "records" / "r.yaml").write_text("x: 1\n")
+            by_name = {s[0]: s for s in render_skills.code_pack_stages(fac)}
+            assert set(by_name) == {"demo-fac-demo-run", "demo-fac-notes"}, by_name
+            _, _, ovs, values, _ = by_name["demo-fac-notes"]
+            assert ovs == (fac_dir / "records",) and values["DEMO_CORES"] == 8
 
             assert render_skills.unresolved_tokens({root / "a": "ok {{SLUG}}"}) != []
             assert render_skills.unresolved_tokens({root / "a": "${HOME} {x}"}) == []

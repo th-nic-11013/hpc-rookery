@@ -26,7 +26,12 @@ Inputs (per facility, from facilities/<dir>/):
 Inputs (code packs, from codes/<code>/, rendered only for facilities that
 opt in with facilities/<dir>/codes/<code>/values.json):
   pack.json                {"code": ..., "stages": [...], "values": {NAME: doc}}:
-                           every {{NAME}} a stage may use, all required.
+                           the {{NAME}}s this pack declares, all required.
+                           Optional: "skill_prefix" (default: the code;
+                           "" for codes/common/) and "facility_dirs"
+                           ({stage: folder under facilities/<dir>/} shipped
+                           with that stage, e.g. records/). A stage may use
+                           the values of every pack the facility opts into.
   <stage>/SKILL.md, <stage>/**   the facility-neutral component, rendered to
                            <slug>-<code>-<stage>/ with the scalar tokens,
                            {{NAME}} from values.json and {{CODE_NOTES}} from
@@ -205,11 +210,13 @@ def sync_supporting_files(skill_dir: Path, out_dir: Path, fac: dict,
 _TOKEN = re.compile(r"\{\{[A-Z][A-Z0-9_]*\}\}")
 
 
-def code_pack_stages(fac: dict) -> list[tuple[str, Path, Path, dict, str]]:
-    """(output name, stage dir, facility overlay dir, values, notes) for every
-    code-pack stage this facility opts into. Raises SystemExit on a values
-    file that does not match its pack, so a broken pack fails CI loudly."""
-    stages = []
+def code_pack_stages(fac: dict) -> list[tuple[str, Path, tuple[Path, ...], dict, str]]:
+    """(output name, stage dir, facility overlay dirs, values, notes) for every
+    code-pack stage this facility opts into. A stage sees the values of every
+    pack the facility opted into, so a code-neutral component can carry a
+    per-code subfolder. Raises SystemExit on a values file that does not
+    match its pack, so a broken pack fails CI loudly."""
+    packs, merged = [], {}
     for values_path in sorted((fac["_dir"] / "codes").glob("*/values.json")):
         code = values_path.parent.name
         pack_path = CODES_DIR / code / "pack.json"
@@ -222,12 +229,25 @@ def code_pack_stages(fac: dict) -> list[tuple[str, Path, Path, dict, str]]:
         if missing or unknown:
             raise SystemExit(f"{values_path}: missing {missing}, unknown {unknown} "
                              f"(the names are declared in {pack_path})")
+        clash = sorted(set(values) & set(merged))
+        if clash:
+            raise SystemExit(f"{pack_path}: value names {clash} are declared by another pack")
+        merged.update(values)
+        packs.append((code, pack, values_path.parent))
+    stages = []
+    for code, pack, fac_code_dir in packs:
+        prefix = pack.get("skill_prefix", code)
         for stage in pack["stages"]:
-            overlay = values_path.parent / stage
+            overlay = fac_code_dir / stage
+            # facility_dirs: a facility folder outside codes/ that ships with
+            # the stage, e.g. records/ for the records component.
+            extra = pack.get("facility_dirs", {}).get(stage)
+            overlays = tuple(d for d in (overlay, fac["_dir"] / extra if extra else None)
+                             if d is not None and d.is_dir())
             notes_path = overlay / "notes.md"
             notes = notes_path.read_text().rstrip() if notes_path.exists() else ""
-            stages.append((f"{fac['slug']}-{code}-{stage}", CODES_DIR / code / stage,
-                           overlay, values, notes))
+            name = "-".join(part for part in (fac["slug"], prefix, stage) if part)
+            stages.append((name, CODES_DIR / code / stage, overlays, merged, notes))
     return stages
 
 
@@ -292,12 +312,11 @@ def main() -> int:
     leftover = []
     for fac in facilities:
         facility_skills = skills_dir(fac)
-        for name, stage_dir, overlay, values, notes in code_pack_stages(fac):
+        for name, stage_dir, overlays, values, notes in code_pack_stages(fac):
             if name in unique_names:
                 raise SystemExit(f"{name}: both a facility-unique skill and a code-pack stage")
             out_dir = facility_skills / name
             out_path = out_dir / "SKILL.md"
-            overlays = (overlay,) if overlay.is_dir() else ()
             text = stage_dir.joinpath("SKILL.md").read_text().replace("{{CODE_NOTES}}", notes)
             rendered = substitute_values(render_one(text, fac, "__unique__"), values)
             check_text = {out_path: rendered}
