@@ -1,6 +1,6 @@
 """Write a CP2K NVE AIMD benchmark input (and a short smoke version) from an extended xyz.
 
-Usage (text work only, fine on the HOKUSAI front end):
+Usage (text work only, fine on the login node):
     {{CP2K_PYTHON}} -I make_cp2k_md_input.py STRUCT.xyz --name NAME [options]
 Writes <out-dir>/NAME.inp (--steps MD steps, default 10) and <out-dir>/NAME-smoke.inp
 (--smoke-steps, default 3).
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-DEFAULT_DATA = os.path.expanduser("~/software/cp2k/cp2k-2026.2/data")
+DEFAULT_DATA = os.path.expanduser("{{CP2K_DATA_DIR}}")
 
 TEMPLATE = """\
 # {name}: {natoms} atoms, {formula}, {nelec} valence electrons.

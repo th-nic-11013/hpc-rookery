@@ -95,7 +95,7 @@ Stage the input and `subsys.inc` in `~/agent/work/cp2k-runs/<system>/md/`.
 {
   "name": "cp2k-md-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/md",
-  "pre_launch": "source $HOME/software/cp2k/cp2k_env.sh",
+  "pre_launch": "source ~/software/cp2k/cp2k_env.sh",
   "launcher": "srun --mpi=pmix --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i aimd_nvt.inp -o aimd_nvt.out",
   "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
@@ -113,8 +113,14 @@ The binding rules are in `hokusai-cp2k-single-point`. More nodes buy wall
 time at a falling efficiency; `extra.parallel_efficiency` in the records at
 2 and 4 nodes shows how fast it falls.
 
-Wall time: `mpc` allows 24 h. `mpc_l` allows 72 h, but only 8 nodes, and
-long jobs find backfill gaps less easily. Prefer 24 h segments on `mpc`.
+### On HOKUSAI BigWaterfall2 (HBW2)
+
+- **Wall time:** `mpc` allows 24 h. `mpc_l` allows 72 h, but only 8 nodes,
+  and long jobs find backfill gaps less easily. Prefer 24 h segments on
+  `mpc`.
+- **Dependencies:** dependents of a failed `afterok` job are **never**
+  cancelled automatically.
+- **Files:** home has a 10-million-file quota.
 
 ## 4. Continue a run
 
@@ -138,9 +144,9 @@ counter. Verified on CP2K 2026.2:
 Write each segment's log to a new file (`-o aimd_nvt_2.out`). Changing
 `TIMECON` between equilibration and production (100 → 200 fs) is normal.
 
-Chaining segments: on HOKUSAI BigWaterfall2 (HBW2), dependents of a failed `afterok`
-job are **never** cancelled automatically. A chain with a broken segment
-leaves the rest pending with `DependencyNeverSatisfied`. So either:
+Chaining segments: if the scheduler does not cancel the dependents of a
+failed `afterok` job (see "On HOKUSAI BigWaterfall2 (HBW2)" above), a chain with a broken
+segment leaves the rest pending with `DependencyNeverSatisfied`. So either:
 - submit the next segment after checking the previous one (safest); or
 - chain at most one or two ahead with
   `"custom_attributes": {"dependency": "afterok:<id>", "kill-on-invalid-dep": "yes"}`
@@ -163,5 +169,5 @@ leaves the rest pending with `DependencyNeverSatisfied`. So either:
 
 Discard the equilibration part before averaging anything. Trajectories
 grow with every step (atoms × steps × ~60 bytes per file); print every 5th
-step (`&EACH MD 5`) for long runs. Home has a 10-million-file quota, so
-keep few large files.
+step (`&EACH MD 5`) for long runs, and keep few large files rather than
+many small ones.

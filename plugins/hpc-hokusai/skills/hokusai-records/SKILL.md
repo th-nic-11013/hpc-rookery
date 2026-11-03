@@ -75,8 +75,7 @@ python3 -I <this skill>/scripts/records.py append benchmarks record.yaml   # or 
 ## Sharing a benchmark
 
 User-scope benchmarks help only this user. Shared records live in the
-hpc-rookery repository, beside this skill's source
-(`facilities/hokusai/skills/records/benchmarks.yaml`). To share one:
+hpc-rookery repository (`facilities/hokusai/records/benchmarks.yaml`). To share one:
 1. copy it there with `job_id: null`;
 2. keep the job ID in the user's `benchmarks_provenance`;
 3. run `check`;

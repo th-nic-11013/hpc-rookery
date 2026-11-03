@@ -32,11 +32,19 @@ Isolated molecules get a box too.
 | `scripts/geomcheck.py` (checks) | numpy | anywhere, including the HOKUSAI BigWaterfall2 (HBW2) login node: `/usr/bin/python3.12 -I geomcheck.py x.xyz` |
 | `cp2k/make_subsys.py` (CP2K &SUBSYS) | numpy and the CP2K data folder | the login node, next to the CP2K build |
 
-HOKUSAI BigWaterfall2 (HBW2) has no Python or conda module, but the system
-`/usr/bin/python3.12` (with numpy) runs these text tools on a login node.
-Its default `python3` is 3.6, which is too old; always call `python3.12`
-explicitly, with `-I`. Install ASE locally (`pip install ase spglib`)
-rather than on the cluster.
+On the login node, run these text tools with `/usr/bin/python3.12 -I`.
+Install ASE locally (`pip install ase spglib`) rather than on the cluster.
+
+On HOKUSAI BigWaterfall2 (HBW2) there is no Python or conda module. Use the system
+`/usr/bin/python3.12`, which has numpy. Its default `python3` is 3.6, which is
+too old, so always call `python3.12` explicitly.
+
+- **CSD:** RIKEN holds a licence, so the user can download CIFs from the CCDC
+  web search on their own machine.
+- **Copying files by hand:** from the Mac with the `hokusai` alias, use
+  `/usr/bin/scp FILE hokusai:~/<path>/`. It must be the system scp, because
+  the ssh config uses `UseKeychain`. The login hosts are hokusai1-4.riken.jp;
+  `/home` is shared, so any of them works.
 
 ## 1. Get the structure
 
@@ -45,7 +53,7 @@ Ask where it comes from; don't invent coordinates.
 | source | how |
 |---|---|
 | user's file (CIF, XYZ, PDB, POSCAR) | `to_extxyz.py`. XYZ and PDB often lack a cell; ask for one or use `--vacuum` for a molecule |
-| crystal / MOF from a database | the user downloads the CIF (CSD: RIKEN holds a licence, via the CCDC web search; COD; Materials Project). Note the entry and deposition number |
+| crystal / MOF from a database | the user downloads the CIF (CSD through the CCDC web search, if the user's institution has a licence; COD; Materials Project). Note the entry and deposition number |
 | small molecule by name or SMILES | RDKit or Open Babel to 3D (`obabel -:"<smiles>" --gen3d -O mol.xyz`), or `ase.build.molecule`, then `to_extxyz.py --vacuum 6` |
 | bulk, surface, supercell | `ase.build.bulk`, `ase.build.surface` / `fcc111`, `atoms.repeat((n, m, k))` |
 | liquid or solvated box | Packmol at the experimental density; say what density was used |

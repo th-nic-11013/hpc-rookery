@@ -23,8 +23,8 @@ submitting.
 
 **Prerequisites:**
 - **A CP2K build** and its `cp2k_env.sh`. The default is
-  `~/software/cp2k/cp2k_env.sh` (CP2K 2026.2, GCC + Open MPI + MKL, full
-  regression suite passed). Others are listed in `{{SLUG}}-cp2k-build`.
+  `{{CP2K_DEFAULT_ENV}}`; the builds are `software_registry` records
+  (`{{SLUG}}-records`), made by `{{SLUG}}-cp2k-build`.
 - **`subsys.inc`** for the structure, from `{{SLUG}}-structure-making` and
   its `cp2k/cp2k.md`.
 
@@ -56,7 +56,7 @@ Check the syntax on the login node before any job. A serial parse takes a
 few seconds:
 
 ```bash
-( source ~/software/cp2k/cp2k_env.sh; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i single_point.inp )
+( source {{CP2K_DEFAULT_ENV}}; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i single_point.inp )
 ```
 
 This proves the syntax, including the `@INCLUDE`, but not that the SCF
@@ -75,12 +75,12 @@ Get the absolute home path once (`echo $HOME`); `directory` is passed to
 {
   "name": "cp2k-sp-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/sp",
-  "pre_launch": "source $HOME/software/cp2k/cp2k_env.sh",
-  "launcher": "srun --mpi=pmix --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
+  "pre_launch": "source {{CP2K_DEFAULT_ENV}}",
+  "launcher": "srun {{CP2K_SRUN_MPI}} --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i single_point.inp -o single_point.out",
   "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
   "resources": {"node_count": <N>, "processes_per_node": <R>, "cpu_cores_per_process": <T>},
-  "attributes": {"queue_name": "mpc", "duration": "01:00:00"}
+  "attributes": {"queue_name": "{{CP2K_PARTITION}}", "duration": "01:00:00"}
 }
 ```
 
@@ -92,7 +92,7 @@ Don't guess the layout; read it. Through `{{SLUG}}-records`:
    `system.label=<this system>` and `valid=true`, and take the fastest.
    Layouts within 3% of it are ties; any of them will do.
 2. If that finds nothing, query by `code=cp2k`, `run_type=single_point` and
-   `partition=mpc`. Use the fastest layout among systems with a similar size
+   `partition={{CP2K_PARTITION}}`. Use the fastest layout among systems with a similar size
    and the same method (`method.functional`, `method.cutoff_ry`, the kind of
    SCF).
 3. If still nothing matches, say so. Then either use the fastest
@@ -102,29 +102,27 @@ Don't guess the layout; read it. Through `{{SLUG}}-records`:
 Don't reuse an `aimd_step` layout for single points: the two workloads rank
 layouts differently. Tell the user which record `id` the layout came from.
 
-The node values are in `{{SLUG}}-cp2k-benchmark`'s `references/facility.md`:
-- 112 cores in 8 NUMA domains of 14, so R × T = 112;
-- the `mpc` limits.
-
-The rules every layout follows:
+A node has {{CP2K_CORES_PER_NODE}} cores, so R × T = {{CP2K_CORES_PER_NODE}}
+for a full node. The rules every layout follows:
 
 - **The launcher carries the binding.** `--cpus-per-task=<T>` must be
-  repeated there, because Slurm 23.02's `srun` doesn't inherit it. With
+  repeated there, because `srun` doesn't inherit it (Slurm 22.05 and later). With
   `--cpu-bind=cores --distribution=block:block` plus `OMP_PLACES=cores` and
   `OMP_PROC_BIND=close`, rank r owns cores r×T to r×T+T−1. Change all of
   `cpus-per-task`, `OMP_NUM_THREADS` and `cpu_cores_per_process` together.
-- **`--mpi=pmix` is required:** the build uses the site Open MPI.
-- **Memory:** leave `resources.memory` unset. All 112 cores bring 112 GiB,
-  and memory above 1 GiB/core is billed as extra cores. Memory per rank ×
-  ranks per NUMA domain must stay well under ~16 GB; CP2K prints
-  `Estimated peak process memory`.
+- **`srun {{CP2K_SRUN_MPI}}` is required:** it selects the MPI the build
+  was linked against.
+- **Memory:** memory per rank × ranks per NUMA domain must stay well under
+  one domain's memory; CP2K prints `Estimated peak process memory`.
 - **Several nodes:** keep the per-node layout and set `node_count`. Query
   `benchmarks` at other node counts for the parallel efficiency
   (`extra.parallel_efficiency`). Use more nodes only when wall time matters.
-  Limit: 64 nodes and 24 h on `mpc`; a job over a limit is accepted but
-  never starts.
 
-Tell the user the worst-case cost: nodes × 112 × duration in hours, in
+### On {{DISPLAY_NAME}}
+
+{{CODE_NOTES}}
+
+Tell the user the worst-case cost: nodes × {{CP2K_CORES_PER_NODE}} × duration in hours, in
 core-hours. A matched record's `metric.value` (`wall_s`) gives the expected
 run time.
 

@@ -1,7 +1,7 @@
 """Sanity-check a periodic structure (extended xyz) before it becomes a benchmark input.
 
 Usage (light, fine on the front end):
-    /usr/bin/python3.12 -I geomcheck.py STRUCT.xyz
+    {{FRONT_END_PYTHON}} -I geomcheck.py STRUCT.xyz
 Prints composition, cell lengths/angles/volume/perpendicular widths, the shortest
 distance for every element pair (minimum image, pairs below 3.2 A) and flags:
   - any distance below 0.7 A (overlapping or duplicated atoms, typical of disorder

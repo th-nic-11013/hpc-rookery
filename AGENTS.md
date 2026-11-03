@@ -105,6 +105,13 @@ plugins/hpc/            The base Codex plugin: .mcp.json and only the
 plugins/hpc-<slug>/     Generated skill-only Codex plugin for one facility.
 templates/skills/       Shared per-workflow skill templates (the mechanics
                         every facility has identically) — not per-facility.
+codes/                  Code packs: facility-neutral skills per simulation
+                        code and stage (codes/cp2k/<stage>/), plus
+                        codes/common/ (records, structure-making). Rendered
+                        for facilities that opt in via
+                        facilities/<slug>/codes/<code>/values.json.
+schemas/                records.yaml: the provisional schema of measured
+                        records (benchmarks, builds) skills read and write.
 scripts/                render_facility_tables.py (facility table codegen),
                         render_skills.py (per-facility skill codegen), and
                         render_plugins.py (marketplace/manifest codegen).

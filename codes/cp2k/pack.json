@@ -1,7 +1,10 @@
 {
   "code": "cp2k",
   "stages": [
-    "benchmark"
+    "benchmark",
+    "single-point",
+    "geo-opt",
+    "aimd"
   ],
   "values": {
     "CP2K_PARTITION": "Slurm partition the benchmark job runs in",
@@ -9,6 +12,8 @@
     "CP2K_SCAN_LAYOUTS": "space-separated full-node R x T layouts the scan stage times",
     "CP2K_PYTHON": "front-end Python (3.8+, no numpy needed) that runs the helper scripts",
     "CP2K_SRUN_MPI": "srun flag selecting the MPI plugin the CP2K build needs, e.g. --mpi=pmix",
-    "CP2K_SMOKE_LAYOUTS": "two full-node layouts the smoke stage runs (default SMOKE_LAYOUTS)"
+    "CP2K_SMOKE_LAYOUTS": "two full-node layouts the smoke stage runs (default SMOKE_LAYOUTS)",
+    "CP2K_DEFAULT_ENV": "env script of the default CP2K build, used until build selection reads software_registry",
+    "CP2K_DATA_DIR": "data folder of the default CP2K build (basis sets, potentials, dftd3.dat)"
   }
 }

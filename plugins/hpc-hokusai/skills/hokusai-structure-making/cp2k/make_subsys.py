@@ -5,8 +5,8 @@
         [--periodic XYZ|NONE] [--basis DZVP-MOLOPT-SR-GTH] [--stretch-ch 1.08]
         [--charge 0] [--out subsys.inc]
 
-Needs only numpy, so it also runs on the HOKUSAI front end with the system
-/usr/bin/python3.12. The run inputs include the result inside &SUBSYS with
+Needs only numpy, so it also runs on the login node with /usr/bin/python3.12.
+The run inputs include the result inside &SUBSYS with
 `@INCLUDE subsys.inc`; see cp2k.md beside this script.
 
 The xyz must be extended xyz with Lattice="ax ay az bx by bz cx cy cz" on line 2

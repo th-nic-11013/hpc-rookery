@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Write a CP2K &SUBSYS include (subsys.inc) from an extended xyz.
 
-    /usr/bin/python3.12 -I make_subsys.py STRUCT.xyz --data-dir <cp2k>/data
+    {{CP2K_PYTHON}} -I make_subsys.py STRUCT.xyz --data-dir <cp2k>/data
         [--periodic XYZ|NONE] [--basis DZVP-MOLOPT-SR-GTH] [--stretch-ch 1.08]
         [--charge 0] [--out subsys.inc]
 
-Needs only numpy, so it also runs on the HOKUSAI front end with the system
-/usr/bin/python3.12. The run inputs include the result inside &SUBSYS with
+Needs only numpy, so it also runs on the login node with {{CP2K_PYTHON}}.
+The run inputs include the result inside &SUBSYS with
 `@INCLUDE subsys.inc`; see cp2k.md beside this script.
 
 The xyz must be extended xyz with Lattice="ax ay az bx by bz cx cy cz" on line 2
@@ -19,7 +19,7 @@ Cu q11, N q5, ...).
 (1.08 for X-ray structures, whose C-H bonds come out near 0.95 Å).
 
 read_extxyz, valence and stretch_ch are taken unchanged from the tested
-make_cp2k_md_input.py (hokusai-cp2k-benchmark/scripts).
+make_cp2k_md_input.py ({{SLUG}}-cp2k-benchmark/scripts).
 """
 import argparse
 import re
@@ -85,7 +85,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("xyz")
     ap.add_argument("--data-dir", required=True,
-                    help="the CP2K build's data folder, e.g. ~/software/cp2k/cp2k-2026.2/data")
+                    help="the CP2K build's data folder, e.g. {{CP2K_DATA_DIR}}")
     ap.add_argument("--periodic", choices=["XYZ", "NONE"], default="XYZ")
     ap.add_argument("--basis", default="DZVP-MOLOPT-SR-GTH")
     ap.add_argument("--charge", type=int, default=0, help="for the valence-electron count only")

@@ -23,8 +23,8 @@ submitting.
 
 **Prerequisites:**
 - **A CP2K build** and its `cp2k_env.sh`. The default is
-  `~/software/cp2k/cp2k_env.sh` (CP2K 2026.2, GCC + Open MPI + MKL, full
-  regression suite passed). Others are listed in `hokusai-cp2k-build`.
+  `~/software/cp2k/cp2k_env.sh`; the builds are `software_registry` records
+  (`hokusai-records`), made by `hokusai-cp2k-build`.
 - **`subsys.inc`** for the structure, from `hokusai-structure-making` and
   its `cp2k/cp2k.md`.
 
@@ -75,7 +75,7 @@ Get the absolute home path once (`echo $HOME`); `directory` is passed to
 {
   "name": "cp2k-sp-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/sp",
-  "pre_launch": "source $HOME/software/cp2k/cp2k_env.sh",
+  "pre_launch": "source ~/software/cp2k/cp2k_env.sh",
   "launcher": "srun --mpi=pmix --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i single_point.inp -o single_point.out",
   "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
@@ -102,27 +102,32 @@ Don't guess the layout; read it. Through `hokusai-records`:
 Don't reuse an `aimd_step` layout for single points: the two workloads rank
 layouts differently. Tell the user which record `id` the layout came from.
 
-The node values are in `hokusai-cp2k-benchmark`'s `references/facility.md`:
-- 112 cores in 8 NUMA domains of 14, so R × T = 112;
-- the `mpc` limits.
-
-The rules every layout follows:
+A node has 112 cores, so R × T = 112
+for a full node. The rules every layout follows:
 
 - **The launcher carries the binding.** `--cpus-per-task=<T>` must be
-  repeated there, because Slurm 23.02's `srun` doesn't inherit it. With
+  repeated there, because `srun` doesn't inherit it (Slurm 22.05 and later). With
   `--cpu-bind=cores --distribution=block:block` plus `OMP_PLACES=cores` and
   `OMP_PROC_BIND=close`, rank r owns cores r×T to r×T+T−1. Change all of
   `cpus-per-task`, `OMP_NUM_THREADS` and `cpu_cores_per_process` together.
-- **`--mpi=pmix` is required:** the build uses the site Open MPI.
-- **Memory:** leave `resources.memory` unset. All 112 cores bring 112 GiB,
-  and memory above 1 GiB/core is billed as extra cores. Memory per rank ×
-  ranks per NUMA domain must stay well under ~16 GB; CP2K prints
-  `Estimated peak process memory`.
+- **`srun --mpi=pmix` is required:** it selects the MPI the build
+  was linked against.
+- **Memory:** memory per rank × ranks per NUMA domain must stay well under
+  one domain's memory; CP2K prints `Estimated peak process memory`.
 - **Several nodes:** keep the per-node layout and set `node_count`. Query
   `benchmarks` at other node counts for the parallel efficiency
   (`extra.parallel_efficiency`). Use more nodes only when wall time matters.
-  Limit: 64 nodes and 24 h on `mpc`; a job over a limit is accepted but
-  never starts.
+
+### On HOKUSAI BigWaterfall2 (HBW2)
+
+- **Node:** 112 cores in 8 NUMA domains of 14, ~16 GB of
+  HBM per domain, no DDR. The layout and binding details are in
+  `hokusai-cp2k-benchmark`'s `references/facility.md`.
+- **Memory:** leave `resources.memory` unset. All 112 cores bring 112 GiB,
+  and memory above 1 GiB/core is billed as extra cores.
+- **MPI:** the builds use the site Open MPI, which needs `--mpi=pmix`.
+- **Limits:** 64 nodes and 24 h on `mpc` (`mpc_l`: 8 nodes, 72 h). A job
+  over a limit is accepted but never starts.
 
 Tell the user the worst-case cost: nodes × 112 × duration in hours, in
 core-hours. A matched record's `metric.value` (`wall_s`) gives the expected

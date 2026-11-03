@@ -1,5 +1,5 @@
 #!/bin/bash
-# CP2K ranks x threads benchmark on one exclusive HOKUSAI MPC node, as one job.
+# CP2K ranks x threads benchmark on one exclusive node, as one job.
 # Copy this file into the benchmark folder, edit the BENCHMARK SETTINGS block, then
 # submit FROM THAT FOLDER (the folder becomes BENCH):  sbatch bench_job.sh
 # Stages run in order; each starts only if the one before passed:
@@ -24,7 +24,7 @@
 
 #------- BENCHMARK SETTINGS (edit) -------#
 export BENCH_LIMIT_S=$(( 53 * 60 ))     # keep equal to --time above
-CP2K_ENV=${CP2K_ENV:-$HOME/software/cp2k/cp2k_env.sh}
+CP2K_ENV=${CP2K_ENV:-~/software/cp2k/cp2k_env.sh}
 export SMOKE_INPUT=H2O-32.inp     SMOKE_TIMEOUT=120
 export SCAN_INPUT=H2O-64.inp      SCAN_TIMEOUT=240
 export VALIDATE_INPUT=H2O-128.inp VALIDATE_TIMEOUT=360    # or none

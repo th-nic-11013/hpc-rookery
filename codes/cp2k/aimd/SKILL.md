@@ -26,7 +26,7 @@ give the core-hour estimate before every submission.
   dependents are dealt with.
 
 **Prerequisites:**
-- a CP2K build (`~/software/cp2k/cp2k_env.sh` by default; `{{SLUG}}-cp2k-build`);
+- a CP2K build (`{{CP2K_DEFAULT_ENV}}` by default; `{{SLUG}}-cp2k-build`);
 - `subsys.inc` (`{{SLUG}}-structure-making`), ideally relaxed first
   (`{{SLUG}}-cp2k-geo-opt`). X-ray C-H bonds (~0.95 Å) put large forces on
   the first steps;
@@ -51,7 +51,7 @@ give the core-hour estimate before every submission.
 `metric.value` (s per steady step) at the node count you plan:
 
 ```text
-core-h = s_per_step × steps × nodes × 112 / 3600
+core-h = s_per_step × steps × nodes × {{CP2K_CORES_PER_NODE}} / 3600
 ```
 
 - If the system has no record, look at records for systems of similar size
@@ -85,7 +85,7 @@ from the equilibrated run's restart (section 4) so it inherits the
 velocities.
 
 Parse-check on the login node:
-`( source ~/software/cp2k/cp2k_env.sh; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i aimd_nvt.inp )`.
+`( source {{CP2K_DEFAULT_ENV}}; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i aimd_nvt.inp )`.
 
 ## 3. Stage and submit
 
@@ -95,26 +95,27 @@ Stage the input and `subsys.inc` in `~/agent/work/cp2k-runs/<system>/md/`.
 {
   "name": "cp2k-md-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/md",
-  "pre_launch": "source $HOME/software/cp2k/cp2k_env.sh",
-  "launcher": "srun --mpi=pmix --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
+  "pre_launch": "source {{CP2K_DEFAULT_ENV}}",
+  "launcher": "srun {{CP2K_SRUN_MPI}} --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i aimd_nvt.inp -o aimd_nvt.out",
   "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
   "resources": {"node_count": <N>, "processes_per_node": <R>, "cpu_cores_per_process": <T>},
-  "attributes": {"queue_name": "mpc", "duration": "24:00:00"}
+  "attributes": {"queue_name": "{{CP2K_PARTITION}}", "duration": "24:00:00"}
 }
 ```
 
 **R × T and N come from `benchmarks` records** with `run_type=aimd_step`,
 the same query as for the cost estimate. Take the fastest valid layout at
 the node count you plan. If this system has none, take the fastest
-`aimd_step` layout on `mpc` for a similar system, and suggest
+`aimd_step` layout on `{{CP2K_PARTITION}}` for a similar system, and suggest
 `{{SLUG}}-cp2k-benchmark` before a long run. Name the record `id` you used.
 The binding rules are in `{{SLUG}}-cp2k-single-point`. More nodes buy wall
 time at a falling efficiency; `extra.parallel_efficiency` in the records at
 2 and 4 nodes shows how fast it falls.
 
-Wall time: `mpc` allows 24 h. `mpc_l` allows 72 h, but only 8 nodes, and
-long jobs find backfill gaps less easily. Prefer 24 h segments on `mpc`.
+### On {{DISPLAY_NAME}}
+
+{{CODE_NOTES}}
 
 ## 4. Continue a run
 
@@ -138,9 +139,9 @@ counter. Verified on CP2K 2026.2:
 Write each segment's log to a new file (`-o aimd_nvt_2.out`). Changing
 `TIMECON` between equilibration and production (100 → 200 fs) is normal.
 
-Chaining segments: on {{DISPLAY_NAME}}, dependents of a failed `afterok`
-job are **never** cancelled automatically. A chain with a broken segment
-leaves the rest pending with `DependencyNeverSatisfied`. So either:
+Chaining segments: if the scheduler does not cancel the dependents of a
+failed `afterok` job (see "On {{DISPLAY_NAME}}" above), a chain with a broken
+segment leaves the rest pending with `DependencyNeverSatisfied`. So either:
 - submit the next segment after checking the previous one (safest); or
 - chain at most one or two ahead with
   `"custom_attributes": {"dependency": "afterok:<id>", "kill-on-invalid-dep": "yes"}`
@@ -163,5 +164,5 @@ leaves the rest pending with `DependencyNeverSatisfied`. So either:
 
 Discard the equilibration part before averaging anything. Trajectories
 grow with every step (atoms × steps × ~60 bytes per file); print every 5th
-step (`&EACH MD 5`) for long runs. Home has a 10-million-file quota, so
-keep few large files.
+step (`&EACH MD 5`) for long runs, and keep few large files rather than
+many small ones.

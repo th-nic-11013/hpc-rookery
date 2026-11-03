@@ -25,7 +25,7 @@ submitting.
   (section 4) or report why it can't continue.
 
 **Prerequisites:**
-- a CP2K build (`~/software/cp2k/cp2k_env.sh` by default; `{{SLUG}}-cp2k-build`);
+- a CP2K build (`{{CP2K_DEFAULT_ENV}}` by default; `{{SLUG}}-cp2k-build`);
 - `subsys.inc` (`{{SLUG}}-structure-making`, `cp2k/cp2k.md`);
 - **a converged single point on the starting geometry**
   (`{{SLUG}}-cp2k-single-point`). It proves the SCF settings work for this
@@ -63,7 +63,7 @@ Settings to confirm:
   file before Slurm kills the job.
 
 Parse-check on the login node before submitting:
-`( source ~/software/cp2k/cp2k_env.sh; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i geo_opt.inp )`.
+`( source {{CP2K_DEFAULT_ENV}}; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i geo_opt.inp )`.
 Both templates passed `--check` and ran to completion on CP2K 2026.2.
 
 ## 2. Stage and submit
@@ -74,12 +74,12 @@ Stage the input and `subsys.inc` in `~/agent/work/cp2k-runs/<system>/opt/`.
 {
   "name": "cp2k-opt-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/opt",
-  "pre_launch": "source $HOME/software/cp2k/cp2k_env.sh",
-  "launcher": "srun --mpi=pmix --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
+  "pre_launch": "source {{CP2K_DEFAULT_ENV}}",
+  "launcher": "srun {{CP2K_SRUN_MPI}} --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i geo_opt.inp -o geo_opt.out",
   "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
   "resources": {"node_count": <N>, "processes_per_node": <R>, "cpu_cores_per_process": <T>},
-  "attributes": {"queue_name": "mpc", "duration": "12:00:00"}
+  "attributes": {"queue_name": "{{CP2K_PARTITION}}", "duration": "12:00:00"}
 }
 ```
 
@@ -89,13 +89,13 @@ none, use `run_type=aimd_step` for the same system and method. After the
 first step, each optimisation step is an ASPC-extrapolated SCF, like an MD
 step, so the MD ranking carries over. Take the fastest valid layout at the
 node count wanted, and name the record `id`. With no record at all, use the
-fastest `aimd_step` layout on `mpc` for a similar system and say so. The
+fastest `aimd_step` layout on `{{CP2K_PARTITION}}` for a similar system and say so. The
 binding rules are in `{{SLUG}}-cp2k-single-point`. Use more nodes only for
 large cells; `extra.parallel_efficiency` in the records shows what they buy.
 
 Cost estimate: one step after the first costs about the matched record's
 `metric.value` (s per MD step). Typical runs take 50–200 steps. Tell the
-user the worst case: nodes × 112 × duration in hours.
+user the worst case: nodes × {{CP2K_CORES_PER_NODE}} × duration in hours.
 
 ## 3. Check progress and the result
 
@@ -137,9 +137,10 @@ Also set `SCF_GUESS RESTART`, then submit with a new output name
 (`-o geo_opt_2.out`). The optimisation continues from the restart file's
 geometry and step counter.
 
-Prefer one longer job to a dependency chain. On {{DISPLAY_NAME}},
-dependents of a failed `afterok` job are **never** cancelled automatically;
-they sit pending with `DependencyNeverSatisfied` until cancelled by ID.
+Prefer one longer job to a dependency chain.
+
+{{CODE_NOTES}}
+
 If you do chain jobs, use
 `"custom_attributes": {"dependency": "afterok:<id>", "kill-on-invalid-dep": "yes"}`
 (the second option is untested here). Check for stuck dependents, and

@@ -1,5 +1,5 @@
 #!/bin/bash
-# CP2K ranks x threads test on N exclusive HOKUSAI MPC nodes: one MD input, several
+# CP2K ranks x threads test on N exclusive nodes: one MD input, several
 # per-node layouts, as one job. Use it only after the single-node scan passed and a
 # 1-node reference run of the same input exists (SKILL.md step 5c).
 # Copy into the benchmark folder, edit the BENCHMARK SETTINGS block, then submit FROM
@@ -33,7 +33,7 @@
 #------- BENCHMARK SETTINGS (edit; the ${X:-...} form lets dryrun.sh override) -------#
 export BENCH_LIMIT_S=${BENCH_LIMIT_S:-$(( 20 * 60 ))}   # keep equal to --time above
 export BENCH_NODES=4                    # keep equal to --nodes above
-CP2K_ENV=${CP2K_ENV:-$HOME/software/cp2k/cp2k_env.sh}
+CP2K_ENV=${CP2K_ENV:-{{CP2K_DEFAULT_ENV}}}
 INPUT=${INPUT:-NAME.inp}                # MD input in inputs/
 STEPS=${STEPS:-10}                      # MD steps in INPUT
 LAYOUTS=${LAYOUTS:?per-node layouts, baseline first}  # R x T = {{CP2K_CORES_PER_NODE}}; choose from the records

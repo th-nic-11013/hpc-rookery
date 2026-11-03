@@ -666,7 +666,10 @@ rendered for every facility that opts in. To opt in, add
 If a value is missing or unknown, a facility file has the same path as a
 pack file, or a `{{TOKEN}}` is left unresolved, the render fails. So
 onboarding a code touches only `facilities/<slug>/codes/<code>/`, and
-changing the method touches only `codes/<code>/`. Measured results
+changing the method touches only `codes/<code>/`. Components that belong
+to no single code (records, structure-making) form the `codes/common/` pack,
+which renders without a code prefix (`<slug>-records`) and opts in the same
+way, with `facilities/<slug>/codes/common/values.json`. Measured results
 (timings, best layouts) don't go in either place: they are records
 (`schemas/records.yaml`).
 

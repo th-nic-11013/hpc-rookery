@@ -24,10 +24,10 @@ node, against the data folder of the CP2K build that will run the input:
 
 ```bash
 cd ~/agent/work/<project>/structures/<system>
-/usr/bin/python3.12 -I make_subsys.py UiO66-prim.xyz \
-    --data-dir ~/software/cp2k/cp2k-2026.2/data          # crystal / MOF / liquid
-/usr/bin/python3.12 -I make_subsys.py mol.xyz --periodic NONE \
-    --data-dir ~/software/cp2k/cp2k-2026.2/data          # isolated molecule
+{{CP2K_PYTHON}} -I make_subsys.py UiO66-prim.xyz \
+    --data-dir {{CP2K_DATA_DIR}}          # crystal / MOF / liquid
+{{CP2K_PYTHON}} -I make_subsys.py mol.xyz --periodic NONE \
+    --data-dir {{CP2K_DATA_DIR}}          # isolated molecule
 ```
 
 It writes `subsys.inc` with the cell, the coordinates inline (`&COORD`),
@@ -91,5 +91,5 @@ login node and proves the syntax, including the `@INCLUDE`, but not that
 the SCF converges:
 
 ```bash
-( source ~/software/cp2k/cp2k_env.sh; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i <input>.inp )
+( source {{CP2K_DEFAULT_ENV}}; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i <input>.inp )
 ```

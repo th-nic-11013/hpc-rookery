@@ -11,7 +11,7 @@ Project) or any experimental structure. The examples are from UiO-66, set up on
 
 ## Where structures come from
 
-- **CSD (Cambridge Structural Database).** RIKEN holds a licence, so the user can
+- **CSD (Cambridge Structural Database).** With an institutional licence the user can
   download CIFs from the CCDC web search (`https://www.ccdc.cam.ac.uk/structures/`)
   on their own machine. UiO-66 is the RUBTAK family: RUBTAK (Cavka et al. 2008),
   RUBTAK04 = deposition 1405739, Trickett et al. 2015, "synthesised in formic
@@ -21,10 +21,6 @@ Project) or any experimental structure. The examples are from UiO-66, set up on
 - **Functionalised variants (UiO-66-NH2 and similar)** rarely have a usable
   deposited CIF (H atoms missing, disordered substituents). Build them from the
   parent framework: replace one ring H per linker with the group, then optimise.
-- **Copying files to HOKUSAI:** from the Mac with the `hokusai` alias,
-  `/usr/bin/scp FILE hokusai:~/<path>/` (system scp: the ssh config uses
-  `UseKeychain`). Login hosts are hokusai1-4.riken.jp; `/home`
-  is shared, so any of them works.
 
 ## Conventional vs primitive cell
 

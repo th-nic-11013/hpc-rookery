@@ -1,0 +1,14 @@
+{
+  "code": "common",
+  "skill_prefix": "",
+  "stages": [
+    "records",
+    "structure-making"
+  ],
+  "facility_dirs": {
+    "records": "records"
+  },
+  "values": {
+    "FRONT_END_PYTHON": "Python 3.8+ with numpy on the login node, for the text tools"
+  }
+}

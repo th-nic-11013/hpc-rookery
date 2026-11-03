@@ -74,7 +74,7 @@ Stage the input and `subsys.inc` in `~/agent/work/cp2k-runs/<system>/opt/`.
 {
   "name": "cp2k-opt-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/opt",
-  "pre_launch": "source $HOME/software/cp2k/cp2k_env.sh",
+  "pre_launch": "source ~/software/cp2k/cp2k_env.sh",
   "launcher": "srun --mpi=pmix --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i geo_opt.inp -o geo_opt.out",
   "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
@@ -137,9 +137,12 @@ Also set `SCF_GUESS RESTART`, then submit with a new output name
 (`-o geo_opt_2.out`). The optimisation continues from the restart file's
 geometry and step counter.
 
-Prefer one longer job to a dependency chain. On HOKUSAI BigWaterfall2 (HBW2),
-dependents of a failed `afterok` job are **never** cancelled automatically;
-they sit pending with `DependencyNeverSatisfied` until cancelled by ID.
+Prefer one longer job to a dependency chain.
+
+On HOKUSAI BigWaterfall2 (HBW2), dependents of a failed `afterok` job are **never**
+cancelled automatically: they sit pending with `DependencyNeverSatisfied`
+until cancelled by ID.
+
 If you do chain jobs, use
 `"custom_attributes": {"dependency": "afterok:<id>", "kill-on-invalid-dep": "yes"}`
 (the second option is untested here). Check for stuck dependents, and
