@@ -1,0 +1,96 @@
+# CP2K single point (energy + forces). The structure comes from subsys.inc
+# (structure-making/cp2k/make_subsys.py).
+# DFT settings are the ones benchmarked on HOKUSAI (UiO-66, water): revPBE-D3
+# (zero damping), DZVP-MOLOPT-SR-GTH + GTH-PBE, 450/60 Ry, Gamma point, and
+# OT DIIS + FULL_ALL (ENERGY_GAP 0.05), which converged a 456-atom cell from
+# the atomic guess where FULL_SINGLE_INVERSE stalled.
+# Plain PBE-D3: PARAMETRIZATION ORIG and REFERENCE_FUNCTIONAL PBE.
+@SET PROJECT          sp
+@SET CHARGE           0
+@SET MULTIPLICITY     1
+@SET UKS              .FALSE.
+@SET CUTOFF           450
+@SET REL_CUTOFF       60
+@SET PARAMETRIZATION  REVPBE
+@SET D3_REFERENCE     revPBE
+
+&GLOBAL
+  PROJECT     ${PROJECT}
+  RUN_TYPE    ENERGY_FORCE
+  PRINT_LEVEL LOW
+&END GLOBAL
+
+&FORCE_EVAL
+  METHOD QS
+  &PRINT
+    &FORCES ON
+    &END FORCES
+  &END PRINT
+  &DFT
+    BASIS_SET_FILE_NAME BASIS_MOLOPT
+    POTENTIAL_FILE_NAME GTH_POTENTIALS
+    CHARGE       ${CHARGE}
+    MULTIPLICITY ${MULTIPLICITY}
+    UKS          ${UKS}
+    &MGRID
+      CUTOFF     ${CUTOFF}
+      REL_CUTOFF ${REL_CUTOFF}
+    &END MGRID
+    &QS
+      EPS_DEFAULT 1.0E-12
+    &END QS
+    # Isolated molecule (subsys.inc with PERIODIC NONE): uncomment.
+    # &POISSON
+    #   PERIODIC NONE
+    #   PSOLVER  MT
+    # &END POISSON
+    &SCF
+      # No IGNORE_CONVERGENCE_FAILURE: an unconverged SCF must stop the run,
+      # not produce an energy that looks valid.
+      SCF_GUESS ATOMIC
+      EPS_SCF   1.0E-6
+      MAX_SCF   50
+      &OT ON
+        MINIMIZER      DIIS
+        PRECONDITIONER FULL_ALL
+        ENERGY_GAP     0.05
+      &END OT
+      &OUTER_SCF
+        EPS_SCF 1.0E-6
+        MAX_SCF 10
+      &END OUTER_SCF
+      # Metals / small-gap systems: OT assumes a gap. Replace &OT and
+      # &OUTER_SCF with diagonalisation and smearing:
+      #   ADDED_MOS 100
+      #   &DIAGONALIZATION
+      #     ALGORITHM STANDARD
+      #   &END DIAGONALIZATION
+      #   &SMEAR ON
+      #     METHOD FERMI_DIRAC
+      #     ELECTRONIC_TEMPERATURE [K] 300
+      #   &END SMEAR
+      #   &MIXING
+      #     METHOD BROYDEN_MIXING
+      #     ALPHA 0.2
+      #   &END MIXING
+    &END SCF
+    &XC
+      &XC_FUNCTIONAL
+        &PBE
+          PARAMETRIZATION ${PARAMETRIZATION}
+        &END PBE
+      &END XC_FUNCTIONAL
+      &VDW_POTENTIAL
+        POTENTIAL_TYPE PAIR_POTENTIAL
+        &PAIR_POTENTIAL
+          TYPE                 DFTD3
+          PARAMETER_FILE_NAME  dftd3.dat
+          REFERENCE_FUNCTIONAL ${D3_REFERENCE}
+        &END PAIR_POTENTIAL
+      &END VDW_POTENTIAL
+    &END XC
+  &END DFT
+  &SUBSYS
+    @INCLUDE subsys.inc
+  &END SUBSYS
+&END FORCE_EVAL

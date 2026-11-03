@@ -1,0 +1,112 @@
+# CP2K cell optimisation (atoms + lattice). Same DFT as geo_opt.inp, plus the
+# analytical stress tensor. Stress converges more slowly with the cutoff than
+# the energy (Pulay stress): converge CUTOFF on the stress before trusting
+# the cell, typically well above the 450 Ry used for MD.
+@SET PROJECT          cellopt
+@SET CHARGE           0
+@SET MULTIPLICITY     1
+@SET UKS              .FALSE.
+@SET CUTOFF           600
+@SET REL_CUTOFF       60
+@SET PARAMETRIZATION  REVPBE
+@SET D3_REFERENCE     revPBE
+@SET MAX_ITER         200
+# Job duration minus ~10 min, in seconds: 12:00:00 -> 42600.
+@SET WALLTIME         42600
+
+&GLOBAL
+  PROJECT     ${PROJECT}
+  RUN_TYPE    CELL_OPT
+  PRINT_LEVEL LOW
+  WALLTIME    ${WALLTIME}
+&END GLOBAL
+
+&MOTION
+  &CELL_OPT
+    # No TYPE keyword: recent CP2K removed it and always optimises atoms and
+    # cell together (DIRECT_CELL_OPT, which was the default before).
+    OPTIMIZER          BFGS
+    MAX_ITER           ${MAX_ITER}
+    MAX_FORCE          4.5E-4
+    EXTERNAL_PRESSURE  [bar] 1.0
+    PRESSURE_TOLERANCE [bar] 100.0
+    # Keep the crystal's symmetry or cell angles:
+    # KEEP_SYMMETRY .TRUE.
+    # KEEP_ANGLES   .TRUE.
+  &END CELL_OPT
+  &PRINT
+    &TRAJECTORY
+      &EACH
+        CELL_OPT 1
+      &END EACH
+    &END TRAJECTORY
+    &CELL
+      &EACH
+        CELL_OPT 1
+      &END EACH
+    &END CELL
+    &RESTART
+      BACKUP_COPIES 1
+      &EACH
+        CELL_OPT 1
+      &END EACH
+    &END RESTART
+  &END PRINT
+&END MOTION
+
+&FORCE_EVAL
+  METHOD QS
+  STRESS_TENSOR ANALYTICAL
+  &PRINT
+    &STRESS_TENSOR ON
+    &END STRESS_TENSOR
+  &END PRINT
+  &DFT
+    BASIS_SET_FILE_NAME BASIS_MOLOPT
+    POTENTIAL_FILE_NAME GTH_POTENTIALS
+    CHARGE       ${CHARGE}
+    MULTIPLICITY ${MULTIPLICITY}
+    UKS          ${UKS}
+    &MGRID
+      CUTOFF     ${CUTOFF}
+      REL_CUTOFF ${REL_CUTOFF}
+    &END MGRID
+    &QS
+      EPS_DEFAULT         1.0E-12
+      EXTRAPOLATION       ASPC
+      EXTRAPOLATION_ORDER 3
+    &END QS
+    &SCF
+      SCF_GUESS ATOMIC
+      EPS_SCF   1.0E-6
+      MAX_SCF   50
+      &OT ON
+        MINIMIZER      DIIS
+        PRECONDITIONER FULL_ALL
+        ENERGY_GAP     0.05
+      &END OT
+      &OUTER_SCF
+        EPS_SCF 1.0E-6
+        MAX_SCF 10
+      &END OUTER_SCF
+    &END SCF
+    &XC
+      &XC_FUNCTIONAL
+        &PBE
+          PARAMETRIZATION ${PARAMETRIZATION}
+        &END PBE
+      &END XC_FUNCTIONAL
+      &VDW_POTENTIAL
+        POTENTIAL_TYPE PAIR_POTENTIAL
+        &PAIR_POTENTIAL
+          TYPE                 DFTD3
+          PARAMETER_FILE_NAME  dftd3.dat
+          REFERENCE_FUNCTIONAL ${D3_REFERENCE}
+        &END PAIR_POTENTIAL
+      &END VDW_POTENTIAL
+    &END XC
+  &END DFT
+  &SUBSYS
+    @INCLUDE subsys.inc
+  &END SUBSYS
+&END FORCE_EVAL

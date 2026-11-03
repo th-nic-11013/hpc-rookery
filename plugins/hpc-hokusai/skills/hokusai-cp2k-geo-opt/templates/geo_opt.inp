@@ -1,0 +1,105 @@
+# CP2K geometry optimisation, fixed cell. DFT settings identical to
+# cp2k-single-point's template (revPBE-D3, DZVP-MOLOPT-SR-GTH, 450/60 Ry,
+# OT DIIS + FULL_ALL); keep any change you make there in step here.
+@SET PROJECT          opt
+@SET CHARGE           0
+@SET MULTIPLICITY     1
+@SET UKS              .FALSE.
+@SET CUTOFF           450
+@SET REL_CUTOFF       60
+@SET PARAMETRIZATION  REVPBE
+@SET D3_REFERENCE     revPBE
+@SET MAX_ITER         200
+# Job duration minus ~10 min, in seconds: 12:00:00 -> 42600.
+@SET WALLTIME         42600
+
+&GLOBAL
+  PROJECT     ${PROJECT}
+  RUN_TYPE    GEO_OPT
+  PRINT_LEVEL LOW
+  WALLTIME    ${WALLTIME}
+&END GLOBAL
+
+&MOTION
+  &GEO_OPT
+    OPTIMIZER BFGS
+    MAX_ITER  ${MAX_ITER}
+    MAX_FORCE 4.5E-4
+  &END GEO_OPT
+  # Fixed atoms (e.g. bottom slab layers), 1-based indices in subsys.inc order:
+  # &CONSTRAINT
+  #   &FIXED_ATOMS
+  #     LIST 1..48
+  #   &END FIXED_ATOMS
+  # &END CONSTRAINT
+  &PRINT
+    &TRAJECTORY
+      &EACH
+        GEO_OPT 1
+      &END EACH
+    &END TRAJECTORY
+    &RESTART
+      BACKUP_COPIES 1
+      &EACH
+        GEO_OPT 1
+      &END EACH
+    &END RESTART
+  &END PRINT
+&END MOTION
+
+&FORCE_EVAL
+  METHOD QS
+  &DFT
+    BASIS_SET_FILE_NAME BASIS_MOLOPT
+    POTENTIAL_FILE_NAME GTH_POTENTIALS
+    CHARGE       ${CHARGE}
+    MULTIPLICITY ${MULTIPLICITY}
+    UKS          ${UKS}
+    &MGRID
+      CUTOFF     ${CUTOFF}
+      REL_CUTOFF ${REL_CUTOFF}
+    &END MGRID
+    &QS
+      EPS_DEFAULT         1.0E-12
+      EXTRAPOLATION       ASPC
+      EXTRAPOLATION_ORDER 3
+    &END QS
+    # Isolated molecule (subsys.inc with PERIODIC NONE): uncomment.
+    # &POISSON
+    #   PERIODIC NONE
+    #   PSOLVER  MT
+    # &END POISSON
+    &SCF
+      SCF_GUESS ATOMIC
+      EPS_SCF   1.0E-6
+      MAX_SCF   50
+      &OT ON
+        MINIMIZER      DIIS
+        PRECONDITIONER FULL_ALL
+        ENERGY_GAP     0.05
+      &END OT
+      &OUTER_SCF
+        EPS_SCF 1.0E-6
+        MAX_SCF 10
+      &END OUTER_SCF
+    &END SCF
+    &XC
+      &XC_FUNCTIONAL
+        &PBE
+          PARAMETRIZATION ${PARAMETRIZATION}
+        &END PBE
+      &END XC_FUNCTIONAL
+      &VDW_POTENTIAL
+        POTENTIAL_TYPE PAIR_POTENTIAL
+        &PAIR_POTENTIAL
+          TYPE                 DFTD3
+          PARAMETER_FILE_NAME  dftd3.dat
+          REFERENCE_FUNCTIONAL ${D3_REFERENCE}
+        &END PAIR_POTENTIAL
+      &END VDW_POTENTIAL
+    &END XC
+  &END DFT
+  &SUBSYS
+    @INCLUDE subsys.inc
+  &END SUBSYS
+&END FORCE_EVAL

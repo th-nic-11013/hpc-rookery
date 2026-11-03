@@ -1,0 +1,127 @@
+# CP2K Born-Oppenheimer MD, NVT with a CSVR thermostat. DFT settings identical
+# to cp2k-single-point's template (revPBE-D3, DZVP-MOLOPT-SR-GTH, 450/60 Ry),
+# plus ASPC wavefunction extrapolation, which makes later steps several times
+# cheaper than the first (measured on HOKUSAI: first step 7-10x a steady one).
+# OT DIIS + FULL_ALL converged every cell tested; for cells of ~100 atoms
+# FULL_SINGLE_INVERSE also worked and is slightly cheaper per step, but it
+# stalled on a 456-atom cell.
+@SET PROJECT          md
+@SET CHARGE           0
+@SET MULTIPLICITY     1
+@SET UKS              .FALSE.
+@SET CUTOFF           450
+@SET REL_CUTOFF       60
+@SET PARAMETRIZATION  REVPBE
+@SET D3_REFERENCE     revPBE
+@SET TEMPERATURE      300
+# 0.5 fs with hydrogen present; 1-2 fs for heavier-only systems.
+@SET TIMESTEP         0.5
+@SET STEPS            2000
+# Job duration minus ~15 min, in seconds: 24:00:00 -> 85500.
+@SET WALLTIME         85500
+
+&GLOBAL
+  PROJECT     ${PROJECT}
+  RUN_TYPE    MD
+  PRINT_LEVEL LOW
+  WALLTIME    ${WALLTIME}
+&END GLOBAL
+
+&MOTION
+  &MD
+    ENSEMBLE    NVT
+    STEPS       ${STEPS}
+    TIMESTEP    ${TIMESTEP}
+    TEMPERATURE ${TEMPERATURE}
+    &THERMOSTAT
+      TYPE CSVR
+      &CSVR
+        # 100 fs equilibrates quickly; 200-1000 fs for gentle production.
+        TIMECON 100
+      &END CSVR
+    &END THERMOSTAT
+  &END MD
+  &PRINT
+    &TRAJECTORY
+      &EACH
+        MD 1
+      &END EACH
+    &END TRAJECTORY
+    &VELOCITIES
+      &EACH
+        MD 1
+      &END EACH
+    &END VELOCITIES
+    &RESTART
+      BACKUP_COPIES 1
+      &EACH
+        MD 10
+      &END EACH
+    &END RESTART
+  &END PRINT
+&END MOTION
+
+&FORCE_EVAL
+  METHOD QS
+  &DFT
+    BASIS_SET_FILE_NAME BASIS_MOLOPT
+    POTENTIAL_FILE_NAME GTH_POTENTIALS
+    CHARGE       ${CHARGE}
+    MULTIPLICITY ${MULTIPLICITY}
+    UKS          ${UKS}
+    &MGRID
+      CUTOFF     ${CUTOFF}
+      REL_CUTOFF ${REL_CUTOFF}
+    &END MGRID
+    &QS
+      EPS_DEFAULT         1.0E-12
+      EXTRAPOLATION       ASPC
+      EXTRAPOLATION_ORDER 3
+    &END QS
+    # Isolated molecule (subsys.inc with PERIODIC NONE): uncomment.
+    # &POISSON
+    #   PERIODIC NONE
+    #   PSOLVER  MT
+    # &END POISSON
+    &SCF
+      SCF_GUESS ATOMIC
+      EPS_SCF   1.0E-6
+      MAX_SCF   30
+      &OT ON
+        MINIMIZER      DIIS
+        PRECONDITIONER FULL_ALL
+        ENERGY_GAP     0.05
+      &END OT
+      &OUTER_SCF
+        EPS_SCF 1.0E-6
+        MAX_SCF 10
+      &END OUTER_SCF
+      &PRINT
+        &RESTART
+          BACKUP_COPIES 0
+          &EACH
+            MD 10
+          &END EACH
+        &END RESTART
+      &END PRINT
+    &END SCF
+    &XC
+      &XC_FUNCTIONAL
+        &PBE
+          PARAMETRIZATION ${PARAMETRIZATION}
+        &END PBE
+      &END XC_FUNCTIONAL
+      &VDW_POTENTIAL
+        POTENTIAL_TYPE PAIR_POTENTIAL
+        &PAIR_POTENTIAL
+          TYPE                 DFTD3
+          PARAMETER_FILE_NAME  dftd3.dat
+          REFERENCE_FUNCTIONAL ${D3_REFERENCE}
+        &END PAIR_POTENTIAL
+      &END VDW_POTENTIAL
+    &END XC
+  &END DFT
+  &SUBSYS
+    @INCLUDE subsys.inc
+  &END SUBSYS
+&END FORCE_EVAL
