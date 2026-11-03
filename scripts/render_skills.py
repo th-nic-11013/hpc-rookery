@@ -23,6 +23,20 @@ Inputs (per facility, from facilities/<dir>/):
                            are mirrored into the same output folder; text
                            files get the scalar placeholders too.
 
+Inputs (code packs, from codes/<code>/, rendered only for facilities that
+opt in with facilities/<dir>/codes/<code>/values.json):
+  pack.json                {"code": ..., "stages": [...], "values": {NAME: doc}}:
+                           every {{NAME}} a stage may use, all required.
+  <stage>/SKILL.md, <stage>/**   the facility-neutral component, rendered to
+                           <slug>-<code>-<stage>/ with the scalar tokens,
+                           {{NAME}} from values.json and {{CODE_NOTES}} from
+                           facilities/<dir>/codes/<code>/<stage>/notes.md.
+  facilities/<dir>/codes/<code>/<stage>/**   facility files added to that
+                           output (e.g. references/facility.md); a path the
+                           pack also ships is an error, not an override.
+  An unknown or missing value, or a {{TOKEN}} left in the output, fails the
+  render: a facility never ships a half-filled component.
+
 Inputs (shared, from templates/skills/):
   <workflow>.md.tmpl       one per workflow (configuring, submitting-jobs,
                            monitoring-jobs, demo, reproducing). Editing a
@@ -42,6 +56,7 @@ those as stale or tries to manage them.
 """
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -51,6 +66,7 @@ import hpc_mcp  # noqa: E402,F401 -- import registers every facility
 from hpc_agent_core import config as _config  # noqa: E402
 
 TEMPLATES_DIR = ROOT / "templates" / "skills"
+CODES_DIR = ROOT / "codes"
 PLUGINS_DIR = ROOT / "plugins"
 
 _FALLBACK_NOTES = (
@@ -117,34 +133,49 @@ def _is_ignored(rel: Path) -> bool:
     return any(part.startswith(".") or part == "__pycache__" for part in rel.parts)
 
 
-def render_supporting_file(source: Path, fac: dict) -> bytes:
+def render_supporting_file(source: Path, fac: dict, values: dict | None = None) -> bytes:
     """A file shipped beside a facility-unique SKILL.md (a script, a
-    reference page). Text gets the scalar tokens; anything that isn't UTF-8
-    is copied byte-for-byte."""
+    reference page). Text gets the scalar tokens (and, for a code pack, its
+    values); anything that isn't UTF-8 is copied byte-for-byte."""
     data = source.read_bytes()
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         return data
-    return substitute_scalars(text, fac).encode("utf-8")
+    return substitute_values(substitute_scalars(text, fac), values).encode("utf-8")
+
+
+def substitute_values(text: str, values: dict | None) -> str:
+    for name, value in (values or {}).items():
+        text = text.replace("{{" + name + "}}", str(value))
+    return text
 
 
 def sync_supporting_files(skill_dir: Path, out_dir: Path, fac: dict,
-                          check: bool) -> list[Path]:
+                          check: bool, overlays: tuple[Path, ...] = (),
+                          values: dict | None = None) -> list[Path]:
     """Mirror everything in skill_dir except SKILL.md into out_dir, keeping
     the executable bit, and remove files that no longer have a source.
     out_dir is generated from skill_dir in full, so a file there with no
     source is a leftover from a rename or deletion, not hand-authored work.
-    Returns every path that was (or, under check, would be) changed."""
+    Returns every path that was (or, under check, would be) changed.
+    overlays are further source folders merged in (a code pack's facility
+    files); notes.md there is not a file to ship, it fills {{CODE_NOTES}}."""
     changed = []
     expected = set()
-    for source in sorted(skill_dir.rglob("*")):
-        rel = source.relative_to(skill_dir)
+    sources = [(skill_dir, s) for s in sorted(skill_dir.rglob("*"))]
+    sources += [(d, s) for d in overlays for s in sorted(d.rglob("*"))]
+    for base, source in sources:
+        rel = source.relative_to(base)
         if not source.is_file() or rel == Path("SKILL.md") or _is_ignored(rel):
             continue
+        if base in overlays and rel == Path("notes.md"):
+            continue
+        if rel in expected:
+            raise SystemExit(f"{source}: {rel} is already shipped by {skill_dir}")
         expected.add(rel)
         out_path = out_dir / rel
-        rendered = render_supporting_file(source, fac)
+        rendered = render_supporting_file(source, fac, values)
         executable = bool(source.stat().st_mode & 0o111)
         if (out_path.exists() and out_path.read_bytes() == rendered
                 and bool(out_path.stat().st_mode & 0o111) == executable):
@@ -169,6 +200,40 @@ def sync_supporting_files(skill_dir: Path, out_dir: Path, fac: dict,
             if not check:
                 out_path.unlink()
     return changed
+
+
+_TOKEN = re.compile(r"\{\{[A-Z][A-Z0-9_]*\}\}")
+
+
+def code_pack_stages(fac: dict) -> list[tuple[str, Path, Path, dict, str]]:
+    """(output name, stage dir, facility overlay dir, values, notes) for every
+    code-pack stage this facility opts into. Raises SystemExit on a values
+    file that does not match its pack, so a broken pack fails CI loudly."""
+    stages = []
+    for values_path in sorted((fac["_dir"] / "codes").glob("*/values.json")):
+        code = values_path.parent.name
+        pack_path = CODES_DIR / code / "pack.json"
+        if not pack_path.exists():
+            raise SystemExit(f"{values_path}: no code pack {pack_path}")
+        pack = json.loads(pack_path.read_text())
+        values = json.loads(values_path.read_text())
+        missing = sorted(set(pack["values"]) - set(values))
+        unknown = sorted(set(values) - set(pack["values"]))
+        if missing or unknown:
+            raise SystemExit(f"{values_path}: missing {missing}, unknown {unknown} "
+                             f"(the names are declared in {pack_path})")
+        for stage in pack["stages"]:
+            overlay = values_path.parent / stage
+            notes_path = overlay / "notes.md"
+            notes = notes_path.read_text().rstrip() if notes_path.exists() else ""
+            stages.append((f"{fac['slug']}-{code}-{stage}", CODES_DIR / code / stage,
+                           overlay, values, notes))
+    return stages
+
+
+def unresolved_tokens(rendered: dict[Path, str]) -> list[str]:
+    return [f"{path.relative_to(ROOT)}: {', '.join(sorted(set(_TOKEN.findall(text))))}"
+            for path, text in rendered.items() if _TOKEN.search(text)]
 
 
 def main() -> int:
@@ -217,6 +282,50 @@ def main() -> int:
                 out_dir.mkdir(parents=True, exist_ok=True)
                 out_path.write_text(rendered)
                 written.append(out_path)
+
+    # Code packs: one facility-neutral component per (code, stage) under
+    # codes/<code>/<stage>/, rendered for each facility that opts in with
+    # facilities/<slug>/codes/<code>/values.json. The method is written once;
+    # the facility's values, notes and extra files arrive as data.
+    unique_names = {f"{fac['slug']}-{d.name}" for fac in facilities
+                    for d in (fac["_dir"] / "skills").glob("*/")}
+    leftover = []
+    for fac in facilities:
+        facility_skills = skills_dir(fac)
+        for name, stage_dir, overlay, values, notes in code_pack_stages(fac):
+            if name in unique_names:
+                raise SystemExit(f"{name}: both a facility-unique skill and a code-pack stage")
+            out_dir = facility_skills / name
+            out_path = out_dir / "SKILL.md"
+            overlays = (overlay,) if overlay.is_dir() else ()
+            text = stage_dir.joinpath("SKILL.md").read_text().replace("{{CODE_NOTES}}", notes)
+            rendered = substitute_values(render_one(text, fac, "__unique__"), values)
+            check_text = {out_path: rendered}
+            for base in (stage_dir, *overlays):
+                for src in base.rglob("*"):
+                    if src.is_file() and src.name != "SKILL.md" and not _is_ignored(src.relative_to(base)):
+                        try:
+                            check_text[out_dir / src.relative_to(base)] = \
+                                render_supporting_file(src, fac, values).decode("utf-8")
+                        except UnicodeDecodeError:
+                            pass
+            leftover += unresolved_tokens(check_text)
+            supporting = sync_supporting_files(stage_dir, out_dir, fac, args.check,
+                                               overlays, values)
+            stale.extend(supporting)
+            if not args.check:
+                written.extend(supporting)
+            if out_path.exists() and out_path.read_text() == rendered:
+                continue
+            stale.append(out_path)
+            if not args.check:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(rendered)
+                written.append(out_path)
+    if leftover:
+        print("Unresolved placeholders in code-pack output:", *leftover, sep="\n  ",
+              file=sys.stderr)
+        return 1
 
     for template_path in templates:
         workflow = template_path.name.removesuffix(".md.tmpl")
