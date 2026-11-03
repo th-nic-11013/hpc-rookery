@@ -1,0 +1,136 @@
+# Records schema: PROVISIONAL.
+#
+# The records skills read and write instead of hard-coding measured
+# facts in their prose. The lab-notebook project will implement them
+# later; until then they are plain YAML files.
+#
+# This file may move to the lab-notebook project, or to a shared location if
+# the code packs end up outside Rookery. Do not build on its path; build on
+# its record types and field names.
+#
+# Field spec: {type, required, doc}. Types: str, int, float, bool, date
+# (YYYY-MM-DD), list[<type>], enum[<a>|<b>|...], map, or a nested `fields:`
+# block. `null` is allowed for any field that is not required.
+
+schema_version: 1
+status: provisional
+
+# Where each scope is kept while there is no lab notebook. Skills NEVER name
+# these paths. They are listed only so a person can find the files.
+backing:
+  facility: "facilities/<slug>/skills/records/<record_type>.yaml (in the repo, shared, versioned; shipped with the <slug>-records skill)"
+  user:     "~/.hpc-agent/records/<slug>/<record_type>.yaml (per user, next to ~/.hpc-agent/<slug>.json). Also holds facility-type records this user measured but has not shared."
+  file_format: "a YAML mapping {schema_version: 1, records: [<record>, ...]}"
+  adapter: "facilities/<slug>/skills/records/scripts/records.py (query / append / check); the skill that ships it is the only component that knows these paths"
+
+# The contract skills rely on. Any implementation (files today, the notebook
+# later) that honours it is a valid replacement.
+adapter:
+  scopes: "read() returns the records of BOTH scopes. Each record says which one it came from."
+  query: "exact match on field values, with dotted paths for nested fields (e.g. system.label, method.cutoff_ry)"
+  write: "append-only. A correction is a new record whose `supersedes` names the old id; nothing is edited in place."
+  identity: "every record type has a stable string id field: build_id for software_registry, id for the others"
+  references: "records point to each other by id, never by file path or install path"
+  not_implemented_yet:
+    - "range or nearest lookup (atom count within N %, cutoff within N Ry). Expected later; until then the skill filters exact-match results itself."
+
+record_types:
+
+  software_registry:
+    scope: user          # builds live in one user's home directory
+    id_field: build_id
+    doc: "A built, installed scientific code on one facility."
+    fields:
+      build_id:     {type: str, required: true, doc: "stable name, <code>-<version>-<exe>-<target>-<toolchain-short>, e.g. cp2k-2026.2-psmp-cpu-gcc. Shared benchmarks refer to builds by this"}
+      facility:     {type: str, required: true, doc: "facility slug"}
+      code:         {type: str, required: true, doc: "lower-case code name, e.g. cp2k"}
+      version:      {type: str, required: true, doc: "release, e.g. 2026.2"}
+      variant:
+        required: true
+        fields:
+          exe:      {type: "enum[psmp|ssmp|popt|sopt|other]", required: true, doc: "CP2K binary flavour; other codes use `other`"}
+          target:   {type: "enum[cpu|gpu]", required: true}
+          libs:     {type: "list[str]", required: false, doc: "enabled libraries, e.g. the cp2kflags line"}
+      toolchain:    {type: str, required: true, doc: "compiler + MPI + math, e.g. 'GCC 13.2, Open MPI 4.1.6, MKL'"}
+      install_path: {type: str, required: true, doc: "build folder on the facility, with ~ for home. Per user, so it appears only here"}
+      env_script:   {type: str, required: true, doc: "file to source before running"}
+      build_job_id: {type: str, required: false, doc: "scheduler job ID of the successful build"}
+      test_status:
+        required: true
+        fields:
+          level:    {type: "enum[none|smoke|two-node|regtest-smoke|regtest]", required: true, doc: "highest test that was run"}
+          result:   {type: "enum[pass|fail|partial]", required: true}
+          detail:   {type: str, required: false, doc: "counts and tolerances, e.g. '5546/5546 correct'"}
+          job_ids:  {type: "list[str]", required: false}
+      default:      {type: bool, required: true, doc: "the build the run skills use when the user names none (at most one per code per facility)"}
+      date:         {type: date, required: true, doc: "date the build completed"}
+      supersedes:   {type: str, required: false, doc: "build_id this record replaces"}
+      notes:        {type: str, required: false}
+
+  benchmarks:
+    scope: facility      # true for anyone running this build on this hardware
+    id_field: id
+    doc: "One measured timing: a system, a method, a run type, a layout on N nodes."
+    fields:
+      id:           {type: str, required: true, doc: "stable, e.g. hokusai-cp2k-2026-10-22-uio66-456-aimd-2n-16x7"}
+      facility:     {type: str, required: true, doc: "facility slug"}
+      partition:    {type: str, required: true, doc: "scheduler partition / queue"}
+      node_type:    {type: str, required: true, doc: "hardware label, e.g. 'MPC, 112 cores, 2x56'"}
+      code:         {type: str, required: true}
+      version:      {type: str, required: true}
+      build_id:     {type: str, required: true, doc: "software_registry.build_id. If the reader may not have that build, also set build_external"}
+      build_external: {type: bool, required: false, doc: "true: build_id is not expected to resolve in the reader's registry; see build_desc"}
+      build_desc:   {type: str, required: false, doc: "short toolchain description, required when build_external is true"}
+      system:
+        required: true
+        fields:
+          label:    {type: str, required: true, doc: "e.g. UiO-66-conv, H2O-64"}
+          atoms:    {type: int, required: true}
+          elements: {type: "map[str,int]", required: true, doc: "composition, e.g. {Zr: 24, O: 128, C: 192, H: 112}"}
+          electrons: {type: int, required: false, doc: "valence electrons with the pseudopotentials used"}
+          cell_volume_A3: {type: float, required: false}
+          periodic: {type: "enum[xyz|xy|z|none]", required: true}
+          kpoints:  {type: str, required: true, doc: "'gamma' or a mesh such as '2x2x2'"}
+      method:
+        required: true
+        fields:
+          functional: {type: str, required: true, doc: "e.g. revPBE, PADE (LDA)"}
+          dispersion: {type: str, required: false, doc: "e.g. D3, or null"}
+          basis:      {type: str, required: true}
+          cutoff_ry:  {type: float, required: true}
+          rel_cutoff_ry: {type: float, required: false}
+          hybrid:     {type: bool, required: true}
+          scf:        {type: str, required: true, doc: "e.g. 'OT DIIS + FULL_ALL, ENERGY_GAP 0.05'"}
+      run_type:     {type: "enum[aimd_step|single_point|geo_opt|cell_opt]", required: true}
+      nodes:        {type: int, required: true}
+      ranks_per_node: {type: int, required: true}
+      threads_per_rank: {type: int, required: true}
+      metric:
+        required: true
+        fields:
+          name:     {type: "enum[s_per_step|wall_s]", required: true, doc: "s_per_step: mean steady MD/opt step; wall_s: whole calculation (single points)"}
+          value:    {type: float, required: true}
+      extra:
+        required: false
+        fields:
+          first_step_s:        {type: float, required: false}
+          parallel_efficiency: {type: float, required: false, doc: "speedup / nodes, against the fastest 1-node record of the same system and method"}
+          speedup_vs_pure_mpi: {type: float, required: false}
+          core_hours:          {type: float, required: false, doc: "whole job, all layouts"}
+          scf_steps:           {type: int, required: false}
+      job_id:       {type: str, required: false, doc: "null in committed, shared records. Kept per user in benchmarks_provenance"}
+      date:         {type: date, required: true}
+      valid:        {type: bool, required: true, doc: "false: not a usable timing (e.g. SCF did not converge)"}
+      reason:       {type: str, required: false, doc: "required when valid is false"}
+      supersedes:   {type: str, required: false}
+      notes:        {type: str, required: false}
+
+  benchmarks_provenance:
+    scope: user          # job IDs are personal
+    id_field: id
+    doc: "Links a shared benchmark record to the job IDs that produced it."
+    fields:
+      id:           {type: str, required: true, doc: "usually equal to benchmark_id"}
+      benchmark_id: {type: str, required: true, doc: "benchmarks.id"}
+      job_ids:      {type: "list[str]", required: true}
+      notes:        {type: str, required: false}

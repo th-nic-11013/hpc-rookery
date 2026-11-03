@@ -18,9 +18,10 @@ status: provisional
 # Where each scope is kept while there is no lab notebook. Skills NEVER name
 # these paths. They are listed only so a person can find the files.
 backing:
-  facility: "facilities/<slug>/records/<record_type>.yaml   (in the repo, shared, versioned)"
-  user:     "~/.hpc-agent/records/<slug>/<record_type>.yaml (per user, next to ~/.hpc-agent/<slug>.json)"
+  facility: "facilities/<slug>/skills/records/<record_type>.yaml (in the repo, shared, versioned; shipped with the <slug>-records skill)"
+  user:     "~/.hpc-agent/records/<slug>/<record_type>.yaml (per user, next to ~/.hpc-agent/<slug>.json). Also holds facility-type records this user measured but has not shared."
   file_format: "a YAML mapping {schema_version: 1, records: [<record>, ...]}"
+  adapter: "facilities/<slug>/skills/records/scripts/records.py (query / append / check); the skill that ships it is the only component that knows these paths"
 
 # The contract skills rely on. Any implementation (files today, the notebook
 # later) that honours it is a valid replacement.
