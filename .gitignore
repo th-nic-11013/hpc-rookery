@@ -5,6 +5,9 @@
 .venv/
 __pycache__/
 build/
+# a code pack's "build" stage is source, not build output
+!/codes/*/build/
+!/facilities/*/codes/*/build/
 dist/
 dist_check/
 remotemanager.log

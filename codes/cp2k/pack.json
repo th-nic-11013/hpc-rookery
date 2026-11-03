@@ -1,6 +1,7 @@
 {
   "code": "cp2k",
   "stages": [
+    "build",
     "benchmark",
     "single-point",
     "geo-opt",
@@ -14,6 +15,9 @@
     "CP2K_SRUN_MPI": "srun flag selecting the MPI plugin the CP2K build needs, e.g. --mpi=pmix",
     "CP2K_SMOKE_LAYOUTS": "two full-node layouts the smoke stage runs (default SMOKE_LAYOUTS)",
     "CP2K_DEFAULT_ENV": "env script of the default CP2K build, used until build selection reads software_registry",
-    "CP2K_DATA_DIR": "data folder of the default CP2K build (basis sets, potentials, dftd3.dat)"
+    "CP2K_DATA_DIR": "data folder of the default CP2K build (basis sets, potentials, dftd3.dat)",
+    "CP2K_BUILD_CORES": "cores of the one-node build job",
+    "CP2K_BUILD_JOBS": "make -j for the build, low enough that compiles fit in the job's memory",
+    "CP2K_BUILD_WALLTIME": "walltime of the build job, HH:MM:SS"
   }
 }
