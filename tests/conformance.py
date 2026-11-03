@@ -2080,6 +2080,69 @@ def check_repo() -> None:
     check("every facility-scoped MCP tool checks configuration first",
           every_facility_scoped_mcp_tool_checks_configuration_first)
 
+    def facility_skill_supporting_files_are_mirrored():
+        """Files beside a facility-unique SKILL.md ship with it.
+
+        render_skills.py --check runs against the real facilities, which
+        today may have no supporting files at all, so the mirror's edge
+        cases (placeholders, exec bit, ignored files, deletion, check mode
+        not writing) are exercised here on a throwaway skill instead.
+        """
+        import importlib.util
+        root = pathlib.Path(__file__).resolve().parent.parent
+        spec = importlib.util.spec_from_file_location(
+            "render_skills", root / "scripts" / "render_skills.py")
+        render_skills = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(render_skills)
+        fac = {"slug": "demo-fac", "display_name": "Demo Facility"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = pathlib.Path(tmp) / "src"
+            out = pathlib.Path(tmp) / "out"
+            (src / "scripts").mkdir(parents=True)
+            (src / "__pycache__").mkdir()
+            (src / "SKILL.md").write_text("facility={{SLUG}}\n")
+            script = src / "scripts" / "x.sh"
+            script.write_text("#!/bin/sh\necho {{SLUG}} {{ENV_PREFIX}}\n")
+            script.chmod(0o755)
+            (src / ".hidden").write_text("not shipped\n")
+            (src / "__pycache__" / "y.pyc").write_bytes(b"\x00\xff")
+
+            assert render_skills.render_supporting_file(script, fac) == \
+                b"#!/bin/sh\necho demo-fac DEMO_FAC\n"
+
+            would = render_skills.sync_supporting_files(src, out, fac, check=True)
+            assert would == [out / "scripts" / "x.sh"], would
+            assert not out.exists(), "check mode wrote output"
+
+            changed = render_skills.sync_supporting_files(src, out, fac, check=False)
+            assert changed == [out / "scripts" / "x.sh"], changed
+            shipped = out / "scripts" / "x.sh"
+            assert shipped.read_text() == "#!/bin/sh\necho demo-fac DEMO_FAC\n"
+            assert shipped.stat().st_mode & 0o111, "executable bit lost"
+            assert not (out / "SKILL.md").exists(), "SKILL.md is rendered elsewhere"
+            assert not (out / ".hidden").exists(), "dotfile shipped"
+            assert not (out / "__pycache__").exists(), "__pycache__ shipped"
+            assert render_skills.sync_supporting_files(src, out, fac, check=True) == [], \
+                "fresh output reported as stale"
+
+            script.chmod(0o644)
+            assert render_skills.sync_supporting_files(src, out, fac, check=True) == \
+                [shipped], "exec-bit drift not reported"
+            render_skills.sync_supporting_files(src, out, fac, check=False)
+            assert not shipped.stat().st_mode & 0o111, "exec bit not cleared"
+
+            script.unlink()
+            assert render_skills.sync_supporting_files(src, out, fac, check=True) == \
+                [shipped], "orphaned output not reported"
+            assert shipped.exists(), "check mode deleted output"
+            render_skills.sync_supporting_files(src, out, fac, check=False)
+            assert not shipped.exists(), "orphaned output not removed"
+            assert not (out / "scripts").exists(), "empty directory left behind"
+
+    check("facility-unique skills ship their supporting files",
+          facility_skill_supporting_files_are_mirrored)
+
 
 def main() -> int:
     check_repo()
