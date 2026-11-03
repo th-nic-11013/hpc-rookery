@@ -9,7 +9,7 @@
 # A stage passes only if all its runs exit 0, reach PROGRAM ENDED and agree in
 # energy; it stops at its first failed run, and the job then exits 1.
 # Results: runs/<jobid>/stage{1,2,3}/; summary at the end of the log and in results.csv.
-# Cost: 112 cores x 53 min = 98.9 core-hours at most (no run is started that could
+# Cost: 112 cores x --time at most (no run is started that could
 # go past the limit, so OverTimeLimit is never used); expected: EDIT ME.
 #------ slurm option --------#
 #SBATCH --partition=mpc

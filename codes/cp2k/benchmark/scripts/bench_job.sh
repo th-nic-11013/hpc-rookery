@@ -9,13 +9,13 @@
 # A stage passes only if all its runs exit 0, reach PROGRAM ENDED and agree in
 # energy; it stops at its first failed run, and the job then exits 1.
 # Results: runs/<jobid>/stage{1,2,3}/; summary at the end of the log and in results.csv.
-# Cost: 112 cores x 53 min = 98.9 core-hours at most (no run is started that could
+# Cost: {{CP2K_CORES_PER_NODE}} cores x --time at most (no run is started that could
 # go past the limit, so OverTimeLimit is never used); expected: EDIT ME.
 #------ slurm option --------#
-#SBATCH --partition=mpc
+#SBATCH --partition={{CP2K_PARTITION}}
 #SBATCH --account=RBxxxxxx
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=112
+#SBATCH --ntasks-per-node={{CP2K_CORES_PER_NODE}}
 #SBATCH --cpus-per-task=1
 #SBATCH --exclusive
 #SBATCH --time=0:53:00
@@ -28,8 +28,8 @@ CP2K_ENV=${CP2K_ENV:-$HOME/software/cp2k/cp2k_env.sh}
 export SMOKE_INPUT=H2O-32.inp     SMOKE_TIMEOUT=120
 export SCAN_INPUT=H2O-64.inp      SCAN_TIMEOUT=240
 export VALIDATE_INPUT=H2O-128.inp VALIDATE_TIMEOUT=360    # or none
-# export SMOKE_LAYOUTS="28x4 8x14"
-# export SCAN_LAYOUTS="112x1 56x2 28x4 16x7 8x14 4x28"
+# export SMOKE_LAYOUTS="{{CP2K_SMOKE_LAYOUTS}}"
+# export SCAN_LAYOUTS="{{CP2K_SCAN_LAYOUTS}}"
 # export VALIDATE_PICK=3
 
 #------- Program execution -------#
@@ -46,7 +46,7 @@ echo "=== $(date) job ${SLURM_JOB_ID} on $(hostname)"; lscpu | grep -E "^NUMA no
 
 summary() {
     echo "=== $(date) summary"
-    /usr/bin/python3.12 -I ${BENCH}/parse_bench.py ${BENCH}/runs/${SLURM_JOB_ID}/stage*
+    {{CP2K_PYTHON}} -I ${BENCH}/parse_bench.py ${BENCH}/runs/${SLURM_JOB_ID}/stage*
 }
 
 for STAGE in stage1_smoke stage2_scan stage3_validate; do

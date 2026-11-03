@@ -1,9 +1,8 @@
 #!/bin/bash
 # Stage 2 of the CP2K layout benchmark: layout scan, run by bench_job.sh.
 # SCAN_INPUT (>= 10 MD steps; steps 1-2 are not timed) in each of SCAN_LAYOUTS
-# (default: the six full-node MPC layouts that keep every rank inside a 14-core
-# NUMA domain). Stops at the first failed run. SCAN_TIMEOUT: seconds per run
-# (default 240).
+# (default: the facility's full-node layouts, 112x1 56x2 28x4 16x7 8x14 4x28).
+# Stops at the first failed run. SCAN_TIMEOUT: seconds per run (default 240).
 # Passes only if all runs exit 0, reach PROGRAM ENDED and agree in energy.
 STAGE=stage2
 source "${BENCH:?}/run_layouts.sh"

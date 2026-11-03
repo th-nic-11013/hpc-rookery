@@ -1,10 +1,10 @@
 # How the benchmark design came about (2026-10-16 session)
 
-> From the rccs-agentic-ai `hokusai-hpc-cp2k-benchmark` skill, where these
-> benchmarks were run. Paths such as `~/software/cp2k/bench/...` are on HOKUSAI;
-> the scripts it names are in `../scripts/` here, except `geomcheck.py`
-> (`hokusai-structure-making`). Other rccs-agentic-ai skills it names map to
-> `hokusai-cp2k-build`, `hokusai-submitting-jobs` and `hokusai-reference`.
+> Learned on HOKUSAI (RIKEN), where this benchmark was designed and first run,
+> in the rccs-agentic-ai `hokusai-hpc-cp2k-benchmark` skill. Paths such as
+> `~/software/cp2k/bench/...` and the MPC node shape are HOKUSAI's; the reasons
+> carry over. The scripts it names are in `../scripts/` here, except
+> `geomcheck.py` (`{{SLUG}}-structure-making`).
 
 The reasons behind the rules in SKILL.md, in the order they were learned.
 

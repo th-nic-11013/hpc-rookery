@@ -16,7 +16,7 @@
 
 BENCH=${BENCH:?export BENCH (the benchmark folder) in the job script}
 STAGEDIR=${BENCH}/runs/${SLURM_JOB_ID:?run inside the Slurm job}/${STAGE:?set STAGE first}
-PY="/usr/bin/python3.12 -I ${BENCH}/parse_bench.py"
+PY="{{CP2K_PYTHON}} -I ${BENCH}/parse_bench.py"
 mkdir -p "${STAGEDIR}"
 [ -f "${STAGEDIR}/status.tsv" ] || printf "input\tranks\tthreads\trep\texit\twall_s\n" > "${STAGEDIR}/status.tsv"
 
@@ -52,7 +52,7 @@ run_layout() {
     ( cd "${dir}" &&
       OMP_NUM_THREADS=${T} OMP_PLACES=cores OMP_PROC_BIND=close \
       timeout --signal=TERM --kill-after=30 "${tmo}" \
-      srun --mpi=pmix --ntasks="${R}" --cpus-per-task="${T}" ${nodeopt} \
+      srun {{CP2K_SRUN_MPI}} --ntasks="${R}" --cpus-per-task="${T}" ${nodeopt} \
            --cpu-bind=verbose,cores --distribution=block:block \
            cp2k.psmp -i "${inp}" -o cp2k.out 2> srun.err )
     status=$?

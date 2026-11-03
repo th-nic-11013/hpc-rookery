@@ -643,7 +643,32 @@ all — the only skill in that repo missing it — so it had no name or
 description for a client to discover it by.
 
 Use this sparingly. If two facilities would want the same workflow, it
-belongs in `templates/skills/` instead.
+belongs in `templates/skills/` instead, or in a code pack (below) if it is
+about one simulation code.
+
+#### Code packs: one code's workflows, with your facility's values
+
+`codes/<code>/` holds facility-neutral skills for one simulation code, one
+folder per stage (`codes/cp2k/benchmark/`, ...). They are written once and
+rendered for every facility that opts in. To opt in, add
+`facilities/<slug>/codes/<code>/values.json`, with a value for every name that
+`codes/<code>/pack.json` declares. The renderer then writes
+`plugins/hpc-<slug>/skills/<slug>-<code>-<stage>/` from three sources:
+
+- the stage's files, with the scalar placeholders and every `{{NAME}}`
+  from `values.json` substituted. This applies to scripts too, so a
+  script's default partition or cores per node comes from your values;
+- `facilities/<slug>/codes/<code>/<stage>/notes.md`, which fills
+  `{{CODE_NOTES}}`;
+- any other files in that folder (e.g. `references/facility.md`), added
+  beside the stage's own.
+
+If a value is missing or unknown, a facility file has the same path as a
+pack file, or a `{{TOKEN}}` is left unresolved, the render fails. So
+onboarding a code touches only `facilities/<slug>/codes/<code>/`, and
+changing the method touches only `codes/<code>/`. Measured results
+(timings, best layouts) don't go in either place: they are records
+(`schemas/records.yaml`).
 
 **Do not edit `templates/skills/*.md.tmpl`** as part of a facility PR — a
 template is shared across every facility, so changing one is a deliberate,

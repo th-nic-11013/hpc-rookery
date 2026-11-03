@@ -1,7 +1,7 @@
 """Summarise the CP2K layout benchmark runs.
 
 Usage (text parsing only, fine on the front end):
-    /usr/bin/python3.12 -I parse_bench.py [runs/<jobid>/<stage> ...]
+    {{CP2K_PYTHON}} -I parse_bench.py [runs/<jobid>/<stage> ...]
         Without arguments it reads every runs/<jobid>/stage*/ folder next to this script.
         Prints a Markdown table per input. Only the no-argument (all runs) form writes
         results.csv next to this script, so a job's own summary never overwrites it.
@@ -44,7 +44,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 NAME = re.compile(r"^(?P<inp>.+)_(?P<R>\d+)x(?P<T>\d+)_r(?P<rep>\d+)$")
-NODE_CORES = 112
+NODE_CORES = {{CP2K_CORES_PER_NODE}}
 ITER = re.compile(r"^\s+\d+\s+(OT\s|\S*Diag\.)")
 FORCES_TAG = re.compile(r"^ FORCES\|\s+\d+\s+(\S+)\s+(\S+)\s+(\S+)\s+\S+\s*$")   # 2026.x screen format
 FORCE = re.compile(r"^\s+\d+\s+\d+\s+[A-Z][a-z]?\s+(-?\d+\.\d+(?:[EDed][-+]?\d+)?)\s+(-?\d+\.\d+(?:[EDed][-+]?\d+)?)\s+(-?\d+\.\d+(?:[EDed][-+]?\d+)?)\s*$")
@@ -213,7 +213,7 @@ def main(argv):
         sp = any(r["sp"] for r in sel)
         unit = "s/SP" if sp else "s/step"
         print(f"\n### {inp}{' (single point: time per single point)' if sp else ''}\n")
-        print(f"| job | R×T | rep | done | {unit} | vs 112×1 | core-h/{unit[2:]} | CP2K s | grid | dbcsr | fft | MiB/rank | dE max | SCF nc | SCF it | dF max |")
+        print(f"| job | R×T | rep | done | {unit} | vs {NODE_CORES}×1 | core-h/{unit[2:]} | CP2K s | grid | dbcsr | fft | MiB/rank | dE max | SCF nc | SCF it | dF max |")
         print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for r in sorted(sel, key=lambda r: (r["s_per_step"] is None, r["s_per_step"] or 0)):
             cores = r["R"] * r["T"]

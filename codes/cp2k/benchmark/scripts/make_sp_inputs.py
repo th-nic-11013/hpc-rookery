@@ -1,7 +1,7 @@
 """Write FULL_ALL single-point (ENERGY_FORCE) benchmark inputs from the MD inputs.
 
 Usage (text work, fine on the front end):
-    /usr/bin/python3.12 -I make_sp_inputs.py
+    {{CP2K_PYTHON}} -I make_sp_inputs.py
 For each MD input below it writes inputs/<name>-sp.inp with:
   - RUN_TYPE ENERGY_FORCE and no &MOTION block;
   - the SCF adopted for big cells (2026-10-18 SCF tests): OT DIIS + FULL_ALL with

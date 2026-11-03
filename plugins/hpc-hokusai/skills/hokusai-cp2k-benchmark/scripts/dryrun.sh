@@ -4,13 +4,13 @@
 # Copies the folder's scripts and inputs/ (not runs/) into the scratch folder and runs
 # the three stages there exactly as bench_job.sh would, with a stub `srun` first on
 # PATH. The stub copies REF_OUT (required: a finished cp2k.out, e.g. the build's H2O-32 test)
-# instead of running CP2K, and exits 3 for the layout named in FAIL_LAYOUT (e.g. 16x7)
+# instead of running CP2K, and exits 3 for the layout named in FAIL_LAYOUT (e.g. one scan layout)
 # so the failure path can be tested. Pass the job's settings as environment variables:
 #   SMOKE_INPUT=... SCAN_INPUT=... VALIDATE_INPUT=... BENCH_LIMIT_S=3180 dryrun.sh ...
 # Checks: stage order, gates, layout picking, time guard (set BENCH_LIMIT_S small).
 # JOB=<job script> runs that script (e.g. multinode_layouts_job.sh) instead of the three
 # stages, as Slurm would on DRY_NODES nodes (default 4); its settings can be overridden
-# the same way, e.g. REF_DIR=<absolute path> LAYOUTS="16x7 8x14".
+# the same way, e.g. REF_DIR=<absolute path> LAYOUTS="<R>x<T> ...".
 # Timings in the output are meaningless.
 set -u
 SRC=${1:?benchmark folder}; SCR=${2:?scratch folder}; ID=${3:-dry$$}

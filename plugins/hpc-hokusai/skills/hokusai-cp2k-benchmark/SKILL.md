@@ -97,7 +97,7 @@ Rules:
 - **Parse-check every input** on the login node, in a scratch copy, using
   the command in `references/facility.md`.
 
-Helpers (run them with the front-end Python from `references/facility.md`):
+Helpers (run them with `/usr/bin/python3.12 -I` on the login node):
 - `scripts/make_cp2k_md_input.py STRUCT.xyz --name NAME --out-dir <bench>/inputs`
   writes a 10-step NVE input and a 3-step smoke version from an extended
   XYZ.
@@ -114,7 +114,7 @@ One job on one exclusive node, with three fail-fast stages:
 | stage | input | purpose |
 |---|---|---|
 | 1 smoke | `SMOKE_INPUT` (~3 steps) in 2 layouts | it runs at all, the binding is right, the energies agree |
-| 2 scan | `SCAN_INPUT` (≥ 10 steps) in every full-node layout | the timing |
+| 2 scan | `SCAN_INPUT` (≥ 10 steps) in `112x1 56x2 28x4 16x7 8x14 4x28` | the timing |
 | 3 validate | `VALIDATE_INPUT` (bigger, or `none`) with the 3 best layouts + a repeat of the best | the ranking holds; the noise level |
 
 The layouts and binding are in `references/facility.md`.
@@ -176,7 +176,7 @@ spec sets the resources and the job runs in `directory`; the script's own
 The job log (`slurm-<jobid>.out`) ends with the summary. To re-read:
 
 ```bash
-<front-end python> -I bench/parse_bench.py bench/runs/<jobid>/stage2
+/usr/bin/python3.12 -I bench/parse_bench.py bench/runs/<jobid>/stage2
 ```
 
 It reports, per layout:
@@ -208,7 +208,8 @@ Only after a single-node scan has passed. `scripts/multinode_layouts_job.sh`:
   run's timeout;
 - prints the speed-up and parallel efficiency against that reference.
 
-Submit it like the job above, with `node_count` N. Dry-run it first with
+Submit it like the job above, with `node_count` N. `LAYOUTS` and
+`REF_LAYOUT` have no default: set them. Dry-run it first with
 `JOB=multinode_layouts_job.sh DRY_NODES=N`. Choose the layouts with the
 user, each with a reason:
 - the 1-node winner (the baseline);

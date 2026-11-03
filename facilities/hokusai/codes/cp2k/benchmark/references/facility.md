@@ -12,8 +12,8 @@ they are `benchmarks` records, read through `{{SLUG}}-records`.
 | `node_type` in records | `MPC (bwmpc), 112 cores` |
 | cores per node | 112, in **8 NUMA domains of 14 cores** |
 | memory | ~16 GB HBM per NUMA domain, no DDR; leave `resources.memory` unset (above 1 GiB/core is billed as extra cores) |
-| full-node scan layouts (`SCAN_LAYOUTS`) | `112x1 56x2 28x4 16x7 8x14 4x28` (R × T = 112) |
-| smoke layouts (`SMOKE_LAYOUTS`) | `28x4 8x14` |
+| full-node scan layouts (`SCAN_LAYOUTS`) | `{{CP2K_SCAN_LAYOUTS}}` (R × T = {{CP2K_CORES_PER_NODE}}) |
+| smoke layouts (`SMOKE_LAYOUTS`) | `{{CP2K_SMOKE_LAYOUTS}}` |
 
 A full-node layout `R x T` has R × T = 112. With T = 1, 2, 7 or 14 every
 rank stays inside one NUMA domain. With T = 28 (`4x28`), each rank spans
@@ -76,14 +76,16 @@ export OMP_NUM_THREADS=T OMP_PLACES=cores OMP_PROC_BIND=close
   are for a manual `sbatch` only. Under `submit_job` the spec sets the
   resources.
 
-## Script defaults that are {{DISPLAY_NAME}}-specific
+## Values the scripts are rendered with
 
-The scripts are not facility-neutral yet. These values are hard-coded:
+`facilities/{{SLUG}}/codes/cp2k/values.json` in hpc-rookery fills these into
+the scripts and `SKILL.md`:
+- partition `{{CP2K_PARTITION}}`;
+- {{CP2K_CORES_PER_NODE}} cores per node (`parse_bench.py`'s `NODE_CORES`, so
+  its speed-up column is against `{{CP2K_CORES_PER_NODE}}x1`);
+- scan layouts `{{CP2K_SCAN_LAYOUTS}}` and smoke layouts
+  `{{CP2K_SMOKE_LAYOUTS}}`;
+- `{{CP2K_PYTHON}}` and `srun {{CP2K_SRUN_MPI}}`.
 
-- `parse_bench.py`: `NODE_CORES = 112`; the speed-up column is relative to
-  `112x1`.
-- `stage2_scan.sh`: the default for `SCAN_LAYOUTS` is the six layouts above.
-- `multinode_layouts_job.sh`: `NODE_CORES` defaults to 112, `LAYOUTS` to
-  `16x7 8x14 28x4` and `REF_LAYOUT` to `16x7`. Set them from the records for
-  the system.
-- `run_layouts.sh`, `bench_job.sh`: `/usr/bin/python3.12`, `srun --mpi=pmix`.
+`multinode_layouts_job.sh` has no default `LAYOUTS` or `REF_LAYOUT`: take
+them from the `benchmarks` records for the system.

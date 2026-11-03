@@ -213,7 +213,7 @@ def main(argv):
         sp = any(r["sp"] for r in sel)
         unit = "s/SP" if sp else "s/step"
         print(f"\n### {inp}{' (single point: time per single point)' if sp else ''}\n")
-        print(f"| job | R×T | rep | done | {unit} | vs 112×1 | core-h/{unit[2:]} | CP2K s | grid | dbcsr | fft | MiB/rank | dE max | SCF nc | SCF it | dF max |")
+        print(f"| job | R×T | rep | done | {unit} | vs {NODE_CORES}×1 | core-h/{unit[2:]} | CP2K s | grid | dbcsr | fft | MiB/rank | dE max | SCF nc | SCF it | dF max |")
         print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for r in sorted(sel, key=lambda r: (r["s_per_step"] is None, r["s_per_step"] or 0)):
             cores = r["R"] * r["T"]

@@ -17,13 +17,13 @@
 # Results: runs/<jobid>/stage_multinode/; summary table, energy/SCF check and the
 # speed-up and parallel efficiency of each layout against the reference at the end
 # of the log.
-# Cost: NODES x 112 cores x --time at most; here 4 x 112 x 20 min = 149.3 core-hours
-# (EDIT ME with the real numbers); expected: EDIT ME.
+# Cost: NODES x {{CP2K_CORES_PER_NODE}} cores x --time at most (EDIT ME with the real
+# numbers); expected: EDIT ME.
 #------ slurm option --------#
-#SBATCH --partition=mpc
+#SBATCH --partition={{CP2K_PARTITION}}
 #SBATCH --account=RBxxxxxx
 #SBATCH --nodes=4
-#SBATCH --ntasks-per-node=112
+#SBATCH --ntasks-per-node={{CP2K_CORES_PER_NODE}}
 #SBATCH --cpus-per-task=1
 #SBATCH --exclusive
 #SBATCH --time=0:20:00
@@ -36,9 +36,9 @@ export BENCH_NODES=4                    # keep equal to --nodes above
 CP2K_ENV=${CP2K_ENV:-$HOME/software/cp2k/cp2k_env.sh}
 INPUT=${INPUT:-NAME.inp}                # MD input in inputs/
 STEPS=${STEPS:-10}                      # MD steps in INPUT
-LAYOUTS=${LAYOUTS:-"16x7 8x14 28x4"}    # per node, R x T = 112, baseline first
+LAYOUTS=${LAYOUTS:?per-node layouts, baseline first}  # R x T = {{CP2K_CORES_PER_NODE}}; choose from the records
 REF_DIR=${REF_DIR:-runs/JOBID/scaling}  # 1-node run of INPUT (relative to BENCH, or absolute)
-REF_LAYOUT=${REF_LAYOUT:-16x7}          # its layout
+REF_LAYOUT=${REF_LAYOUT:?layout of the 1-node reference run}
 SCALE=${SCALE:-0.5}                     # expected N-node : 1-node time (0.5 = at least 2x faster)
 LAUNCH_S=${LAUNCH_S:-120}               # srun launch + CP2K start-up allowance (up to 85 s seen)
 STOP_ON_FIRST=${STOP_ON_FIRST:-1}       # 1: first layout is the baseline, its failure stops the job
@@ -78,7 +78,7 @@ echo "=== ${NL} layouts per node: ${LAYOUTS}; predicted ${PRED} s per run, timeo
 n=0; failed=""
 for L in ${LAYOUTS}; do
     R1=${L%x*}; T=${L#*x}; n=$(( n + 1 ))
-    [ $(( R1 * T )) -eq ${NODE_CORES:-112} ] || stage_fail "layout ${L} does not fill a node"
+    [ $(( R1 * T )) -eq ${NODE_CORES:-{{CP2K_CORES_PER_NODE}}} ] || stage_fail "layout ${L} does not fill a node"
     run_layout ${INPUT} $(( R1 * BENCH_NODES )) ${T} 1 ${TMO}
     rc=$?
     [ ${rc} -eq 0 ] && continue

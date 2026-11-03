@@ -76,14 +76,16 @@ export OMP_NUM_THREADS=T OMP_PLACES=cores OMP_PROC_BIND=close
   are for a manual `sbatch` only. Under `submit_job` the spec sets the
   resources.
 
-## Script defaults that are HOKUSAI BigWaterfall2 (HBW2)-specific
+## Values the scripts are rendered with
 
-The scripts are not facility-neutral yet. These values are hard-coded:
+`facilities/hokusai/codes/cp2k/values.json` in hpc-rookery fills these into
+the scripts and `SKILL.md`:
+- partition `mpc`;
+- 112 cores per node (`parse_bench.py`'s `NODE_CORES`, so
+  its speed-up column is against `112x1`);
+- scan layouts `112x1 56x2 28x4 16x7 8x14 4x28` and smoke layouts
+  `28x4 8x14`;
+- `/usr/bin/python3.12` and `srun --mpi=pmix`.
 
-- `parse_bench.py`: `NODE_CORES = 112`; the speed-up column is relative to
-  `112x1`.
-- `stage2_scan.sh`: the default for `SCAN_LAYOUTS` is the six layouts above.
-- `multinode_layouts_job.sh`: `NODE_CORES` defaults to 112, `LAYOUTS` to
-  `16x7 8x14 28x4` and `REF_LAYOUT` to `16x7`. Set them from the records for
-  the system.
-- `run_layouts.sh`, `bench_job.sh`: `/usr/bin/python3.12`, `srun --mpi=pmix`.
+`multinode_layouts_job.sh` has no default `LAYOUTS` or `REF_LAYOUT`: take
+them from the `benchmarks` records for the system.

@@ -1,0 +1,8 @@
+{
+  "CP2K_PARTITION": "mpc",
+  "CP2K_CORES_PER_NODE": 112,
+  "CP2K_SCAN_LAYOUTS": "112x1 56x2 28x4 16x7 8x14 4x28",
+  "CP2K_PYTHON": "/usr/bin/python3.12",
+  "CP2K_SRUN_MPI": "--mpi=pmix",
+  "CP2K_SMOKE_LAYOUTS": "28x4 8x14"
+}
