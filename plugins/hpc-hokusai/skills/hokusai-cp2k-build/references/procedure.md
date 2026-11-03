@@ -163,10 +163,10 @@ From that output take, per package, the **file name** and its **sha256**:
 - An installer with no `download_pkg` line needs no tarball.
 
 Download from `https://www.cp2k.org/static/downloads/<file>` and **check the
-sha256 yourself**: an existing tarball is reused as it is. A worked example
-is the `fetch_tarballs.sh` in the folder of a registry build with
-`build_system: make`: a list of `sha256 filename` lines and a loop of `curl`
-+ `sha256sum -c`; copy it and replace the list.
+sha256 yourself**: an existing tarball is reused as it is. A small script
+does it: a list of `sha256 filename` lines and a loop of `curl` +
+`sha256sum -c` over it. (The tested copy, `fetch_tarballs.sh` of the HOKUSAI
+2025.2 build, was deleted with that build.)
 
 **Check for tarballs that fetch more at build time.** Some source tarballs are
 not self-contained:
@@ -222,7 +222,8 @@ do this.
 
 Start from a tested job script of the same case and change paths, flags and
 the build part: the `build_cp2k_job.sh` in the `install_path` of a registry
-build whose `build_system` matches.
+build whose `build_system` matches and that is not `removed`. If there is
+none, write the job from the order below.
 
 Request: the site's build partition, 1 node, 1 task, the cores and walltime
 in `facility.md`, and a `-j` low enough that memory-hungry compiles fit in

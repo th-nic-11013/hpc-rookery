@@ -64,6 +64,7 @@ record_types:
           result:   {type: "enum[pass|fail|partial]", required: true}
           detail:   {type: str, required: false, doc: "counts and tolerances, e.g. '5546/5546 correct'"}
           job_ids:  {type: "list[str]", required: false}
+      removed:      {type: date, required: false, doc: "date the install folder was found gone. The record stays for history (benchmarks may name it); skills never pick a removed build"}
       default:      {type: bool, required: true, doc: "the build the run skills use when the user names none (at most one per code per facility)"}
       date:         {type: date, required: true, doc: "date the build completed"}
       supersedes:   {type: str, required: false, doc: "build_id this record replaces"}

@@ -45,12 +45,15 @@ records.py query software_registry code=cp2k \
 
 (`records.py` is `hokusai-records`' script; run it the way that skill
 says.) The record with `default: true` is the build the run skills use when
-the user names none. Prefer a GCC build that passed a regression or
+the user names none. Skip any record with `removed` set: its folder is
+gone. Prefer a GCC build that passed a regression or
 two-node test; a build tested only by a smoke run is a fallback.
 
 If no record matches but the user says a build exists, look on the
-cluster (`ls -d ~/software/*/cp2k_env.sh`) and, if it checks out, record
-it (step 3 below) instead of rebuilding.
+cluster (`ls -d ~/software/*/`; a case A build may have only
+`<source>/install/cp2k_env`) and, if it checks out, record it (step 3
+below) instead of rebuilding. A recorded build whose folder is gone gets
+`removed: <date>`; tell the user, since that is an edit to their file.
 
 If a suitable build exists, stop here. Confirm that nothing is missing
 before relying on it (the answer must be `0`):
@@ -84,8 +87,9 @@ Rules the procedure enforces:
   Compiling and running CP2K happen in a job.
 - Start a new build job from a tested job script of the same case: the
   `build_cp2k_job.sh` in the `install_path` of a registry build whose
-  `build_system` matches (`toolchain-script` = case A, `make` = case B).
-  `fs_view` it, copy it, and change paths and flags.
+  `build_system` matches (`toolchain-script` = case A, `make` = case B)
+  and no `removed`. `fs_view` it, copy it, and change paths and flags. If
+  no such build is left, write the script from procedure step 6.
 
 Submitting that job script through `submit_job`: the script carries its own
 `#SBATCH` lines for manual use, but under `submit_job` the job spec sets the

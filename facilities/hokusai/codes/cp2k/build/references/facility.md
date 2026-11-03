@@ -159,8 +159,26 @@ and the toolchain flags to `--mpi-mode=intelmpi --with-intelmpi=system
   that happens at the production layout is unchecked.
 - Smoke run (H2O-32, `mpirun -n 1`, 4 threads): not a speed test (406 s on
   1 × 4).
-- Not done: regression suite, the ELPA thread check at the production
-  layout, a benchmark against the GCC build. Prefer the GCC build.
+- Regression run (2026-10-29, a subset of 2121 tests): 2067 correct, 5
+  wrong, 49 failed with SIGSEGV. Two earlier runs stopped early: one
+  cancelled, one filled the node's `/tmp`.
+- Not done: the full suite, the ELPA thread check at the production layout,
+  a benchmark against the GCC build. Prefer the GCC build.
+
+### Intel classic 2023.2 variant (`intel23-cp2k`, 2026-10-30)
+
+A second Intel build of 2026.2 with `module load intel/23.02.1 gcc/13.2.0`
+(ifort 2021.10, icx 2023.2, Intel MPI 2021.10, MKL 2023.2). Found on the
+cluster on 2026-11-03; recorded from its logs, its `diagnosis_2026-10-30/`
+folder not yet read.
+- Three build jobs: CMake configure failed, then the PLUMED Python part
+  failed, then the third passed a crash-gate check. Patched installers are
+  kept as `.orig` copies (ELPA, PLUMED).
+- Regression run: 5472 of 5520 correct, 5 wrong, 43 failed, 30 min (GCC
+  2026.2: 5546 of 5546).
+- Launch with `srun` without `--mpi`; single-node `mpirun` needs
+  `I_MPI_HYDRA_BOOTSTRAP=fork` and `I_MPI_PIN=off` (from its
+  `cp2k_env.sh`, not tested in this repo).
 
 ## Still untested here
 
