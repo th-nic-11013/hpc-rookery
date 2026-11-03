@@ -5,8 +5,6 @@
   "CP2K_PYTHON": "/usr/bin/python3.12",
   "CP2K_SRUN_MPI": "--mpi=pmix",
   "CP2K_SMOKE_LAYOUTS": "28x4 8x14",
-  "CP2K_DEFAULT_ENV": "~/software/cp2k/cp2k_env.sh",
-  "CP2K_DATA_DIR": "~/software/cp2k/cp2k-2026.2/data",
   "CP2K_BUILD_CORES": 28,
   "CP2K_BUILD_JOBS": 20,
   "CP2K_BUILD_WALLTIME": "02:00:00"

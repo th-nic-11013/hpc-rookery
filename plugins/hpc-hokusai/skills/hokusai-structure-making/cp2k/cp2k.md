@@ -21,13 +21,15 @@ alike, and the method settings never get mixed up with the structure.
 
 `make_subsys.py` (next to this file) needs only numpy. Run it on the login
 node, against the data folder of the CP2K build that will run the input:
+that build's `data_dir` in `software_registry` (`records.py query software_registry code=cp2k default=true --fields=env_script,data_dir`
+through `hokusai-records`, for the default build).
 
 ```bash
 cd ~/agent/work/<project>/structures/<system>
 /usr/bin/python3.12 -I make_subsys.py UiO66-prim.xyz \
-    --data-dir ~/software/cp2k/cp2k-2026.2/data          # crystal / MOF / liquid
+    --data-dir <data_dir>          # crystal / MOF / liquid
 /usr/bin/python3.12 -I make_subsys.py mol.xyz --periodic NONE \
-    --data-dir ~/software/cp2k/cp2k-2026.2/data          # isolated molecule
+    --data-dir <data_dir>          # isolated molecule
 ```
 
 It writes `subsys.inc` with the cell, the coordinates inline (`&COORD`),
@@ -91,5 +93,5 @@ login node and proves the syntax, including the `@INCLUDE`, but not that
 the SCF converges:
 
 ```bash
-( source ~/software/cp2k/cp2k_env.sh; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i <input>.inp )
+( source <env_script>; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i <input>.inp )
 ```

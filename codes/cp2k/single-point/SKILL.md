@@ -22,9 +22,11 @@ submitting.
   reported, or the failure is reported with no number quoted.
 
 **Prerequisites:**
-- **A CP2K build** and its `cp2k_env.sh`. The default is
-  `{{CP2K_DEFAULT_ENV}}`; the builds are `software_registry` records
-  (`{{SLUG}}-records`), made by `{{SLUG}}-cp2k-build`.
+- **A CP2K build:** its `env_script` (written `<env_script>` below) from
+  `software_registry`, through `{{SLUG}}-records`. Unless the user names a
+  build, take the default:
+  `records.py query software_registry code=cp2k default=true --fields=env_script,data_dir`.
+  Builds are made by `{{SLUG}}-cp2k-build`.
 - **`subsys.inc`** for the structure, from `{{SLUG}}-structure-making` and
   its `cp2k/cp2k.md`.
 
@@ -56,7 +58,7 @@ Check the syntax on the login node before any job. A serial parse takes a
 few seconds:
 
 ```bash
-( source {{CP2K_DEFAULT_ENV}}; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i single_point.inp )
+( source <env_script>; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i single_point.inp )
 ```
 
 This proves the syntax, including the `@INCLUDE`, but not that the SCF
@@ -75,7 +77,7 @@ Get the absolute home path once (`echo $HOME`); `directory` is passed to
 {
   "name": "cp2k-sp-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/sp",
-  "pre_launch": "source {{CP2K_DEFAULT_ENV}}",
+  "pre_launch": "source <env_script>",
   "launcher": "srun {{CP2K_SRUN_MPI}} --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i single_point.inp -o single_point.out",
   "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},

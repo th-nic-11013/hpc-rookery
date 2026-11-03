@@ -85,7 +85,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("xyz")
     ap.add_argument("--data-dir", required=True,
-                    help="the CP2K build's data folder, e.g. ~/software/cp2k/cp2k-2026.2/data")
+                    help="the CP2K build's data folder: its software_registry data_dir")
     ap.add_argument("--periodic", choices=["XYZ", "NONE"], default="XYZ")
     ap.add_argument("--basis", default="DZVP-MOLOPT-SR-GTH")
     ap.add_argument("--charge", type=int, default=0, help="for the valence-electron count only")

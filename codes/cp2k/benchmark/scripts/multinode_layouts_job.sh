@@ -33,7 +33,7 @@
 #------- BENCHMARK SETTINGS (edit; the ${X:-...} form lets dryrun.sh override) -------#
 export BENCH_LIMIT_S=${BENCH_LIMIT_S:-$(( 20 * 60 ))}   # keep equal to --time above
 export BENCH_NODES=4                    # keep equal to --nodes above
-CP2K_ENV=${CP2K_ENV:-{{CP2K_DEFAULT_ENV}}}
+CP2K_ENV=${CP2K_ENV:?set CP2K_ENV to the env_script of the build (software_registry)}
 INPUT=${INPUT:-NAME.inp}                # MD input in inputs/
 STEPS=${STEPS:-10}                      # MD steps in INPUT
 LAYOUTS=${LAYOUTS:?per-node layouts, baseline first}  # R x T = {{CP2K_CORES_PER_NODE}}; choose from the records

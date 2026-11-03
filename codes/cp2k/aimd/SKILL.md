@@ -26,7 +26,9 @@ give the core-hour estimate before every submission.
   dependents are dealt with.
 
 **Prerequisites:**
-- a CP2K build (`{{CP2K_DEFAULT_ENV}}` by default; `{{SLUG}}-cp2k-build`);
+- a CP2K build: its `env_script` (written `<env_script>` below) from
+  `software_registry` through `{{SLUG}}-records`, the `default: true`
+  record unless the user names one (`{{SLUG}}-cp2k-build` makes builds);
 - `subsys.inc` (`{{SLUG}}-structure-making`), ideally relaxed first
   (`{{SLUG}}-cp2k-geo-opt`). X-ray C-H bonds (~0.95 Å) put large forces on
   the first steps;
@@ -85,7 +87,7 @@ from the equilibrated run's restart (section 4) so it inherits the
 velocities.
 
 Parse-check on the login node:
-`( source {{CP2K_DEFAULT_ENV}}; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i aimd_nvt.inp )`.
+`( source <env_script>; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i aimd_nvt.inp )`.
 
 ## 3. Stage and submit
 
@@ -95,7 +97,7 @@ Stage the input and `subsys.inc` in `~/agent/work/cp2k-runs/<system>/md/`.
 {
   "name": "cp2k-md-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/md",
-  "pre_launch": "source {{CP2K_DEFAULT_ENV}}",
+  "pre_launch": "source <env_script>",
   "launcher": "srun {{CP2K_SRUN_MPI}} --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i aimd_nvt.inp -o aimd_nvt.out",
   "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},

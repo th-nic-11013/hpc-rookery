@@ -102,7 +102,8 @@ Helpers (run them with `{{CP2K_PYTHON}} -I` on the login node):
   writes a 10-step NVE input and a 3-step smoke version from an extended
   XYZ.
   - Its defaults are revPBE-D3, 450/60 Ry and `FULL_SINGLE_INVERSE`.
-  - Pass `--data-dir` for a build other than its default.
+  - `--data-dir` is required: the build's `data_dir` from
+    `software_registry`.
   - Use `FULL_ALL` for cells of several hundred atoms.
 - `scripts/make_sp_inputs.py` turns MD inputs into FULL_ALL single points.
   Edit its `SOURCES` list for the system.

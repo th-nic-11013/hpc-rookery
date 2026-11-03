@@ -48,10 +48,9 @@ export OMP_NUM_THREADS=T OMP_PLACES=cores OMP_PROC_BIND=close
   the scripts need none).
 - Parse-check an input in a scratch copy:
   `( source <env_script>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i NAME.inp )`.
-- The `env_script` is the `software_registry` default build's. Until
-  build selection moves to records, the scripts default to
-  `~/software/cp2k/cp2k_env.sh` (`CP2K_ENV`), and `make_cp2k_md_input.py`
-  defaults to the data dir of `~/software/cp2k/cp2k-2026.2` (`--data-dir`).
+- `<env_script>` (and `CP2K_ENV` in the job scripts) is the
+  `env_script` of the build being timed, from `software_registry`; the
+  scripts have no default build.
 
 ## The benchmark job spec
 

@@ -24,7 +24,7 @@
 
 #------- BENCHMARK SETTINGS (edit) -------#
 export BENCH_LIMIT_S=$(( 53 * 60 ))     # keep equal to --time above
-CP2K_ENV=${CP2K_ENV:-{{CP2K_DEFAULT_ENV}}}
+CP2K_ENV=${CP2K_ENV:?set CP2K_ENV to the env_script of the build (software_registry)}
 export SMOKE_INPUT=H2O-32.inp     SMOKE_TIMEOUT=120
 export SCAN_INPUT=H2O-64.inp      SCAN_TIMEOUT=240
 export VALIDATE_INPUT=H2O-128.inp VALIDATE_TIMEOUT=360    # or none

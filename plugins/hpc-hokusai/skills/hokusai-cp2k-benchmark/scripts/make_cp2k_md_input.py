@@ -18,14 +18,11 @@ SCF shows up as time, not as a crashed benchmark).
 X-ray structures, whose C-H bonds come out about 0.95 A).
 """
 import argparse
-import os
 import re
 import sys
 from pathlib import Path
 
 import numpy as np
-
-DEFAULT_DATA = os.path.expanduser("~/software/cp2k/cp2k-2026.2/data")
 
 TEMPLATE = """\
 # {name}: {natoms} atoms, {formula}, {nelec} valence electrons.
@@ -177,7 +174,8 @@ def main():
     ap.add_argument("--rel-cutoff", type=int, default=60)
     ap.add_argument("--basis", default="DZVP-MOLOPT-SR-GTH")
     ap.add_argument("--charge", type=int, default=0)
-    ap.add_argument("--data-dir", default=DEFAULT_DATA)
+    ap.add_argument("--data-dir", required=True,
+                    help="the build's data folder: its software_registry data_dir")
     ap.add_argument("--stretch-ch", type=float, metavar="L")
     a = ap.parse_args()
 

@@ -25,7 +25,9 @@ submitting.
   (section 4) or report why it can't continue.
 
 **Prerequisites:**
-- a CP2K build (`{{CP2K_DEFAULT_ENV}}` by default; `{{SLUG}}-cp2k-build`);
+- a CP2K build: its `env_script` (written `<env_script>` below) from
+  `software_registry` through `{{SLUG}}-records`, the `default: true`
+  record unless the user names one (`{{SLUG}}-cp2k-build` makes builds);
 - `subsys.inc` (`{{SLUG}}-structure-making`, `cp2k/cp2k.md`);
 - **a converged single point on the starting geometry**
   (`{{SLUG}}-cp2k-single-point`). It proves the SCF settings work for this
@@ -63,7 +65,7 @@ Settings to confirm:
   file before Slurm kills the job.
 
 Parse-check on the login node before submitting:
-`( source {{CP2K_DEFAULT_ENV}}; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i geo_opt.inp )`.
+`( source <env_script>; cd <run dir>; OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i geo_opt.inp )`.
 Both templates passed `--check` and ran to completion on CP2K 2026.2.
 
 ## 2. Stage and submit
@@ -74,7 +76,7 @@ Stage the input and `subsys.inc` in `~/agent/work/cp2k-runs/<system>/opt/`.
 {
   "name": "cp2k-opt-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/opt",
-  "pre_launch": "source {{CP2K_DEFAULT_ENV}}",
+  "pre_launch": "source <env_script>",
   "launcher": "srun {{CP2K_SRUN_MPI}} --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i geo_opt.inp -o geo_opt.out",
   "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
