@@ -2,13 +2,16 @@
 
 Registers every facility (via importing hpc_mcp), then exposes the tools
 the code-pack skills under codes/ call. Every tool takes the facility slug
-first, like the scheduler tools. Records live on the machine running this
-server, so none of these tools opens a connection to a cluster.
+first, like the scheduler tools. The records_* tools work on local files
+and never contact a cluster; the cp2k_* tools run one read-only command on
+the facility's login node, after the same configuration check as the
+scheduler tools.
 """
 import hpc_mcp  # noqa: F401 -- import for its side effect: registers every facility
 from hpc_agent_core.mcp_server import MCPServer
 from hpc_agent_core.serving import serve
 from hpc_codes import records
+from hpc_codes.cp2k import tools as cp2k
 
 mcp = MCPServer("hpc-codes-mcp")
 
@@ -59,6 +62,65 @@ def records_check(facility: str) -> dict:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
     """
     return records.check(facility)
+
+
+# ---------------------------------------------------------------------------
+# CP2K. These read on the cluster's login node and change nothing there, so,
+# unlike run_command_on_cluster, they need no preview-and-permission step.
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def cp2k_bench_parse(facility: str, stage_dirs: list[str]) -> dict:
+    """Parse finished CP2K benchmark stage folders on the cluster (the
+    runs/<jobid>/<stage>/ folders the cp2k-benchmark job writes). Read-only;
+    runs on the login node, no permission step needed.
+
+    Returns {"node_cores", "runs": [per run: input, R (ranks), T (threads),
+    rep, done, sp (single point), steps, s_per_step, first_s, cp2k_s,
+    grid_s, dbcsr_s, fft_s, peak_mib, dE_max, dF_max, scf_nc, scf_iters,
+    ok], "stages": {folder: {found, runs, passed, ranked}}}. `passed` is
+    the stage gate (every run finished, converged and agrees in energy and
+    forces); `ranked` lists usable full-node layouts, fastest first.
+
+    Args:
+        facility: Facility slug, e.g. "hokusai". See get_facilities().
+        stage_dirs: stage folders on the cluster, absolute or under ~.
+    """
+    return cp2k.bench_parse(facility, stage_dirs)
+
+
+@mcp.tool()
+def cp2k_check_input(facility: str, input_path: str, build_id: str | None = None) -> dict:
+    """Parse-check a CP2K input on the login node (`cp2k.psmp --check`,
+    serial, 60 s limit) with a recorded build, from the input's own folder
+    so @INCLUDE files resolve. Proves the syntax, not that the SCF
+    converges. Read-only, no permission step needed.
+
+    Returns {"ok", "build_id", "exit_code", "timed_out", "errors", "tail"}.
+
+    Args:
+        facility: Facility slug, e.g. "hokusai". See get_facilities().
+        input_path: the .inp file on the cluster, absolute or under ~.
+        build_id: a software_registry build_id; omit for the default build.
+    """
+    return cp2k.check_input(facility, input_path, build_id)
+
+
+@mcp.tool()
+def cp2k_check_build(facility: str, build_id: str | None = None) -> dict:
+    """Check that a recorded CP2K build still works on the cluster: its env
+    script exists, cp2k.psmp is found after sourcing it, no shared library
+    is missing (ldd), the version matches the record, and its data folder
+    exists. Read-only, no permission step needed.
+
+    Returns {"ok", "build_id", "env_script_ok", "binary", "version",
+    "cp2kflags", "missing_libs", "data_dir_ok"}.
+
+    Args:
+        facility: Facility slug, e.g. "hokusai". See get_facilities().
+        build_id: a software_registry build_id; omit for the default build.
+    """
+    return cp2k.check_build(facility, build_id)
 
 
 def main():

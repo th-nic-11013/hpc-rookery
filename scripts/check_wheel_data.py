@@ -43,10 +43,12 @@ def main() -> int:
             failed = True
         else:
             print(f"✓ {needle}: {len(hits)} file(s)")
-    # hpc_codes reads the records schema and every facility's shared records
+    # hpc_codes reads the records schema, every facility's shared records and
+    # its code-pack values
     # through Path(__file__) too, so the same failure applies to them.
     wanted = ["hpc_codes/schemas/records.yaml"] + sorted(
-        str(p.relative_to(ROOT)) for p in (ROOT / "facilities").glob("*/records/*.yaml"))
+        str(p.relative_to(ROOT)) for p in (ROOT / "facilities").glob("*/records/*.yaml")) + sorted(
+        str(p.relative_to(ROOT)) for p in (ROOT / "facilities").glob("*/codes/*/values.json"))
     for rel in wanted:
         if rel in names:
             print(f"✓ {rel}")

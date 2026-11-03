@@ -62,5 +62,8 @@ include = ["hpc_agent_core*", "hpc_mcp*", "hpc_codes*", "facilities*"]
     # shared records (facilities/<dir>/records/) and their schema
     # (hpc_codes/schemas/), read by hpc_codes/records.py at call time
     "records/*.yaml",
+    # code-pack values (facilities/<dir>/codes/<code>/values.json), read by
+    # the hpc_codes cp2k_* tools
+    "codes/*/values.json",
     "schemas/*.yaml",
 ]

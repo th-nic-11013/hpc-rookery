@@ -2248,8 +2248,131 @@ def check_repo() -> None:
             out = subprocess.run([sys.executable, "-c", probe], cwd=root, env=env,
                                  capture_output=True, text=True, timeout=120)
         assert out.returncode == 0, out.stderr[-2000:]
-        assert out.stdout.strip() == "['records_append', 'records_check', 'records_query']", out.stdout
+        assert out.stdout.strip() == ("['cp2k_bench_parse', 'cp2k_check_build', 'cp2k_check_input', "
+                                      "'records_append', 'records_check', 'records_query']"), out.stdout
 
+    def local_run_command(facility, cmd):
+        """middleware.run_command's contract, run in a local bash: the same
+        payload (cd "$HOME" first), stdout back, RuntimeError on failure.
+        Only read-only commands reach it (the cp2k_* tools)."""
+        out = subprocess.run(["bash", "-c", 'cd "$HOME" && ' + cmd],
+                             capture_output=True, text=True, timeout=120)
+        if out.returncode:
+            raise RuntimeError(out.stderr or out.stdout)
+        return out.stdout
+
+    def cp2k_tools_parse_and_check_on_the_login_node():
+        """The cp2k_* tools' real shell commands, run against fixtures: two
+        scrubbed cp2k.out files from a HOKUSAI smoke stage, and a fake build
+        (env script, cp2k.psmp, ldd) in a temporary folder."""
+        import shutil
+        from hpc_codes import server
+        from hpc_codes.cp2k import tools
+        real_pack_values = tools.pack_values
+        root = pathlib.Path(__file__).resolve().parent.parent
+        stage = root / "tests" / "fixtures" / "cp2k_bench" / "stage1"
+        # HOKUSAI's own values, except the login node's Python path
+        values = {**tools.pack_values("hokusai"), "CP2K_PYTHON": sys.executable}
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(tools, "run_command", local_run_command), \
+                patch.object(tools, "pack_values", lambda f, code="cp2k": (
+                    values if f == "hokusai" else real_pack_values(f, code))), \
+                patch.dict(os.environ, {"HPC_RECORDS_USER_DIR": tmp, "HOKUSAI_HOST": "localhost"}):
+            tmp = pathlib.Path(tmp)
+            r = server.cp2k_bench_parse("hokusai", [str(stage), str(tmp / "absent")])
+            got = r["stages"][str(stage)]
+            assert got["passed"] and got["runs"] == 2, got
+            assert got["ranked"] == ["8x14", "28x4"], got
+            assert all(run["steps"] == 10 and run["dE_max"] < 1e-10 for run in r["runs"]), r["runs"]
+            assert r["stages"][str(tmp / "absent")] == {"found": False, "runs": 0,
+                                                          "passed": False, "ranked": []}
+            broken = tmp / "broken"
+            shutil.copytree(stage, broken)
+            out = broken / "H2O-32_8x14_r1" / "cp2k.out"
+            out.write_text(out.read_text().replace("PROGRAM ENDED AT", "PROGRAM KILLED AT"))
+            got = server.cp2k_bench_parse("hokusai", [str(broken)])["stages"][str(broken)]
+            assert not got["passed"] and got["ranked"] == ["28x4"], got
+
+            # a fake build: cp2k.psmp and ldd on PATH after the env script
+            bin_dir = tmp / "build" / "bin"
+            bin_dir.mkdir(parents=True)
+            (tmp / "build" / "data").mkdir()
+            (bin_dir / "cp2k.psmp").write_text(
+                '#!/bin/bash\n'
+                'if [ "$1" = --version ]; then echo " CP2K version 2026.2"; echo " cp2kflags: omp mkl"; exit 0; fi\n'
+                'grep -q BAD "$3" && { echo " *** [ABORT] unknown keyword BAD ***"; exit 1; }\n'
+                '[ -f sub.inc ] || { echo " *** [ABORT] @INCLUDE sub.inc not found ***"; exit 1; }\n'
+                'exit 0\n')
+            (bin_dir / "ldd").write_text('#!/bin/bash\n[ -n "$FAKE_MISSING" ] && echo "\tlibxc.so.6 => not found"; true\n')
+            # coreutils timeout is on every Linux login node, not on macOS
+            (bin_dir / "timeout").write_text('#!/bin/bash\nshift\nexec "$@"\n')
+            for f in bin_dir.iterdir():
+                f.chmod(0o755)
+            env = tmp / "build" / "env.sh"
+            env.write_text(f'export PATH={bin_dir}:$PATH\n')
+            build = {"build_id": "cp2k-2026.2-fake", "facility": "hokusai", "code": "cp2k",
+                     "version": "2026.2", "variant": {"exe": "psmp", "target": "cpu"},
+                     "toolchain": "fake", "install_path": str(tmp / "build"),
+                     "env_script": str(env), "data_dir": str(tmp / "build" / "data"),
+                     "test_status": {"level": "none", "result": "pass"},
+                     "default": True, "date": "2026-11-03"}
+            server.records_append("hokusai", "software_registry", build)
+
+            res = server.cp2k_check_build("hokusai")
+            assert res["ok"] and res["version"] == "2026.2" and res["cp2kflags"] == ["omp", "mkl"], res
+            with patch.dict(os.environ, {"FAKE_MISSING": "1"}):
+                res = server.cp2k_check_build("hokusai", "cp2k-2026.2-fake")
+            assert not res["ok"] and res["missing_libs"] == ["libxc.so.6"], res
+
+            run = tmp / "run dir"         # a space: the folder must be quoted
+            run.mkdir()
+            (run / "sub.inc").write_text("")
+            (run / "good.inp").write_text("&GLOBAL\n&END\n")
+            (run / "bad.inp").write_text("BAD\n")
+            res = server.cp2k_check_input("hokusai", str(run / "good.inp"))
+            assert res["ok"] and res["build_id"] == "cp2k-2026.2-fake", res
+            res = server.cp2k_check_input("hokusai", str(run / "bad.inp"))
+            assert not res["ok"] and any("unknown keyword BAD" in e for e in res["errors"]), res
+
+            # a removed default is never used; an unknown id lists what exists
+            server.records_append("hokusai", "software_registry",
+                                  {**build, "build_id": "cp2k-gone", "removed": "2026-11-03"})
+            for bad in ("cp2k-gone", "no-such-build"):
+                try:
+                    server.cp2k_check_build("hokusai", bad)
+                except ValueError as e:
+                    assert "cp2k-2026.2-fake" in str(e) and "cp2k-gone" not in str(e).split("Available:")[1], e
+                else:
+                    raise AssertionError(f"used build {bad}")
+            try:
+                server.cp2k_check_build("rikyu")
+            except ValueError as e:
+                assert "has not opted into the cp2k code pack" in str(e), e
+            else:
+                raise AssertionError("cp2k tool ran on a facility without the pack")
+
+    def cp2k_tools_check_configuration_first():
+        from hpc_codes import server
+        from hpc_codes.cp2k import tools
+
+        def must_not_run(*_):
+            raise AssertionError("an unconfigured facility reached run_command")
+        env = {k: v for k, v in os.environ.items() if k != "HOKUSAI_HOST"}
+        with no_user_config("hokusai"), patch.dict(os.environ, env, clear=True), \
+                patch.object(tools, "run_command", must_not_run):
+            for call in (lambda: server.cp2k_bench_parse("hokusai", ["x"]),
+                         lambda: server.cp2k_check_input("hokusai", "x.inp"),
+                         lambda: server.cp2k_check_build("hokusai")):
+                try:
+                    call()
+                except RuntimeError as e:
+                    assert "not configured yet" in str(e), e
+                else:
+                    raise AssertionError("unconfigured cp2k tool did not stop")
+
+    check("cp2k tools parse and check on the login node",
+          cp2k_tools_parse_and_check_on_the_login_node)
+    check("cp2k tools check configuration first", cp2k_tools_check_configuration_first)
     check("records tools follow the adapter contract",
           records_tools_follow_the_adapter_contract)
     check("shipped records are valid", shipped_records_are_valid)
