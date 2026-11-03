@@ -66,8 +66,12 @@ def bench_parse(facility: str, stage_dirs: list[str]) -> dict:
 
 
 def _run_with_exit(facility: str, body: str) -> tuple[int, list[str]]:
-    """Run body in a subshell; return its exit code and output lines."""
-    out = run_command(facility, f"( {body} ) 2>&1; echo HPC_CODES_EXIT=$?")
+    """Run body in a subshell; return its exit code and output lines.
+
+    stdin is /dev/null: run_command's ssh leaves it open, and cp2k.psmp
+    (MPI start-up) waits on an open stdin until the transport times out.
+    """
+    out = run_command(facility, f"( {body} ) </dev/null 2>&1; echo HPC_CODES_EXIT=$?")
     lines = out.rstrip("\n").splitlines()
     code = int(lines[-1].split("=", 1)[1]) if lines and lines[-1].startswith("HPC_CODES_EXIT=") else -1
     return code, lines[:-1]

@@ -2358,7 +2358,8 @@ def check_repo() -> None:
         def must_not_run(*_):
             raise AssertionError("an unconfigured facility reached run_command")
         env = {k: v for k, v in os.environ.items() if k != "HOKUSAI_HOST"}
-        with no_user_config("hokusai"), patch.dict(os.environ, env, clear=True), \
+        # clear the environment first: no_user_config's override must survive it
+        with patch.dict(os.environ, env, clear=True), no_user_config("hokusai"), \
                 patch.object(tools, "run_command", must_not_run):
             for call in (lambda: server.cp2k_bench_parse("hokusai", ["x"]),
                          lambda: server.cp2k_check_input("hokusai", "x.inp"),
