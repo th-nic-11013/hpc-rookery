@@ -2183,10 +2183,10 @@ def check_repo() -> None:
         own ~/.hpc-agent/records out of it, in both directions."""
         from hpc_codes import server
         from hpc_codes.records import RecordsError
-        shared = server.records_query("hokusai", "benchmarks")
-        assert shared and {r["_scope"] for r in shared} == {"facility"}, "no shared benchmarks"
         with tempfile.TemporaryDirectory() as tmp, \
                 patch.dict(os.environ, {"HPC_RECORDS_USER_DIR": tmp}):
+            shared = server.records_query("hokusai", "benchmarks")
+            assert shared and {r["_scope"] for r in shared} == {"facility"}, "no shared benchmarks"
             assert server.records_query("hokusai", "software_registry") == []
             assert server.records_query("rikyu", "benchmarks") == [], "a facility with no records"
             hits = server.records_query("hokusai", "benchmarks",
@@ -2916,6 +2916,9 @@ def check_repo() -> None:
         r = ysrv.structure_check(str(fx / "flagged.xyz"))
         assert not r["ok"] and r["natoms"] == 5, r
         assert {(f["pair"], f["kind"]) for f in r["flags"]} == {("C-H", "short_xh"), ("O-O", "overlap")}, r
+        # plain Python types only, so the result is the same after JSON
+        assert all(type(k) is str for k in r["composition"]), r["composition"]
+        assert json.loads(json.dumps(r)) == r
         # minimum image: N at x=9.6 is 1.4 A from C at x=1.0 across the boundary
         assert {"pair": "C-N", "d": 1.4, "count": 1} in r["min_pair_distances"], r
         r = ysrv.structure_check(str(fx / "clean.xyz"))

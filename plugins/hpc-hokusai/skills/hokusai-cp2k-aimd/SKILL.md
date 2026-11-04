@@ -1,6 +1,6 @@
 ---
 name: hokusai-cp2k-aimd
-description: Run CP2K ab initio (Born-Oppenheimer) molecular dynamics on HOKUSAI BigWaterfall2 (HBW2) - NVT equilibration and NVE/NVT production, cost estimates from measured step times, restarts across the 24-hour limit, and checks on temperature, energy conservation and SCF. Use whenever the user wants AIMD, BOMD, first-principles MD, a trajectory, or to continue or restart an MD run with CP2K on HOKUSAI BigWaterfall2 (HBW2).
+description: Run CP2K ab initio (Born-Oppenheimer) molecular dynamics on HOKUSAI BigWaterfall2 (HBW2) - NVT equilibration and NVE/NVT production, cost estimates from measured step times, restarts across the 24-hour limit, checks on temperature, energy conservation and SCF, and trajectory analysis (RDF, MSD, vibrational DOS). Use whenever the user wants AIMD, BOMD, first-principles MD, a trajectory, or to continue or restart an MD run with CP2K on HOKUSAI BigWaterfall2 (HBW2).
 ---
 
 # CP2K AIMD on HOKUSAI BigWaterfall2 (HBW2)
@@ -18,7 +18,9 @@ give the core-hour estimate before every submission.
   files.
 - **Tools:** `launch_plan` (layout, job spec, cost), `fs_upload`,
   `cp2k_check_input` (parse check),
-  `submit_job`, `get_job_status`, `cancel_job`, `fs_tail` / `fs_view`.
+  `submit_job`, `get_job_status`, `cancel_job`, `fs_tail` / `fs_view`,
+  `fs_download`; for analysis, `trajectory_rdf`, `trajectory_msd` and
+  `trajectory_vdos` (yagura, on the downloaded files).
 - **Preconditions:** the prerequisites below, and the user's approval of
   the core-hour estimate for every segment.
 - **Done when:** each segment ended cleanly (SCF converged, conserved
@@ -172,7 +174,7 @@ segment leaves the rest pending with `DependencyNeverSatisfied`. So either:
 | check | healthy | if not |
 |---|---|---|
 | SCF | no `SCF run NOT converged` after the first step | **stop the run** (`cancel_job`): forces from an unconverged SCF are unreliable. Fix the SCF with single points first |
-| `Temp` | after equilibration, the NVT mean approaches the target. Fluctuations of about T·√(2/(3N)) are physics (~12% for 64 atoms), not noise to fix. A sharp early drop (300 → ~200 K within ~10 fs) is kinetic energy flowing into the potential | still drifting: equilibrate longer |
+| `Temp` | after equilibration, the NVT mean approaches the target. Fluctuations of about T·√(2/(3N)) are physics (~12% for 64 atoms), not noise to fix. A sharp early drop (300 → ~200 K within ~10 fs) is kinetic energy flowing into the potential. With `TIMECON` 100 fs, a 114-atom MOF started at 300 K was still at 282 K after 500 fs | still drifting: equilibrate longer |
 | `Cons Qty` drift | < ~1 meV/atom/ps good; 1–10 acceptable for short runs; > 10 something is wrong. Only meaningful over ≳ 0.5 ps | shorter `TIMESTEP`, tighter `EPS_SCF` |
 | `UsedTime` | steady | rising: more SCF iterations per step, so check the SCF |
 
@@ -180,3 +182,30 @@ Discard the equilibration part before averaging anything. Trajectories
 grow with every step (atoms × steps × ~60 bytes per file); print every 5th
 step (`&EACH MD 5`) for long runs, and keep few large files rather than
 many small ones.
+
+## 6. Analyse the trajectory
+
+`fs_download` `<PROJECT>-pos-1.xyz` (and `-1.ener`) from the run directory,
+then use the yagura tools on the local copy:
+
+- `trajectory_rdf(path, pairs=["Zr-O", "O-H"], cell=..., frames="<first production frame>:")`:
+  first-shell distances and coordination numbers, a quick check that the
+  bonding survived (e.g. the expected metal coordination, no lost O-H).
+- `trajectory_msd(path, elements=[...], dt_fs=..., cell=..., frames=...)`:
+  diffusion. Report `D` only when `loglog_slope` is near 1 **and** the MSD
+  reaches several Å². In a framework, sub-ps runs give slopes near 1 from
+  vibration alone (0.25 ps of UiO-66 H: slope 1.09, MSD 0.27 Å²): that is
+  not diffusion. Framework atoms plateau; MSD is for mobile guests.
+- `trajectory_vdos(path, dt_fs=..., cell=..., elements=[...])`: peak
+  positions (X-H stretches, carboxylate modes). Resolution is 1 / run
+  length (~67 cm⁻¹ for 0.5 ps), so long runs resolve close peaks.
+
+Arguments:
+- **`cell`**: CP2K's `-pos-1.xyz` has no cell. Pass the cell vectors as
+  a 3×3 matrix of rows, the same as `&CELL` `A`/`B`/`C` (or an extxyz
+  `Lattice=` line split into three rows).
+- **`dt_fs`**: `TIMESTEP` × the trajectory's `&EACH MD` stride. For VDOS keep
+  the Nyquist limit (16678 / dt_fs cm⁻¹) above the X-H stretches: 0.5 fs
+  with `&EACH MD 10` gives 3336 cm⁻¹, which already cuts them off.
+- **`frames`**: drop the equilibration part (`"500:"`), as for every
+  average.

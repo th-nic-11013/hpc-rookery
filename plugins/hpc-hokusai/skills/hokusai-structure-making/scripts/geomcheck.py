@@ -58,7 +58,7 @@ def check(text: str) -> dict:
             elif {a, b} in ({"C", "H"}, {"N", "H"}) and dmin < SHORT_XH:
                 flags.append({"pair": f"{a}-{b}", "d": round(dmin, 3), "kind": "short_xh"})
     return {"natoms": n,
-            "composition": {e: int((el == e).sum()) for e in elements},
+            "composition": {str(e): int((el == e).sum()) for e in elements},
             "cell": {"lengths": [round(float(x), 4) for x in L],
                      "angles": [round(float(x), 3) for x in ang],
                      "volume": round(float(vol), 2),
