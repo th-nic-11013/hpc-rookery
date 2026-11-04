@@ -28,6 +28,8 @@ looks the way it does.
   - `fs_upload`, `run_command_on_cluster` (the dry run), `cp2k_check_input`,
     `cp2k_bench_parse` and `fs_view` / `fs_tail` on the login node;
   - `submit_job` and `get_job_status` for the job;
+  - `cp2k_bench_input` (reads the build's data folder, writes locally),
+    `structure_check` and `structure_stretch_xh` for the structure;
   - `launch_plan` and `{{SLUG}}-records` locally.
 - **Preconditions:**
   - a build (`{{SLUG}}-cp2k-build`);
@@ -98,8 +100,8 @@ Rules:
   low-cutoff test inputs overstate how much the layout matters.
 - **Inline or absolute includes.** `run_layout` copies only the input file
   into each run folder. Change `@INCLUDE subsys.inc` to an absolute path, or
-  build the input with `scripts/make_cp2k_md_input.py`, which writes the
-  coordinates inline.
+  build the input with `cp2k_bench_input`, which writes the coordinates
+  inline.
 - **Test the SCF of any new or bigger cell with a single point first.** An
   unconverged SCF once bought no timing for a 4-node job (lessons 9–10).
   AIMD benchmark inputs set `IGNORE_CONVERGENCE_FAILURE`, and the gate
@@ -107,14 +109,34 @@ Rules:
 - **Parse-check every input** on the login node, in a scratch copy, using
   the command in `references/facility.md`.
 
-Helpers (run them with `{{CP2K_PYTHON}} -I` on the login node):
-- `scripts/make_cp2k_md_input.py STRUCT.xyz --name NAME --out-dir <bench>/inputs`
-  writes a 10-step NVE input and a 3-step smoke version from an extended
-  XYZ.
-  - Its defaults are revPBE-D3, 450/60 Ry and `FULL_SINGLE_INVERSE`.
-  - `--data-dir` is required: the build's `data_dir` from
-    `software_registry`.
-  - Use `FULL_ALL` for cells of several hundred atoms.
+For an AIMD benchmark of a structure, write the inputs with the tool, on
+this machine, from the extended XYZ:
+1. `structure_check` the XYZ. If it reports `short_xh` (X-ray C-H bonds
+   near 0.95 Å), run `structure_stretch_xh` first and use its output.
+2. Write the 10-step NVE input and its 3-step smoke version:
+
+   ```text
+   cp2k_bench_input(facility="{{SLUG}}", xyz_path="<local>.xyz", name="<label>",
+                    out_dir="<local bench>/inputs", build_id=<omit for the default>)
+   ```
+
+   - Defaults: revPBE-D3 (zero damping), 450/60 Ry, Gamma point,
+     OT/DIIS with `FULL_SINGLE_INVERSE`. Set `xc`, `d3`, `cutoff`,
+     `rel_cutoff`, `charge` and `steps` to match production.
+   - q and the GTH-PBE potential come from the build's own data folder,
+     the same lookup as `cp2k_kinds`; an element it lacks stops the tool.
+   - Read its `warnings` to the user: an odd electron count needs UKS
+     and `MULTIPLICITY` added by hand; a cell under 10 Å wide samples
+     Gamma poorly.
+   - Change `PRECONDITIONER` to `FULL_ALL` for cells of several hundred
+     atoms.
+3. `fs_upload` both files into `bench/inputs/`.
+
+By hand, without the tool (run with `{{CP2K_PYTHON}} -I` on the login
+node):
+- `scripts/make_cp2k_md_input.py STRUCT.xyz --name NAME --out-dir <bench>/inputs
+  --data-dir <the build's data_dir>` writes the same two inputs. Its
+  `--stretch-ch 1.08` stands in for `structure_stretch_xh`.
 - `scripts/make_sp_inputs.py` turns MD inputs into FULL_ALL single points.
   Edit its `SOURCES` list for the system.
 

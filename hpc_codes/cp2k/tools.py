@@ -1,7 +1,8 @@
 """CP2K tools: parse benchmark stages, parse-check an input, check a build,
-look up a build's &KIND facts.
+look up a build's &KIND facts, write benchmark inputs.
 
-All four only read on the cluster. Each runs one shell command on the
+All five only read on the cluster; bench_input writes its inputs on this
+machine. Each runs one shell command on the
 login node through middleware.run_command, after checking that the
 facility opted into the cp2k pack and then the same configuration check
 the scheduler tools use. The facility's CP2K values (front-end
@@ -16,6 +17,7 @@ from pathlib import Path
 from hpc_agent_core import config
 from hpc_agent_core.middleware import norm_path, run_command
 from hpc_codes import packs
+from hpc_codes.cp2k import bench_input as _bench
 
 PARSE_BENCH = Path(__file__).parent / "parse_bench.py"
 KINDS = Path(__file__).parent / "kinds.py"
@@ -131,3 +133,33 @@ def kinds(facility: str, elements: list[str], basis: str = "DZVP-MOLOPT-SR-GTH",
     out = run_command(facility, _python_script(vals, KINDS, args))
     result = json.loads(out.strip().splitlines()[-1])
     return {"build_id": build["build_id"], "data_dir": build["data_dir"], **result}
+
+
+def bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
+                build_id: str | None = None, steps: int = 10, smoke_steps: int = 3,
+                xc: str = "revPBE", d3: str = "zero", cutoff: int = 450, rel_cutoff: int = 60,
+                basis: str = "DZVP-MOLOPT-SR-GTH", charge: int = 0,
+                overwrite: bool = False) -> dict:
+    pack_values(facility)
+    config.require_facility_configuration(facility)
+    src = Path(xyz_path).expanduser()
+    if not src.is_file():
+        raise ValueError(f"{src} is not a file on this machine. For a file on a "
+                         "cluster, download it first (fs_download).")
+    text = src.read_text()
+    _bench.check_args(name, xc, d3)
+    elements = list(dict.fromkeys(_bench.read_extxyz(text)[1]))
+    out = Path(out_dir).expanduser()
+    targets = [out / f"{name}.inp", out / f"{name}-smoke.inp"]
+    existing = [str(t) for t in targets if t.exists()]
+    if existing and not overwrite:
+        raise ValueError(f"{existing} exist; pass overwrite=true to replace them")
+    k = kinds(facility, elements, basis, build_id)
+    if k["errors"]:
+        raise ValueError(f"no {basis} kind in {k['data_dir']} for: {k['errors']}")
+    texts, info = _bench.bench_inputs(text, src.name, name, k["kinds"], steps, smoke_steps,
+                                      xc, d3, cutoff, rel_cutoff, charge)
+    out.mkdir(parents=True, exist_ok=True)
+    for fname, body in texts.items():
+        (out / fname).write_text(body)
+    return {"inputs": [str(t) for t in targets], "build_id": k["build_id"], **info}

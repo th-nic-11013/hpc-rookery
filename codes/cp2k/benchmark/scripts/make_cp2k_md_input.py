@@ -16,6 +16,12 @@ OT/DIIS with FULL_SINGLE_INVERSE, EPS_SCF 1e-6, IGNORE_CONVERGENCE_FAILURE (so a
 SCF shows up as time, not as a crashed benchmark).
 --stretch-ch L moves every H bonded to C (< 1.2 A) along the bond to L (use 1.08 for
 X-ray structures, whose C-H bonds come out about 0.95 A).
+
+This is the by-hand fallback. The agent's path is the cp2k_bench_input tool,
+which writes the same inputs (conformance checks it, apart from the "Written
+by" line) with the kinds read as cp2k_kinds does; there, C-H fixes are
+yagura's structure_stretch_xh, run first, and --stretch-ch is kept here only
+for by-hand use.
 """
 import argparse
 import re
