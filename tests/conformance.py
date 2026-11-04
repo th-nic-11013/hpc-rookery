@@ -2413,6 +2413,64 @@ def check_repo() -> None:
             else:
                 raise AssertionError("cp2k_kinds accepted a shell word as a basis")
 
+    def hyogo_make_subsys_matches_the_script_and_stays_separate():
+        """hyogo's cp2k_make_subsys writes what make_subsys.py (the by-hand
+        fallback) writes, from cp2k_kinds-shaped kinds; it refuses missing
+        kinds; its server starts with an empty HOME; and the three staged
+        groups (rookery, yagura, hyogo) import nothing from each other."""
+        import ast
+        from hyogo import server as hsrv
+        root = pathlib.Path(__file__).resolve().parent.parent
+        fx = root / "tests" / "fixtures" / "structures" / "clean.xyz"
+        data = root / "tests" / "fixtures" / "cp2k_data"
+        kinds = {"build_id": "x", "kinds": {
+            "O": {"q": 6, "basis": "DZVP-MOLOPT-SR-GTH", "potential": "GTH-PBE-q6"},
+            "H": {"q": 1, "basis": "DZVP-MOLOPT-SR-GTH", "potential": "GTH-PBE-q1"}}, "errors": {}}
+        with tempfile.TemporaryDirectory() as d:
+            for periodic in ("XYZ", "NONE"):
+                old, new = pathlib.Path(d) / f"old-{periodic}", pathlib.Path(d) / f"new-{periodic}"
+                subprocess.run([sys.executable, "-I",
+                                str(root / "codes/common/structure-making/cp2k/make_subsys.py"),
+                                str(fx), "--data-dir", str(data), "--periodic", periodic,
+                                "--out", str(old)], check=True, capture_output=True, timeout=60)
+                r = hsrv.cp2k_make_subsys(str(fx), kinds, str(new), periodic=periodic)
+                a, b = old.read_text().splitlines(), new.read_text().splitlines()
+                assert a[:1] + a[2:] == b[:1] + b[2:], (a, b)
+                assert r["electrons"] == 8 and r["formula"] == "O1H2", r
+            assert any("below 10 A" in w for w in
+                       hsrv.cp2k_make_subsys(str(fx), kinds["kinds"], str(pathlib.Path(d) / "k"))["warnings"])
+            for args, text in (((str(fx), {"O": kinds["kinds"]["O"]}, str(pathlib.Path(d) / "m")), "no kind for ['H']"),
+                               ((str(fx), kinds, str(pathlib.Path(d) / "new-XYZ")), "exists"),
+                               ((str(fx), {"O": {"q": 6}, "H": {"q": 1}}, str(pathlib.Path(d) / "q")), "needs q")):
+                try:
+                    hsrv.cp2k_make_subsys(*args)
+                except ValueError as e:
+                    assert text in str(e), e
+                else:
+                    raise AssertionError(f"cp2k_make_subsys accepted {args[1:]}")
+
+        probe = ("import asyncio; from hyogo.server import mcp; "
+                 "print(sorted(t.name for t in asyncio.run(mcp.list_tools())))")
+        with tempfile.TemporaryDirectory() as home:
+            out = subprocess.run([sys.executable, "-c", probe], cwd=root,
+                                 env={**os.environ, "HOME": home},
+                                 capture_output=True, text=True, timeout=120)
+        assert out.returncode == 0, out.stderr[-2000:]
+        assert out.stdout.strip() == "['cp2k_make_subsys']", out.stdout
+
+        groups = {"rookery": ("hpc_agent_core", "hpc_mcp", "hpc_codes", "facilities"),
+                  "yagura": ("yagura",), "hyogo": ("hyogo",)}
+        for name, pkgs in groups.items():
+            others = {p for g, ps in groups.items() if g != name for p in ps}
+            for pkg in pkgs:
+                for f in (root / pkg).rglob("*.py"):
+                    for node in ast.walk(ast.parse(f.read_text())):
+                        mods = ([a.name for a in node.names] if isinstance(node, ast.Import) else
+                                [node.module] if isinstance(node, ast.ImportFrom) and node.module
+                                and not node.level else [])
+                        bad = [m for m in mods if m.split(".")[0] in others]
+                        assert not bad, f"{f.relative_to(root)} ({name}) imports {bad}"
+
     def launch_plan_picks_from_the_shipped_records():
         """launch_plan against HOKUSAI's shipped benchmarks: the match ladder,
         cost vs time, a fixed node count, the job spec, and that it answers
@@ -2565,6 +2623,8 @@ def check_repo() -> None:
           cp2k_tools_parse_and_check_on_the_login_node)
     check("cp2k tools check configuration first", cp2k_tools_check_configuration_first)
     check("cp2k_kinds reads the build data folder", cp2k_kinds_reads_the_build_data_folder)
+    check("hyogo make_subsys matches the script and stays separate",
+          hyogo_make_subsys_matches_the_script_and_stays_separate)
     check("launch_plan picks from the shipped records", launch_plan_picks_from_the_shipped_records)
     check("yagura structure_check flags and stays separate", yagura_structure_check_flags_and_stays_separate)
     check("records tools follow the adapter contract",
