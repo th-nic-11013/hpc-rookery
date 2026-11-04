@@ -35,6 +35,11 @@ dependencies = [
     "pyyaml",
 ]
 
+[project.optional-dependencies]
+# yagura's CIF tools (cif_inspect, structure_to_extxyz). Imported inside those
+# tools only, so every server starts without it.
+yagura = ["ase>=3.23,<4"]
+
 [project.scripts]
 hpc-mcp = "hpc_mcp.hpc_server:main"
 hpc-docs-mcp = "hpc_mcp.docs_server:main"

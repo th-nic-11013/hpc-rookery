@@ -35,7 +35,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: python -m pip install -e .
+        run: python -m pip install -e '.[yagura]'
 
       # The point of the placeholder mechanism. A contributor adds a
       # facility.json and some skill_notes/, and the boilerplate around them

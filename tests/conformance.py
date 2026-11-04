@@ -2413,6 +2413,33 @@ def check_repo() -> None:
             else:
                 raise AssertionError("cp2k_kinds accepted a shell word as a basis")
 
+    def yagura_cif_tools_read_convert_and_warn():
+        """cif_inspect and structure_to_extxyz on a small disordered CIF and a
+        molecule with no cell (needs ASE, the [yagura] extra CI installs)."""
+        from yagura import server as ysrv
+        fx = pathlib.Path(__file__).resolve().parent / "fixtures" / "structures"
+        r = ysrv.cif_inspect(str(fx / "disordered.cif"))
+        assert r["cell"] == {"lengths": [6.0, 6.0, 6.0], "angles": [90.0, 90.0, 90.0]}, r
+        assert r["partial"] == ["H1A", "H1B"] and r["partial_groups"] == {"1": ["H1A"], "2": ["H1B"]}, r
+        assert r["keys"]["_space_group_it_number"] == "1" and len(r["sites"]) == 4, r
+        with tempfile.TemporaryDirectory() as d:
+            out = pathlib.Path(d) / "cell.xyz"
+            c = ysrv.structure_to_extxyz(str(fx / "disordered.cif"), str(out))
+            assert c["formula"] == "CH2O" and c["electrons"] == 16, c
+            assert c["multiplicities"] == "1, 3, 5, ..." and "partial sites (H1A, H1B)" in c["warnings"][0], c
+            assert ysrv.structure_check(str(out))["natoms"] == 4
+            box = ysrv.structure_to_extxyz(str(fx / "h2_nocell.xyz"), str(pathlib.Path(d) / "h2.xyz"), vacuum=6)
+            assert box["cell"]["lengths"][:2] == [12.0, 12.0] and box["warnings"] == [], box
+            for args, kw, text in (((str(fx / "h2_nocell.xyz"), str(pathlib.Path(d) / "x.xyz")), {}, "no complete cell"),
+                                   ((str(fx / "disordered.cif"), str(out)), {}, "exists"),
+                                   ((str(fx / "disordered.cif"), str(fx / "disordered.cif")), {}, "must differ")):
+                try:
+                    ysrv.structure_to_extxyz(*args, **kw)
+                except ValueError as e:
+                    assert text in str(e), e
+                else:
+                    raise AssertionError(f"structure_to_extxyz accepted {args}")
+
     def hyogo_make_subsys_matches_the_script_and_stays_separate():
         """hyogo's cp2k_make_subsys writes what make_subsys.py (the by-hand
         fallback) writes, from cp2k_kinds-shaped kinds; it refuses missing
@@ -2601,7 +2628,27 @@ def check_repo() -> None:
                                  env={**os.environ, "HOME": home},
                                  capture_output=True, text=True, timeout=120)
         assert out.returncode == 0, out.stderr[-2000:]
-        assert out.stdout.strip() == "['structure_check', 'structure_stretch_xh']", out.stdout
+        assert out.stdout.strip() == ("['cif_inspect', 'structure_check', 'structure_stretch_xh', "
+                                      "'structure_to_extxyz']"), out.stdout
+
+        # without ASE: the server still starts with every tool, the numpy
+        # tools work, and the CIF tools say how to install it
+        no_ase = ("import sys, importlib.abc\n"
+                  "class Block(importlib.abc.MetaPathFinder):\n"
+                  "    def find_spec(self, name, path=None, target=None):\n"
+                  "        if name == 'ase' or name.startswith('ase.'):\n"
+                  "            raise ModuleNotFoundError(f'No module named {name!r}', name=name)\n"
+                  "sys.meta_path.insert(0, Block())\n"
+                  "import asyncio; from yagura import server\n"
+                  "print(len(asyncio.run(server.mcp.list_tools())))\n"
+                  f"print(server.structure_check({str(fx / 'clean.xyz')!r})['ok'])\n"
+                  "try:\n"
+                  f"    server.cif_inspect({str(fx / 'disordered.cif')!r})\n"
+                  "except RuntimeError as e:\n"
+                  "    print('needs ASE' in str(e))\n")
+        out = subprocess.run([sys.executable, "-c", no_ase], cwd=root, capture_output=True,
+                             text=True, timeout=120)
+        assert out.stdout.split() == ["4", "True", "True"], (out.stdout, out.stderr[-2000:])
 
         def imports(folder):
             for f in (root / folder).rglob("*.py"):
@@ -2623,6 +2670,7 @@ def check_repo() -> None:
           cp2k_tools_parse_and_check_on_the_login_node)
     check("cp2k tools check configuration first", cp2k_tools_check_configuration_first)
     check("cp2k_kinds reads the build data folder", cp2k_kinds_reads_the_build_data_folder)
+    check("yagura cif tools read, convert and warn", yagura_cif_tools_read_convert_and_warn)
     check("hyogo make_subsys matches the script and stays separate",
           hyogo_make_subsys_matches_the_script_and_stays_separate)
     check("launch_plan picks from the shipped records", launch_plan_picks_from_the_shipped_records)
