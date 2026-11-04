@@ -22,15 +22,15 @@ looks the way it does.
   - `benchmarks`: earlier timings;
   - `software_registry`: which build to time (`default: true` unless the
     user names one).
-- **Writes:** `benchmarks`, one record per layout × node count, with the
-  job ID.
+- **Writes:** `benchmarks`, one record per layout × node count, and
+  `benchmarks_provenance` with the job IDs (`cp2k_bench_records`).
 - **Tools:**
-  - `fs_upload`, `run_command_on_cluster` (the dry run), `cp2k_check_input`,
+  - `fs_upload`, `cp2k_bench_dryrun`, `cp2k_check_input`,
     `cp2k_bench_parse` and `fs_view` / `fs_tail` on the login node;
   - `submit_job` and `get_job_status` for the job;
   - `cp2k_bench_input` (reads the build's data folder, writes locally),
     `structure_check` and `structure_stretch_xh` for the structure;
-  - `launch_plan` and `{{SLUG}}-records` locally.
+  - `cp2k_bench_records`, `launch_plan` and `{{SLUG}}-records` locally.
 - **Preconditions:**
   - a build (`{{SLUG}}-cp2k-build`);
   - the production input, written by its run skill;
@@ -175,21 +175,31 @@ Timeouts: about 2× the fastest layout's run time, plus at least 2 min of
 launch slack (lesson 11). With no timing yet, run the smoke stage alone
 first, or scan only 3–4 layouts.
 
-**Dry-run it before submitting.** It runs on the login node, in a scratch
-copy, with a stub `srun`. The harness refuses to run unless that stub is
-first on `PATH`.
+**Dry-run it before submitting.** `cp2k_bench_dryrun` runs the folder's
+`dryrun.sh` on the login node, in a scratch folder of its own, with a stub
+`srun`; the harness refuses to run unless that stub is first on `PATH`.
+Pass the BENCHMARK SETTINGS as `settings`:
 
-```bash
-REF_OUT=<finished cp2k.out> SMOKE_INPUT=... SCAN_INPUT=... VALIDATE_INPUT=... \
-  bash ~/agent/work/cp2k-runs/<system>/bench/dryrun.sh ~/agent/work/cp2k-runs/<system>/bench <empty scratch dir>
+```text
+cp2k_bench_dryrun(facility="{{SLUG}}", bench_dir="~/agent/work/cp2k-runs/<system>/bench",
+                  ref_out="<finished cp2k.out>",
+                  settings={"SMOKE_INPUT": "...", "SCAN_INPUT": "...", "VALIDATE_INPUT": "...",
+                            "SMOKE_TIMEOUT": "...", "SCAN_TIMEOUT": "...", "VALIDATE_TIMEOUT": "..."})
 ```
 
-Repeat it twice more:
-- with `FAIL_LAYOUT=<a scan layout>`: the stage must stop;
-- with a small `BENCH_LIMIT_S`, such as 400: the guard must refuse a run.
+One call runs three cases, and `ok` is true only if each behaved:
+- `pass`: all stages pass;
+- `fail_layout`: the stub fails one scan layout (`fail_layout`, default the
+  last one not in the smoke stage), and the stage must stop there;
+- `time_limit`: a small `BENCH_LIMIT_S` (`time_limit_s`, default 60), and
+  the guard must refuse a run.
+
+A case with `expected: false` says why; read its `log_tail`. For the
+multi-node job, pass `job_script="multinode_layouts_job.sh"`, `nodes` and
+its settings (`LAYOUTS`, `REF_DIR`, `REF_LAYOUT`, `CP2K_ENV`).
 
 This tests the stage logic, not CP2K. The stub copies a finished `cp2k.out`
-from `REF_OUT`, which is required: use the H2O-32 test output of the build
+from `ref_out`, which is required: use the H2O-32 test output of the build
 being benchmarked (the build skill runs that test). Never run the stage
 scripts outside `dryrun.sh` on a login node, because a real `srun` there
 tries to start a job.
@@ -246,8 +256,8 @@ Only after a single-node scan has passed. `scripts/multinode_layouts_job.sh`:
 
 Submit it like the job above, with `node_count` N. `LAYOUTS` and
 `REF_LAYOUT` have no default: set them. Dry-run it first with
-`JOB=multinode_layouts_job.sh DRY_NODES=N`. Choose the layouts with the
-user, each with a reason:
+`cp2k_bench_dryrun(..., job_script="multinode_layouts_job.sh", nodes=N)`.
+Choose the layouts with the user, each with a reason:
 - the 1-node winner (the baseline);
 - one with fewer ranks per node (less network traffic);
 - one with more ranks per node (wider grid and FFT distribution).
@@ -257,27 +267,37 @@ may already show where the efficiency drops.
 
 ## 5. Record
 
-Append one `benchmarks` record per layout × node count through
-`{{SLUG}}-records` (the schema is its `schema.yaml`):
-- **Identity:** `facility`, `partition`, `node_type` (from
-  `references/facility.md`), and the build's `build_id`.
-- **System:**
-  - `label`, `atoms` and `elements` (from the structure);
-  - `cell_volume_A3`, `periodic` and `kpoints`.
-- **Method:** functional, dispersion, basis, cutoffs, `hybrid`, and the SCF
-  as used.
-- **Run:**
-  - `run_type`, `nodes`, `ranks_per_node`, `threads_per_rank`;
-  - `metric` (`s_per_step` or `wall_s`);
-  - `extra`: `first_step_s`, `parallel_efficiency`, `core_hours`,
-    `scf_steps`, where known.
-- **Provenance:** `job_id`, `date`, `valid`.
-  - A failed, timed-out or unconverged run gets `valid: false` and a
-    `reason`.
+`cp2k_bench_records` writes the `benchmarks` records: one per layout of
+one input at one node count, repeats averaged. Failed, killed, unconverged
+or disagreeing runs get `valid: false` and a `reason`; the job IDs go to
+`benchmarks_provenance`, not into the records. Pass the `cp2k_bench_parse`
+result from step 4, or the stage folders:
 
-Run `records_check` afterwards. Keep `bench/results.md` in the benchmark
-folder for the full tables, if the user wants it. Records hold the numbers
-other skills use.
+```text
+cp2k_bench_records(facility="{{SLUG}}", run_type="<aimd_step|single_point|geo_opt>",
+                   stage_dirs=["~/agent/work/cp2k-runs/<system>/bench/runs/<jobid>/stage2"],
+                   input_name="<the scan input>", nodes=<N>,
+                   system={"label": ..., "atoms": ..., "elements": {...}, "periodic": "xyz",
+                           "kpoints": "gamma", "electrons": ..., "cell_volume_A3": ...},
+                   method={"functional": ..., "dispersion": ..., "basis": ..., "cutoff_ry": ...,
+                           "rel_cutoff_ry": ..., "hybrid": ..., "scf": "<the SCF as used>"})
+```
+
+- **The system and method** come from the structure and the input, not
+  from the folder: label, atoms and elements; functional, basis,
+  cutoffs and the SCF exactly as the input sets them.
+- **One input per call.** Stage 3 times a different system: record it in
+  its own call, with its own `system`. Smoke runs are too short to keep.
+- The build is the default one unless you pass `build_id`; `partition` and
+  `node_type` come from the facility.
+- An id that already exists stops the call and writes nothing. For the same
+  system timed with another method on the same day, pass a `tag`.
+- It refuses dry-run results.
+
+The result's `check_errors` is `records_check` afterwards: it must be
+empty. `extra.parallel_efficiency` and `extra.core_hours` are not filled
+in. Keep `bench/results.md` in the benchmark folder for the full tables,
+if the user wants it. Records hold the numbers other skills use.
 
 Hand the chosen layout and node count back to the production run skill,
 and project the production cost: s/step × steps × nodes × cores per node ÷

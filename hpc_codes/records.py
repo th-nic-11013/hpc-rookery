@@ -177,7 +177,8 @@ def query(facility: str, rtype: str, filters: dict | None = None,
     return hits
 
 
-def append(facility: str, rtype: str, record: dict) -> dict:
+def errors(facility: str, rtype: str, record: dict) -> list[str]:
+    """Why append() would refuse this record; empty if it would accept it."""
     if not isinstance(record, dict):
         raise RecordsError("the record must be one mapping")
     rec = {k: v for k, v in record.items() if k != "_scope"}
@@ -186,8 +187,15 @@ def append(facility: str, rtype: str, record: dict) -> dict:
     if any(r.get(idf) == rec.get(idf) for r in _read(facility, rtype)):
         errs.append(f"{rtype}: {idf} {rec.get(idf)!r} already exists (append-only: "
                     "use a new id with supersedes)")
+    return errs
+
+
+def append(facility: str, rtype: str, record: dict) -> dict:
+    errs = errors(facility, rtype, record)
     if errs:
         raise RecordsError("not appended:\n  " + "\n  ".join(errs))
+    rec = {k: v for k, v in record.items() if k != "_scope"}
+    idf = _type(rtype)["id_field"]
     path = user_dir(facility) / f"{rtype}.yaml"
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)

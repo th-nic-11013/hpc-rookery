@@ -2260,7 +2260,8 @@ def check_repo() -> None:
             out = subprocess.run([sys.executable, "-c", probe], cwd=root, env=env,
                                  capture_output=True, text=True, timeout=120)
         assert out.returncode == 0, out.stderr[-2000:]
-        assert out.stdout.strip() == ("['cp2k_bench_input', 'cp2k_bench_parse', 'cp2k_check_build', 'cp2k_check_input', "
+        assert out.stdout.strip() == ("['cp2k_bench_dryrun', 'cp2k_bench_input', 'cp2k_bench_parse', "
+                                      "'cp2k_bench_records', 'cp2k_check_build', 'cp2k_check_input', "
                                       "'cp2k_kinds', 'launch_plan', 'records_append', 'records_check', "
                                       "'records_query']"), out.stdout
 
@@ -2364,6 +2365,179 @@ def check_repo() -> None:
             else:
                 raise AssertionError("cp2k tool ran on a facility without the pack")
 
+    def cp2k_bench_dryrun_runs_the_stage_logic_with_a_stub_srun():
+        """cp2k_bench_dryrun's real command: a benchmark folder rendered from
+        the pack's scripts, the scrubbed smoke-stage cp2k.out as REF_OUT, all
+        three cases; the benchmark folder is left as it was."""
+        import re
+        from hpc_codes import server
+        from hpc_codes.cp2k import tools
+        real_pack_values = tools.pack_values
+        root = pathlib.Path(__file__).resolve().parent.parent
+        ref = root / "tests" / "fixtures" / "cp2k_bench" / "stage1" / "H2O-32_8x14_r1" / "cp2k.out"
+        values = {**tools.pack_values("hokusai"), "CP2K_PYTHON": sys.executable}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            bench = tmp / "bench dir"     # a space: every path must be quoted
+            (bench / "inputs").mkdir(parents=True)
+            for f in (root / "codes" / "cp2k" / "benchmark" / "scripts").iterdir():
+                text = re.sub(r"\{\{(\w+)\}\}", lambda m: str(values[m[1]]), f.read_text())
+                (bench / f.name).write_text(text)
+            for name in ("smoke.inp", "scan.inp", "big.inp"):
+                (bench / "inputs" / name).write_text("&GLOBAL\n&END\n")
+            before = sorted(p.relative_to(bench) for p in bench.rglob("*"))
+            # login-node GNU tools the scripts use, on a macOS test machine
+            shims = tmp / "shims"
+            shims.mkdir()
+            if sys.platform == "darwin":
+                (shims / "sed").write_text('#!/bin/bash\n[ "$1" = -i ] && { shift; exec /usr/bin/sed -i "" "$@"; }\n'
+                                           'exec /usr/bin/sed "$@"\n')
+                (shims / "timeout").write_text('#!/bin/bash\nwhile [[ $1 = -* ]]; do shift; done\nshift\nexec "$@"\n')
+            for f in shims.iterdir():
+                f.chmod(0o755)
+            settings = {"SMOKE_INPUT": "smoke.inp", "SCAN_INPUT": "scan.inp", "VALIDATE_INPUT": "big.inp",
+                        "SMOKE_LAYOUTS": "28x4 8x14", "SCAN_LAYOUTS": "112x1 28x4 8x14"}
+            with patch.object(tools, "run_command", local_run_command), \
+                    patch.object(tools, "pack_values", lambda f, code="cp2k": (
+                        values if f == "hokusai" else real_pack_values(f, code))), \
+                    patch.dict(os.environ, {"HOME": str(tmp), "HOKUSAI_HOST": "localhost",
+                                            "PATH": f"{shims}:{os.environ['PATH']}"}):
+                r = server.cp2k_bench_dryrun("hokusai", str(bench), str(ref), settings)
+                assert r["ok"], json.dumps(r, indent=1)[-3000:]
+                case = {c["case"]: c for c in r["cases"]}
+                assert case["pass"]["exit_code"] == 0 and case["pass"]["stages_run"] == [
+                    "stage1_smoke", "stage2_scan", "stage3_validate"], case["pass"]
+                # the last scan layout not in the smoke stage: stage 2 stops, stage 3 never runs
+                fl = case["fail_layout"]
+                assert fl["fail_layout"] == "112x1" and fl["exit_code"] == 1, fl
+                assert fl["stages_run"] == ["stage1_smoke", "stage2_scan"], fl
+                assert fl["failed"] == ["scan.inp 112x1"], fl
+                tl = case["time_limit"]
+                assert tl["not_started"] == ["smoke 28x4 r1"] and tl["stages_run"] == ["stage1_smoke"], tl
+                # a dry run that passes when it should fail is reported, not hidden
+                r = server.cp2k_bench_dryrun("hokusai", str(bench), str(ref), settings,
+                                             cases=["time_limit"], time_limit_s=100000)
+                assert not r["ok"] and r["cases"][0]["why"], r
+                kept = server.cp2k_bench_dryrun("hokusai", str(bench), str(ref), settings,
+                                                cases=["pass"], keep_scratch=True)["cases"][0]["scratch"]
+                assert (pathlib.Path(kept) / "bench" / "runs" / "dry-pass" / "stage2").is_dir(), kept
+                left = list((tmp / "agent" / "work" / "cp2k-dryrun").iterdir())
+                assert [str(p) for p in left] == [kept], left
+                assert sorted(p.relative_to(bench) for p in bench.rglob("*")) == before
+                for bad in ({"PATH": "/x"}, {"SLURM_JOB_ID": "1"}, {"a b": "1"}):
+                    try:
+                        server.cp2k_bench_dryrun("hokusai", str(bench), str(ref), bad)
+                    except ValueError:
+                        pass
+                    else:
+                        raise AssertionError(f"cp2k_bench_dryrun accepted {bad}")
+                (bench / "dryrun.sh").write_text("#!/bin/bash\nexit 0\n")
+                try:
+                    server.cp2k_bench_dryrun("hokusai", str(bench), str(ref), settings)
+                except RuntimeError as e:
+                    assert "stub-srun check" in str(e), e
+                else:
+                    raise AssertionError("ran a dryrun.sh without the stub-srun check")
+
+    def cp2k_bench_records_appends_benchmarks_and_provenance():
+        """cp2k_bench_records on the scrubbed smoke-stage runs, laid out as a
+        job's stage folder with a repeat and a killed run: one record per
+        layout, the killed one valid: false, job IDs only in provenance, and
+        nothing written when any record is refused."""
+        import shutil
+        import yaml
+        from hpc_codes import records, server
+        from hpc_codes.cp2k import tools
+        real_pack_values = tools.pack_values
+        root = pathlib.Path(__file__).resolve().parent.parent
+        fixture = root / "tests" / "fixtures" / "cp2k_bench" / "stage1"
+        values = {**tools.pack_values("hokusai"), "CP2K_PYTHON": sys.executable}
+        system = {"label": "H2O-32", "atoms": 96, "elements": {"H": 64, "O": 32},
+                  "periodic": "xyz", "kpoints": "gamma"}
+        method = {"functional": "PADE (LDA)", "basis": "DZVP-GTH", "cutoff_ry": 280,
+                  "hybrid": False, "scf": "OT DIIS"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(tools, "run_command", local_run_command), \
+                patch.object(tools, "pack_values", lambda f, code="cp2k": (
+                    values if f == "hokusai" else real_pack_values(f, code))), \
+                patch.dict(os.environ, {"HPC_RECORDS_USER_DIR": tmp, "HOKUSAI_HOST": "localhost"}):
+            tmp = pathlib.Path(tmp)
+            stage = tmp / "runs" / "9000001" / "stage2"
+            shutil.copytree(fixture, stage)
+            shutil.copytree(stage / "H2O-32_8x14_r1", stage / "H2O-32_8x14_r2")
+            killed = stage / "H2O-32_112x1_r1"
+            shutil.copytree(stage / "H2O-32_28x4_r1", killed)
+            out = killed / "cp2k.out"
+            out.write_text(out.read_text().replace("PROGRAM ENDED AT", "PROGRAM KILLED AT"))
+            server.records_append("hokusai", "software_registry", {
+                "build_id": "cp2k-2026.2-fake", "facility": "hokusai", "code": "cp2k",
+                "version": "2026.2", "variant": {"exe": "psmp", "target": "cpu"},
+                "toolchain": "fake", "install_path": str(tmp), "env_script": str(tmp / "env.sh"),
+                "test_status": {"level": "none", "result": "pass"}, "default": True,
+                "date": "2026-11-04"})
+
+            parsed = server.cp2k_bench_parse("hokusai", [str(stage)])
+            r = server.cp2k_bench_records("hokusai", system, method, "aimd_step", parsed=parsed,
+                                          date="2026-11-04")
+            base = "hokusai-cp2k-2026-11-04-h2o32-aimdstep-1n-"
+            assert r["appended"] == [base + l for l in ("8x14", "28x4", "112x1")], r["appended"]
+            assert r["valid"] == [base + "8x14", base + "28x4"], r
+            assert "did not finish" in r["invalid"][base + "112x1"], r
+            assert not r["check_errors"], r["check_errors"]
+            by_id = {x["id"]: x for x in r["records"]}
+            rec = by_id[base + "8x14"]
+            assert rec["metric"]["name"] == "s_per_step" and rec["metric"]["value"] > 0, rec
+            assert rec["ranks_per_node"] == 8 and rec["threads_per_rank"] == 14, rec
+            assert rec["job_id"] is None and "2 repeats (2 usable)" in rec["notes"], rec
+            # the shared HOKUSAI records' label, so launch_plan's queries line up
+            assert rec["node_type"] == "MPC (bwmpc), 112 cores", rec
+            assert rec["build_id"] == "cp2k-2026.2-fake" and rec["version"] == "2026.2", rec
+            prov = server.records_query("hokusai", "benchmarks_provenance")
+            assert {p["benchmark_id"] for p in prov} == set(r["appended"]), prov
+            assert all(p["job_ids"] == ["9000001"] for p in prov), prov
+            assert "9000001" not in (tmp / "benchmarks.yaml").read_text()
+            assert not server.records_check("hokusai")["errors"]
+
+            # an id that exists refuses the whole call; a tag makes new ids
+            count = len(yaml.safe_load((tmp / "benchmarks.yaml").read_text())["records"])
+            try:
+                server.cp2k_bench_records("hokusai", system, method, "aimd_step", parsed=parsed,
+                                          date="2026-11-04")
+            except records.RecordsError as e:
+                assert "already exists" in str(e) and "pass a tag" in str(e), e
+            else:
+                raise AssertionError("appended a benchmark id twice")
+            assert len(yaml.safe_load((tmp / "benchmarks.yaml").read_text())["records"]) == count
+            # parsing on the login node, and job IDs given explicitly
+            r = server.cp2k_bench_records("hokusai", system, method, "aimd_step",
+                                          stage_dirs=[str(stage)], date="2026-11-04", tag="lda",
+                                          job_ids=["9000002"])
+            assert all(i.endswith("-lda") for i in r["appended"]), r["appended"]
+            assert server.records_query("hokusai", "benchmarks_provenance",
+                                        {"id": r["appended"][0]})[0]["job_ids"] == ["9000002"]
+
+            # refused before anything is written
+            dry = tmp / "runs" / "dry-pass" / "stage2"
+            shutil.copytree(fixture, dry)
+            other = {**parsed, "runs": parsed["runs"] + [{**parsed["runs"][0], "input": "H2O-64"}]}
+            for call, why in (
+                    (lambda: server.cp2k_bench_records("hokusai", system, method, "aimd_step",
+                                                       stage_dirs=[str(dry)]), "dry-run"),
+                    (lambda: server.cp2k_bench_records("hokusai", system, method, "aimd_step",
+                                                       parsed=other), "give input_name"),
+                    (lambda: server.cp2k_bench_records("hokusai", system, method, "single_point",
+                                                       parsed=parsed), "is run_type right"),
+                    (lambda: server.cp2k_bench_records("hokusai", {"label": "H2O-32"}, method,
+                                                       "aimd_step", parsed=parsed, tag="x"),
+                     "missing required atoms")):
+                try:
+                    call()
+                except ValueError as e:
+                    assert why in str(e), (why, e)
+                else:
+                    raise AssertionError(f"cp2k_bench_records did not refuse ({why})")
+            assert len(yaml.safe_load((tmp / "benchmarks.yaml").read_text())["records"]) == count + 3
+
     def cp2k_tools_check_configuration_first():
         from hpc_codes import server
         from hpc_codes.cp2k import tools
@@ -2378,7 +2552,10 @@ def check_repo() -> None:
                          lambda: server.cp2k_check_input("hokusai", "x.inp"),
                          lambda: server.cp2k_check_build("hokusai"),
                          lambda: server.cp2k_kinds("hokusai", ["H"]),
-                         lambda: server.cp2k_bench_input("hokusai", "x.xyz", "x", "out")):
+                         lambda: server.cp2k_bench_input("hokusai", "x.xyz", "x", "out"),
+                         lambda: server.cp2k_bench_dryrun("hokusai", "x", "y"),
+                         lambda: server.cp2k_bench_records("hokusai", {}, {}, "aimd_step",
+                                                           stage_dirs=["x"])):
                 try:
                     call()
                 except RuntimeError as e:
@@ -2839,6 +3016,10 @@ def check_repo() -> None:
 
     check("cp2k tools parse and check on the login node",
           cp2k_tools_parse_and_check_on_the_login_node)
+    check("cp2k_bench_dryrun runs the stage logic with a stub srun",
+          cp2k_bench_dryrun_runs_the_stage_logic_with_a_stub_srun)
+    check("cp2k_bench_records appends benchmarks and provenance",
+          cp2k_bench_records_appends_benchmarks_and_provenance)
     check("cp2k tools check configuration first", cp2k_tools_check_configuration_first)
     check("cp2k_kinds reads the build data folder", cp2k_kinds_reads_the_build_data_folder)
     check("cp2k_bench_input matches the script", cp2k_bench_input_matches_the_script)
