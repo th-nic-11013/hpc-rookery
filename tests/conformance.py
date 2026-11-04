@@ -2507,6 +2507,35 @@ def check_repo() -> None:
             else:
                 raise AssertionError(f"structure_check accepted {bad}")
 
+        # stretch: the short C-H becomes 1.08 A, matching make_subsys.py's
+        # stretch_ch (the by-hand fallback), and the input is never overwritten
+        import importlib.util
+        import numpy as np
+        spec = importlib.util.spec_from_file_location(
+            "make_subsys", root / "codes/common/structure-making/cp2k/make_subsys.py")
+        ms = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ms)
+        cell, el, xyz = ms.read_extxyz(fx / "flagged.xyz")
+        expected, _ = ms.stretch_ch(cell, el, xyz.copy(), 1.08)
+        with tempfile.TemporaryDirectory() as d:
+            out = pathlib.Path(d) / "fixed.xyz"
+            r = ysrv.structure_stretch_xh(str(fx / "flagged.xyz"), str(out))
+            assert r["moved"] == 1 and r["shortest_before"] == 0.9, r
+            lines = out.read_text().splitlines()
+            got = np.array([[float(v) for v in l.split()[1:4]] for l in lines[2:]])
+            assert np.allclose(got, expected, atol=1e-7), got
+            assert lines[1] == (fx / "flagged.xyz").read_text().splitlines()[1], lines[1]
+            assert [f["kind"] for f in ysrv.structure_check(str(out))["flags"]] == ["overlap"]
+            for args, text in (((str(fx / "flagged.xyz"), str(fx / "flagged.xyz")), "must differ"),
+                               ((str(fx / "flagged.xyz"), str(out)), "exists"),
+                               ((str(fx / "flagged.xyz"), str(out), 1.08, ["C-O"], True), "X-H")):
+                try:
+                    ysrv.structure_stretch_xh(*args)
+                except ValueError as e:
+                    assert text in str(e), e
+                else:
+                    raise AssertionError(f"structure_stretch_xh accepted {args}")
+
         probe = ("import asyncio; from yagura.server import mcp; "
                  "print(sorted(t.name for t in asyncio.run(mcp.list_tools())))")
         with tempfile.TemporaryDirectory() as home:
@@ -2514,7 +2543,7 @@ def check_repo() -> None:
                                  env={**os.environ, "HOME": home},
                                  capture_output=True, text=True, timeout=120)
         assert out.returncode == 0, out.stderr[-2000:]
-        assert out.stdout.strip() == "['structure_check']", out.stdout
+        assert out.stdout.strip() == "['structure_check', 'structure_stretch_xh']", out.stdout
 
         def imports(folder):
             for f in (root / folder).rglob("*.py"):

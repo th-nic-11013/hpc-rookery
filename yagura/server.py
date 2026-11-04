@@ -6,7 +6,7 @@ a cluster. For a file on a cluster, fetch it first (rookery's fs_download).
 import argparse
 from pathlib import Path
 
-from yagura import geomcheck
+from yagura import geomcheck, stretch
 from yagura.mcp_server import MCPServer
 
 mcp = MCPServer("yagura-mcp")
@@ -35,6 +35,38 @@ def structure_check(path: str) -> dict:
         raise ValueError(f"{p} is not a file on this machine. For a file on a "
                          "cluster, download it first (fs_download).")
     return geomcheck.check(p.read_text())
+
+
+@mcp.tool()
+def structure_stretch_xh(path: str, out_path: str, length: float = 1.08,
+                         pairs: list[str] | None = None, overwrite: bool = False) -> dict:
+    """Set X-H bond lengths in an extended xyz: every H within 1.2 A of an
+    atom X (minimum image) is moved along that bond to `length`. Use it
+    when structure_check flags `short_xh` (X-ray H positions, C-H near
+    0.95 A). Local files only; writes a new file, keeping line 2, the
+    other atoms and any extra columns.
+
+    Returns {"out", "moved", "pairs", "length", "shortest_before"}, then
+    run structure_check on `out`.
+
+    Args:
+        path: the extended xyz to read, on this machine.
+        out_path: where to write the result; must differ from path.
+        length: target X-H length in A (1.08 for C-H; ~1.01 N-H, ~0.97 O-H).
+        pairs: X-H pairs to fix, e.g. ["C-H", "N-H"]; default ["C-H"].
+        overwrite: replace out_path if it exists.
+    """
+    src, dst = Path(path).expanduser(), Path(out_path).expanduser()
+    if not src.is_file():
+        raise ValueError(f"{src} is not a file on this machine. For a file on a "
+                         "cluster, download it first (fs_download).")
+    if dst.resolve() == src.resolve():
+        raise ValueError("out_path must differ from path: the original is kept")
+    if dst.exists() and not overwrite:
+        raise ValueError(f"{dst} exists; pass overwrite=true to replace it")
+    text, info = stretch.stretch(src.read_text(), length, tuple(pairs or ["C-H"]))
+    dst.write_text(text)
+    return {"out": str(dst), **info}
 
 
 def main():
