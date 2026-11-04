@@ -2441,10 +2441,61 @@ def check_repo() -> None:
                 else:
                     raise AssertionError(f"launch_plan did not refuse ({text})")
 
+    def yagura_structure_check_flags_and_stays_separate():
+        """yagura's structure_check on the fixtures, its server starting with
+        an empty HOME, and the boundary that keeps it splittable: yagura
+        imports nothing from the rookery packages, and they import nothing
+        from yagura."""
+        import ast
+        from yagura import server as ysrv
+        root = pathlib.Path(__file__).resolve().parent.parent
+        fx = root / "tests" / "fixtures" / "structures"
+
+        r = ysrv.structure_check(str(fx / "flagged.xyz"))
+        assert not r["ok"] and r["natoms"] == 5, r
+        assert {(f["pair"], f["kind"]) for f in r["flags"]} == {("C-H", "short_xh"), ("O-O", "overlap")}, r
+        # minimum image: N at x=9.6 is 1.4 A from C at x=1.0 across the boundary
+        assert {"pair": "C-N", "d": 1.4, "count": 1} in r["min_pair_distances"], r
+        r = ysrv.structure_check(str(fx / "clean.xyz"))
+        assert r["ok"] and r["composition"] == {"O": 1, "H": 2} and r["cell"]["volume"] == 512.0, r
+        for bad, text in (("plain.xyz", "need extended xyz"), ("missing.xyz", "not a file")):
+            try:
+                ysrv.structure_check(str(fx / bad))
+            except ValueError as e:
+                assert text in str(e), e
+            else:
+                raise AssertionError(f"structure_check accepted {bad}")
+
+        probe = ("import asyncio; from yagura.server import mcp; "
+                 "print(sorted(t.name for t in asyncio.run(mcp.list_tools())))")
+        with tempfile.TemporaryDirectory() as home:
+            out = subprocess.run([sys.executable, "-c", probe], cwd=root,
+                                 env={**os.environ, "HOME": home},
+                                 capture_output=True, text=True, timeout=120)
+        assert out.returncode == 0, out.stderr[-2000:]
+        assert out.stdout.strip() == "['structure_check']", out.stdout
+
+        def imports(folder):
+            for f in (root / folder).rglob("*.py"):
+                for node in ast.walk(ast.parse(f.read_text())):
+                    if isinstance(node, ast.Import):
+                        yield f, [a.name for a in node.names]
+                    elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                        yield f, [node.module]
+        rookery = ("hpc_agent_core", "hpc_mcp", "hpc_codes", "facilities")
+        for f, names in imports("yagura"):
+            bad = [n for n in names if n.split(".")[0] in rookery]
+            assert not bad, f"{f.relative_to(root)} imports {bad}: yagura must stay separate"
+        for pkg in rookery:
+            for f, names in imports(pkg):
+                bad = [n for n in names if n.split(".")[0] == "yagura"]
+                assert not bad, f"{f.relative_to(root)} imports {bad}: rookery must not depend on yagura"
+
     check("cp2k tools parse and check on the login node",
           cp2k_tools_parse_and_check_on_the_login_node)
     check("cp2k tools check configuration first", cp2k_tools_check_configuration_first)
     check("launch_plan picks from the shipped records", launch_plan_picks_from_the_shipped_records)
+    check("yagura structure_check flags and stays separate", yagura_structure_check_flags_and_stays_separate)
     check("records tools follow the adapter contract",
           records_tools_follow_the_adapter_contract)
     check("shipped records are valid", shipped_records_are_valid)
