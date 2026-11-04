@@ -29,7 +29,8 @@ Isolated molecules get a box too.
 | `scripts/to_extxyz.py` (any format → extended XYZ) | ASE | the user's machine |
 | `scripts/inspect_cif.py` (sites and occupancies of a CIF) | ASE | the user's machine |
 | `examples/build_uio66.py` (worked MOF build) | ASE, spglib | the user's machine |
-| `scripts/geomcheck.py` (checks) | numpy | anywhere, including the HOKUSAI BigWaterfall2 (HBW2) login node: `/usr/bin/python3.12 -I geomcheck.py x.xyz` |
+| `structure_check` tool (checks; the yagura server) | nothing | the user's machine, on a local file |
+| `scripts/geomcheck.py` (the same checks, by hand) | numpy | anywhere, including the HOKUSAI BigWaterfall2 (HBW2) login node: `/usr/bin/python3.12 -I geomcheck.py x.xyz` |
 | `cp2k/make_subsys.py` (CP2K &SUBSYS) | numpy and the CP2K data folder | the login node, next to the CP2K build |
 
 On the login node, run these text tools with `/usr/bin/python3.12 -I`.
@@ -94,14 +95,19 @@ other frameworks.
 
 ## 3. Check it
 
-```bash
-/usr/bin/python3.12 -I geomcheck.py structure.xyz
+```text
+structure_check(path="structure.xyz")      # a file on this machine
 ```
 
-It prints composition, cell lengths, angles, volume and perpendicular
-widths, and the shortest distance per element pair. It flags overlaps
-below 0.7 Å (disorder left in, duplicated atoms) and C-H or N-H below
-1.0 Å (X-ray H), and exits 1 if it flags anything. Also report, and check
+For a file on the cluster, `fs_download` it first (structures are small).
+Without the yagura server, run the same checks by hand:
+`/usr/bin/python3.12 -I geomcheck.py structure.xyz` (`--json` for the same
+fields), which exits 1 if it flags anything.
+
+It returns composition, cell lengths, angles, volume and perpendicular
+widths, and the shortest distance per element pair. `flags` lists overlaps
+below 0.7 Å (`overlap`: disorder left in, duplicated atoms) and C-H or N-H
+below 1.0 Å (`short_xh`: X-ray H); `ok` is false if anything is flagged. Also report, and check
 against known values where they exist:
 
 - the formula is the intended one and charge-neutral (or the intended charge);

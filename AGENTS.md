@@ -115,7 +115,12 @@ hpc_codes/              The code-pack MCP server (hpc-codes-mcp): records_*
                         schemas/records.yaml, the provisional schema of
                         measured records (benchmarks, builds). Separate from
                         hpc_mcp so a code tool can't stop the scheduler
-                        server from starting.
+                        server from starting. Also launch_plan.
+yagura/                Structure checking (and later building and
+                        analysis), its own MCP server (yagura-mcp). Staged
+                        here before it becomes its own repository: it
+                        imports nothing from the packages above and they
+                        import nothing from it (conformance enforces it).
 scripts/                render_facility_tables.py (facility table codegen),
                         render_skills.py (per-facility skill codegen), and
                         render_plugins.py (marketplace/manifest codegen).

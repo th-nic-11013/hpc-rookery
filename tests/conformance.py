@@ -1594,7 +1594,7 @@ def check_repo() -> None:
         assert base_portable["$schema"].endswith("plugin.schema.json")
         portable_mcp = json.loads((root / "plugins" / "hpc" / "mcp.json").read_text())
         assert portable_mcp["$schema"].endswith("mcp.schema.json")
-        assert set(portable_mcp["mcpServers"]) == {"hpc", "hpc-docs", "hpc-codes"}
+        assert set(portable_mcp["mcpServers"]) == {"hpc", "hpc-docs", "hpc-codes", "yagura"}
         # .mcp.json is hand-maintained (the harnesses load it); it must name
         # the same servers, or one harness silently lacks a server
         harness_mcp = json.loads((root / "plugins" / "hpc" / ".mcp.json").read_text())

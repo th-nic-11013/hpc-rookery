@@ -39,6 +39,19 @@
         "hpc-codes-mcp"
       ],
       "env": {}
+    },
+    "yagura": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "tool",
+        "run",
+        "--quiet",
+        "--from",
+        "git+https://github.com/william-dawson/hpc-rookery.git@main",
+        "yagura-mcp"
+      ],
+      "env": {}
     }
   }
 }

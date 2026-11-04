@@ -18,11 +18,11 @@ submitting.
 - **Tools:** `launch_plan` (layout, job spec, cost), `fs_upload`,
   `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `fs_tail` / `fs_view`, `fs_download`
-  (final frame).
+  (final frame), `structure_check` (the yagura server).
 - **Preconditions:** the prerequisites below, and the user's approval of
   the input and the cost.
 - **Done when:** `GEOMETRY OPTIMIZATION COMPLETED`, and the final frame
-  passes `geomcheck.py`. If the run stops before that, restart it
+  passes `structure_check`. If the run stops before that, restart it
   (section 4) or report why it can't continue.
 
 **Prerequisites:**
@@ -131,7 +131,7 @@ Output files (checked on CP2K 2026.2):
 Energy rising for several steps in a row, or a gradient that oscillates,
 usually means a noisy SCF: tighten `EPS_SCF` to `1.0E-7`, or switch to
 `CG`. Before handing the optimised structure to AIMD, download the final
-frame and run `geomcheck.py` on it (`hokusai-structure-making`).
+frame and run `structure_check` on it (`hokusai-structure-making`).
 
 ## 4. Restart
 
