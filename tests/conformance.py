@@ -2249,7 +2249,7 @@ def check_repo() -> None:
                                  capture_output=True, text=True, timeout=120)
         assert out.returncode == 0, out.stderr[-2000:]
         assert out.stdout.strip() == ("['cp2k_bench_parse', 'cp2k_check_build', 'cp2k_check_input', "
-                                      "'launch_plan', 'records_append', 'records_check', "
+                                      "'cp2k_kinds', 'launch_plan', 'records_append', 'records_check', "
                                       "'records_query']"), out.stdout
 
     def local_run_command(facility, cmd):
@@ -2364,13 +2364,54 @@ def check_repo() -> None:
                 patch.object(tools, "run_command", must_not_run):
             for call in (lambda: server.cp2k_bench_parse("hokusai", ["x"]),
                          lambda: server.cp2k_check_input("hokusai", "x.inp"),
-                         lambda: server.cp2k_check_build("hokusai")):
+                         lambda: server.cp2k_check_build("hokusai"),
+                         lambda: server.cp2k_kinds("hokusai", ["H"])):
                 try:
                     call()
                 except RuntimeError as e:
                     assert "not configured yet" in str(e), e
                 else:
                     raise AssertionError("unconfigured cp2k tool did not stop")
+
+    def cp2k_kinds_reads_the_build_data_folder():
+        """cp2k_kinds' real command against a fixture data folder: q from the
+        basis alias, checked against the potentials; a missing alias or
+        potential is reported per element; bad input never reaches a shell."""
+        from hpc_codes import server
+        from hpc_codes.cp2k import tools
+        real_pack_values = tools.pack_values
+        data = pathlib.Path(__file__).resolve().parent / "fixtures" / "cp2k_data"
+        values = {**tools.pack_values("hokusai"), "CP2K_PYTHON": sys.executable}
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(tools, "run_command", local_run_command), \
+                patch.object(tools, "pack_values", lambda f, code="cp2k": (
+                    values if f == "hokusai" else real_pack_values(f, code))), \
+                patch.dict(os.environ, {"HPC_RECORDS_USER_DIR": tmp, "HOKUSAI_HOST": "localhost"}):
+            build = {"build_id": "cp2k-2026.2-fake", "facility": "hokusai", "code": "cp2k",
+                     "version": "2026.2", "variant": {"exe": "psmp", "target": "cpu"},
+                     "toolchain": "fake", "install_path": tmp, "env_script": tmp + "/env.sh",
+                     "data_dir": str(data), "test_status": {"level": "none", "result": "pass"},
+                     "default": True, "date": "2026-11-04"}
+            server.records_append("hokusai", "software_registry", build)
+            r = server.cp2k_kinds("hokusai", ["Zr", "O", "C", "H", "H", "Xx", "N"])
+            assert r["kinds"] == {e: {"q": q, "basis": "DZVP-MOLOPT-SR-GTH", "potential": f"GTH-PBE-q{q}"}
+                                  for e, q in (("O", 6), ("C", 4), ("H", 1))}, r
+            assert set(r["errors"]) == {"Zr", "Xx", "N"}, r
+            assert "GTH-PBE-q12" in r["errors"]["Zr"] and "no -qN alias" in r["errors"]["Xx"], r
+            assert "no DZVP-MOLOPT-SR-GTH for N" in r["errors"]["N"], r
+            for bad in (["H; rm -rf ~"], []):
+                try:
+                    server.cp2k_kinds("hokusai", bad)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"cp2k_kinds accepted {bad}")
+            try:
+                server.cp2k_kinds("hokusai", ["H"], basis="X $(id)")
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("cp2k_kinds accepted a shell word as a basis")
 
     def launch_plan_picks_from_the_shipped_records():
         """launch_plan against HOKUSAI's shipped benchmarks: the match ladder,
@@ -2494,6 +2535,7 @@ def check_repo() -> None:
     check("cp2k tools parse and check on the login node",
           cp2k_tools_parse_and_check_on_the_login_node)
     check("cp2k tools check configuration first", cp2k_tools_check_configuration_first)
+    check("cp2k_kinds reads the build data folder", cp2k_kinds_reads_the_build_data_folder)
     check("launch_plan picks from the shipped records", launch_plan_picks_from_the_shipped_records)
     check("yagura structure_check flags and stays separate", yagura_structure_check_flags_and_stays_separate)
     check("records tools follow the adapter contract",

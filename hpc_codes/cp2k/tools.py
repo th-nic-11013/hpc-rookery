@@ -1,6 +1,7 @@
-"""CP2K tools: parse benchmark stages, parse-check an input, check a build.
+"""CP2K tools: parse benchmark stages, parse-check an input, check a build,
+look up a build's &KIND facts.
 
-All three only read on the cluster. Each runs one shell command on the
+All four only read on the cluster. Each runs one shell command on the
 login node through middleware.run_command, after checking that the
 facility opted into the cp2k pack and then the same configuration check
 the scheduler tools use. The facility's CP2K values (front-end
@@ -8,6 +9,7 @@ Python, cores per node) come from facilities/<dir>/codes/cp2k/values.json,
 read at call time; the build comes from software_registry.
 """
 import json
+import re
 import shlex
 from pathlib import Path
 
@@ -16,6 +18,7 @@ from hpc_agent_core.middleware import norm_path, run_command
 from hpc_codes import packs
 
 PARSE_BENCH = Path(__file__).parent / "parse_bench.py"
+KINDS = Path(__file__).parent / "kinds.py"
 _EOF = "HPC_CODES_EOF"
 
 
@@ -33,17 +36,21 @@ def resolve_build(facility: str, build_id: str | None = None) -> dict:
     return packs.resolve_build(facility, "cp2k", build_id)
 
 
+def _python_script(vals: dict, script: Path, args: str) -> str:
+    """A command that runs a local script with the facility's front-end Python."""
+    src = script.read_text()
+    if _EOF in src:
+        raise RuntimeError(f"{script.name} contains the here-document marker {_EOF}")
+    return f"{shlex.quote(vals['CP2K_PYTHON'])} -I - {args} <<'{_EOF}'\n{src}\n{_EOF}"
+
+
 def bench_parse(facility: str, stage_dirs: list[str]) -> dict:
     vals = pack_values(facility)
     config.require_facility_configuration(facility)
     if not stage_dirs:
         raise ValueError("give at least one stage folder, e.g. ~/agent/work/cp2k-runs/<system>/bench/runs/<jobid>/stage2")
-    src = PARSE_BENCH.read_text()
-    if _EOF in src:
-        raise RuntimeError(f"parse_bench.py contains the here-document marker {_EOF}")
     dirs = " ".join(_home_path(d) for d in stage_dirs)
-    cmd = (f"{shlex.quote(vals['CP2K_PYTHON'])} -I - --cores={int(vals['CP2K_CORES_PER_NODE'])} "
-           f"--json {dirs} <<'{_EOF}'\n{src}\n{_EOF}")
+    cmd = _python_script(vals, PARSE_BENCH, f"--cores={int(vals['CP2K_CORES_PER_NODE'])} --json {dirs}")
     out = run_command(facility, cmd)
     result = json.loads(out.strip().splitlines()[-1])
     # report the folders as the caller named them, not as the shell spelled them
@@ -102,3 +109,25 @@ def check_build(facility: str, build_id: str | None = None) -> dict:
             "data_dir_ok": get("DATA") == "ok" if build.get("data_dir") else None,
             "ok": bool(binary) and not missing and get("ENV") == "ok"
                   and get("DATA") != "missing" and version == build.get("version")}
+
+
+def kinds(facility: str, elements: list[str], basis: str = "DZVP-MOLOPT-SR-GTH",
+          build_id: str | None = None) -> dict:
+    vals = pack_values(facility)
+    config.require_facility_configuration(facility)
+    build = resolve_build(facility, build_id)
+    if not build.get("data_dir"):
+        raise ValueError(f"{build['build_id']} has no data_dir in software_registry; "
+                         f"record it (see {facility}-cp2k-build).")
+    elements = [e.strip() for e in elements if e and e.strip()]
+    if not elements:
+        raise ValueError('give the elements, e.g. ["Zr", "O", "C", "H"]')
+    bad = [e for e in elements if not re.fullmatch(r"[A-Z][a-z]?", e)]
+    if bad:
+        raise ValueError(f"not element symbols: {bad}")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", basis):
+        raise ValueError(f"not a basis set name: {basis!r}")
+    args = " ".join([_home_path(build["data_dir"]), shlex.quote(basis), *elements])
+    out = run_command(facility, _python_script(vals, KINDS, args))
+    result = json.loads(out.strip().splitlines()[-1])
+    return {"build_id": build["build_id"], "data_dir": build["data_dir"], **result}

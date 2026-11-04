@@ -123,6 +123,28 @@ def cp2k_check_build(facility: str, build_id: str | None = None) -> dict:
     return cp2k.check_build(facility, build_id)
 
 
+@mcp.tool()
+def cp2k_kinds(facility: str, elements: list[str], basis: str = "DZVP-MOLOPT-SR-GTH",
+               build_id: str | None = None) -> dict:
+    """The CP2K &KIND facts of a recorded build for each element: valence
+    q, basis set and GTH-PBE potential, read from the build's own data
+    folder (BASIS_MOLOPT, GTH_POTENTIALS) on the login node, so q is never
+    guessed. Read-only, no permission step needed. Pass the result's
+    `kinds` to the input writer (cp2k_make_subsys).
+
+    Returns {"build_id", "data_dir", "kinds": {element: {q, basis,
+    potential}}, "errors": {element: why}}; an element with no such basis
+    or potential is in `errors`, not `kinds`.
+
+    Args:
+        facility: Facility slug, e.g. "hokusai". See get_facilities().
+        elements: element symbols, e.g. ["Zr", "O", "C", "H"].
+        basis: basis set name in BASIS_MOLOPT.
+        build_id: a software_registry build_id; omit for the default build.
+    """
+    return cp2k.kinds(facility, elements, basis, build_id)
+
+
 # ---------------------------------------------------------------------------
 # Launch planning. Local: reads records and pack values, never the cluster.
 # ---------------------------------------------------------------------------
