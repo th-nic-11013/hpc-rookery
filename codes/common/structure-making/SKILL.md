@@ -35,6 +35,8 @@ Isolated molecules get a box too.
 | `cp2k_kinds` (rookery) + `cp2k_make_subsys` (hyogo) (CP2K &SUBSYS) | nothing | kinds on the login node, the file on the user's machine; see `cp2k/cp2k.md` |
 | `structure_stretch_xh` tool (X-H bond lengths; yagura) | nothing | the user's machine |
 | `cp2k/make_subsys.py` (all of the CP2K step, by hand) | numpy and the CP2K data folder | the login node, next to the CP2K build |
+| `trajectory_rdf`, `trajectory_msd`, `trajectory_vdos` tools (MD analysis; yagura) | nothing | the user's machine, on a downloaded trajectory |
+| `scripts/trajectory.py` (the same analysis, by hand) | numpy | anywhere: in a job next to a long trajectory, rather than downloading it |
 
 On the login node, run these text tools with `{{FRONT_END_PYTHON}} -I`.
 Install ASE locally (`pip install ase spglib`) rather than on the cluster.
@@ -137,3 +139,23 @@ fs_upload(facility="{{SLUG}}", local_path="UiO66-prim.xyz",
 Report to the user: the files written, a table of cell, atom count and
 formula, the check results, and caveats (unrelaxed geometry, short C-H,
 experimental cell). Then hand over to the code's subfolder.
+
+## Analyse a trajectory
+
+After an MD run, three yagura tools read the trajectory: multi-frame
+extended XYZ, or CP2K's `PROJECT-pos-1.xyz`, which has no cell, so pass
+`cell` (3 lengths or a 3×3 matrix, Å; from the input's `&CELL`). Each
+takes `frames="START:STOP:STEP"`; drop the equilibration part.
+
+| tool | gives | units |
+|---|---|---|
+| `trajectory_rdf(path, pairs=["O-H"])` | g(r) per pair, its peaks, first minimum and coordination number | r in Å |
+| `trajectory_msd(path, elements=["O"], dt_fs=...)` | MSD and D from a linear fit over `fit_ps` | ps, Å², D in Å²/ps and cm²/s |
+| `trajectory_vdos(path, dt_fs=...)` | vibrational density of states and its main peaks | cm⁻¹ |
+
+`dt_fs` is the time between saved frames: CP2K's `TIMESTEP` times
+`MOTION/PRINT/TRAJECTORY/EACH/MD`. Report D only when `loglog_slope` is
+near 1 (diffusive), and say the VDOS comes from positions differenced into
+velocities (its `velocities` field). For a trajectory too large to
+download, run `{{FRONT_END_PYTHON}} -I trajectory.py rdf|msd|vdos ...` in a
+job beside it; it prints the same JSON.
