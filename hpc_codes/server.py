@@ -193,6 +193,50 @@ def cp2k_bench_dryrun(facility: str, bench_dir: str, ref_out: str,
                              time_limit_s, job_script, nodes, keep_scratch)
 
 
+@mcp.tool()
+def cp2k_bench_records(facility: str, system: dict, method: dict, run_type: str,
+                       parsed: dict | None = None, stage_dirs: list[str] | None = None,
+                       input_name: str | None = None, nodes: int = 1,
+                       build_id: str | None = None, job_ids: list[str] | None = None,
+                       date: str | None = None, node_type: str | None = None,
+                       tag: str | None = None) -> dict:
+    """Turn finished benchmark runs into `benchmarks` records and append
+    them to this user's records: one per layout (ranks x threads) of one
+    input at `nodes` nodes, from a cp2k_bench_parse result (`parsed`,
+    local only) or by parsing `stage_dirs` on the login node. Repeats of a
+    layout are averaged. A failed, killed, unconverged or disagreeing run
+    is recorded with valid: false and a reason. The job IDs go to
+    benchmarks_provenance (one per record), never into the benchmark.
+    Every record is validated before any is written; an id that already
+    exists stops the whole call. Refuses dry-run results.
+
+    Returns {"appended", "valid", "invalid": {id: reason}, "provenance",
+    "records", "check_errors"} (check_errors: records_check afterwards).
+
+    Args:
+        facility: Facility slug, e.g. "hokusai". See get_facilities().
+        system: the benchmarks `system` block: label, atoms, elements,
+            periodic, kpoints (electrons, cell_volume_A3 if known).
+        method: the `method` block: functional, basis, cutoff_ry, hybrid,
+            scf (dispersion, rel_cutoff_ry if known), as in the input.
+        run_type: aimd_step, single_point, geo_opt or cell_opt.
+        parsed: a cp2k_bench_parse result; or give stage_dirs instead.
+        stage_dirs: stage folders on the cluster, parsed with cp2k_bench_parse.
+        input_name: the input to record (e.g. "scan.inp") when the stages
+            ran several, e.g. a smoke and a scan input.
+        nodes: nodes per run; ranks_per_node is ranks / nodes.
+        build_id: the software_registry build timed; omit for the default.
+        job_ids: the scheduler job IDs; omit to take them from the runs/<jobid>/
+            folder names.
+        date: YYYY-MM-DD of the runs; omit for today.
+        node_type: hardware label; omit to reuse the facility's records'.
+        tag: appended to every id (e.g. the functional) when the same system
+            is timed with another method on the same date.
+    """
+    return cp2k.bench_records(facility, system, method, run_type, parsed, stage_dirs,
+                              input_name, nodes, build_id, job_ids, date, node_type, tag)
+
+
 # ---------------------------------------------------------------------------
 # Launch planning. Local: reads records and pack values, never the cluster.
 # ---------------------------------------------------------------------------

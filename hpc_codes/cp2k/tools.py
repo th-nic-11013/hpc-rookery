@@ -1,8 +1,10 @@
 """CP2K tools: parse benchmark stages, parse-check an input, check a build,
-look up a build's &KIND facts, dry-run a benchmark folder.
+look up a build's &KIND facts, dry-run a benchmark folder, turn benchmark
+results into records.
 
 All of them only read on the cluster (the dry run writes a scratch folder
-of its own under ~/agent/work/ and removes it). Each runs one shell command
+of its own under ~/agent/work/ and removes it; bench_records writes only
+local records, and reaches the cluster only to parse). Each runs one shell command
 (the dry run one per case) on the login node through
 middleware.run_command, after checking that the
 facility opted into the cp2k pack and then the same configuration check
@@ -10,6 +12,7 @@ the scheduler tools use. The facility's CP2K values (front-end
 Python, cores per node) come from facilities/<dir>/codes/cp2k/values.json,
 read at call time; the build comes from software_registry.
 """
+import datetime
 import json
 import re
 import shlex
@@ -17,7 +20,7 @@ from pathlib import Path
 
 from hpc_agent_core import config
 from hpc_agent_core.middleware import norm_path, run_command
-from hpc_codes import packs
+from hpc_codes import packs, records
 
 PARSE_BENCH = Path(__file__).parent / "parse_bench.py"
 KINDS = Path(__file__).parent / "kinds.py"
@@ -238,3 +241,129 @@ def bench_dryrun(facility: str, bench_dir: str, ref_out: str, settings: dict | N
             "log_tail": lines[-40:]})
     return {"ok": all(r["expected"] for r in results), "bench_dir": bench_dir,
             "job_script": job_script, "cases": results}
+
+
+# metric per run type: an MD step is timed per step, the rest as whole runs
+_METRIC = {"aimd_step": "s_per_step", "single_point": "wall_s", "geo_opt": "wall_s",
+           "cell_opt": "wall_s"}
+
+
+def _run_reason(run: dict) -> str | None:
+    """Why a parsed run is not a usable timing, or None if it is."""
+    if not run["done"]:
+        return "did not finish (no PROGRAM ENDED: failed, killed or timed out)"
+    if run["scf_nc"]:
+        return f"SCF not converged in {run['scf_nc']} force evaluation(s) after the first"
+    if run["dE_max"] is None:
+        return "no energies to compare with the other layouts"
+    if not run["ok"]:
+        return (f"energy or forces differ from the other layouts (dE_max {run['dE_max']:.1e} Ha"
+                + (f", dF_max {run['dF_max']:.1e} Ha/bohr)" if run["dF_max"] is not None else ")"))
+    if not run["s_per_step"]:
+        return "no timed steps"
+    return None
+
+
+def bench_records(facility: str, system: dict, method: dict, run_type: str,
+                  parsed: dict | None = None, stage_dirs: list[str] | None = None,
+                  input_name: str | None = None, nodes: int = 1, build_id: str | None = None,
+                  job_ids: list[str] | None = None, date: str | None = None,
+                  node_type: str | None = None, tag: str | None = None) -> dict:
+    vals = pack_values(facility)
+    if run_type not in _METRIC:
+        raise ValueError(f"run_type is one of {list(_METRIC)}: {run_type!r}")
+    if (parsed is None) == (stage_dirs is None):
+        raise ValueError("give either parsed (a cp2k_bench_parse result) or stage_dirs")
+    nodes = int(nodes)
+    if nodes < 1:
+        raise ValueError("nodes must be at least 1")
+    if tag is not None and not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", tag):
+        raise ValueError(f"tag is a short lower-case id part, e.g. lda or ot-fullall: {tag!r}")
+    if parsed is None:
+        config.require_facility_configuration(facility)
+    build = resolve_build(facility, build_id)
+    if parsed is None:
+        parsed = bench_parse(facility, stage_dirs)
+    date = date or datetime.date.today().isoformat()
+
+    runs = parsed.get("runs") or []
+    if input_name:
+        name = input_name.rsplit("/", 1)[-1].removesuffix(".inp")
+        runs = [r for r in runs if r["input"] == name]
+    inputs = sorted({r["input"] for r in runs})
+    if len(inputs) != 1:
+        raise ValueError(f"the runs are of {len(inputs)} inputs {inputs}: give input_name, the one "
+                         "the system and method describe" if inputs else
+                         "no runs to record" + (f" of {input_name}" if input_name else ""))
+    jobs = {r["job"].split("/")[0] for r in runs}
+    if any(j.startswith("dry") for j in jobs):
+        raise ValueError("these are dry-run results (a stub copies one cp2k.out): nothing to record")
+    if any(r["R"] % nodes for r in runs):
+        raise ValueError(f"a run's ranks do not divide over {nodes} nodes: is nodes right?")
+    want_sp = run_type != "aimd_step"
+    if any(r["done"] and r["sp"] != want_sp for r in runs):
+        raise ValueError(f"run_type {run_type} but the runs are "
+                         f"{'single points' if not want_sp else 'MD'}: is run_type right?")
+
+    partition = vals["CP2K_PARTITION"]
+    cores = int(vals["CP2K_CORES_PER_NODE"])
+    if node_type is None:
+        # the label the facility's records already use, so queries line up
+        known = records.query(facility, "benchmarks", {"partition": partition}, ["node_type"])
+        node_type = known[0]["node_type"] if known else f"{partition}, {cores} cores"
+
+    layouts = {}
+    for r in runs:
+        layouts.setdefault((r["R"], r["T"]), []).append(r)
+    usable = {k: [r for r in reps if _run_reason(r) is None] for k, reps in layouts.items()}
+    mean = {k: sum(r["s_per_step"] for r in reps) / len(reps) for k, reps in usable.items() if reps}
+    pure_mpi = next((v for (R, T), v in mean.items() if T == 1 and R * T == nodes * cores), None)
+    label = re.sub(r"[^a-z0-9]", "", system.get("label", "").lower()) if isinstance(system, dict) else ""
+    short = run_type.replace("_", "")
+
+    bench, prov = [], []
+    for (R, T), reps in sorted(layouts.items()):
+        rpn = R // nodes
+        rid = f"{facility}-cp2k-{date}-{label}-{short}-{nodes}n-{rpn}x{T}" + (f"-{tag}" if tag else "")
+        ok = (R, T) in mean
+        value = mean[(R, T)] if ok else next((r["s_per_step"] for r in reps if r["s_per_step"]), 0.0)
+        extra = {}
+        first = [r["first_s"] for r in usable[(R, T)] if r["first_s"] is not None]
+        if ok and not want_sp and first:
+            extra["first_step_s"] = round(sum(first) / len(first), 3)
+        if ok and pure_mpi and R * T == nodes * cores:
+            extra["speedup_vs_pure_mpi"] = round(pure_mpi / value, 3)
+        rec = {"id": rid, "facility": facility, "partition": partition, "node_type": node_type,
+               "code": "cp2k", "version": str(build["version"]), "build_id": build["build_id"],
+               "system": system, "method": method, "run_type": run_type, "nodes": nodes,
+               "ranks_per_node": rpn, "threads_per_rank": T,
+               "metric": {"name": _METRIC[run_type], "value": round(float(value), 4)},
+               **({"extra": extra} if extra else {}),
+               "job_id": None, "date": date, "valid": ok}
+        if not ok:
+            rec["reason"] = _run_reason(reps[0])
+        if len(reps) > 1:
+            rec["notes"] = (f"{len(reps)} repeats ({len(usable[(R, T)])} usable): "
+                            + ", ".join(f"{r['s_per_step']:.3f}" if r["s_per_step"] else "none"
+                                        for r in sorted(reps, key=lambda r: r["rep"])))
+        bench.append(rec)
+        ids = sorted(job_ids) if job_ids else sorted({r["job"].split("/")[0] for r in reps})
+        prov.append({"id": rid, "benchmark_id": rid, "job_ids": [str(j) for j in ids]})
+
+    # every record valid before any is written: no half-recorded benchmark
+    errs = [e for rec in bench for e in records.errors(facility, "benchmarks", rec)]
+    errs += [e for p in prov for e in records.errors(facility, "benchmarks_provenance", p)]
+    ids = [r["id"] for r in bench]
+    errs += [f"two layouts would share the id {i}" for i in sorted({i for i in ids if ids.count(i) > 1})]
+    if errs:
+        raise records.RecordsError("nothing appended:\n  " + "\n  ".join(errs)
+                                   + ("\n(an id that exists: pass a tag, or supersede the old record)"
+                                      if any("already exists" in e for e in errs) else ""))
+    for rec in bench:
+        records.append(facility, "benchmarks", rec)
+    for p in prov:
+        records.append(facility, "benchmarks_provenance", p)
+    return {"appended": ids, "valid": [r["id"] for r in bench if r["valid"]],
+            "invalid": {r["id"]: r["reason"] for r in bench if not r["valid"]},
+            "provenance": [p["id"] for p in prov], "records": bench,
+            "check_errors": records.check(facility)["errors"]}
