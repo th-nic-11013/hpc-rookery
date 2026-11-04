@@ -13,18 +13,10 @@ from pathlib import Path
 
 from hpc_agent_core import config
 from hpc_agent_core.middleware import norm_path, run_command
-from hpc_codes import records
+from hpc_codes import packs
 
 PARSE_BENCH = Path(__file__).parent / "parse_bench.py"
 _EOF = "HPC_CODES_EOF"
-
-
-def pack_values(facility: str, code: str = "cp2k") -> dict:
-    path = config.get_facility(facility).data_dir.parent / "codes" / code / "values.json"
-    if not path.exists():
-        raise ValueError(f"{facility} has not opted into the {code} code pack "
-                         f"(no codes/{code}/values.json), so these tools don't apply there.")
-    return json.loads(path.read_text())
 
 
 def _home_path(path: str) -> str:
@@ -33,18 +25,12 @@ def _home_path(path: str) -> str:
     return shlex.quote(p) if p.startswith("/") else '"$HOME"/' + shlex.quote(p)
 
 
+def pack_values(facility: str, code: str = "cp2k") -> dict:
+    return packs.pack_values(facility, code)
+
+
 def resolve_build(facility: str, build_id: str | None = None) -> dict:
-    """The software_registry record to use: the named one, else the default."""
-    filters = {"code": "cp2k", **({"build_id": build_id} if build_id else {"default": True})}
-    hits = [r for r in records.query(facility, "software_registry", filters) if not r.get("removed")]
-    if not hits:
-        known = [r["build_id"] for r in records.query(facility, "software_registry", {"code": "cp2k"})
-                 if not r.get("removed")]
-        what = f"build {build_id!r}" if build_id else "default CP2K build"
-        raise ValueError(f"No {what} in {facility}'s software_registry (removed builds don't "
-                         f"count). Available: {', '.join(known) or 'none'}. "
-                         f"See {facility}-cp2k-build.")
-    return hits[0]
+    return packs.resolve_build(facility, "cp2k", build_id)
 
 
 def bench_parse(facility: str, stage_dirs: list[str]) -> dict:

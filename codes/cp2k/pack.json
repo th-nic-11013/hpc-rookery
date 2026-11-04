@@ -16,6 +16,7 @@
     "CP2K_SMOKE_LAYOUTS": "two full-node layouts the smoke stage runs (default SMOKE_LAYOUTS)",
     "CP2K_BUILD_CORES": "cores of the one-node build job",
     "CP2K_BUILD_JOBS": "make -j for the build, low enough that compiles fit in the job's memory",
-    "CP2K_BUILD_WALLTIME": "walltime of the build job, HH:MM:SS"
+    "CP2K_BUILD_WALLTIME": "walltime of the build job, HH:MM:SS",
+    "CP2K_LAUNCH": "launch_plan's job-spec templates: {pre_launch, launcher, environment}, with {R} ranks/node, {T} threads/rank, {N} nodes, {env_script} and other values by name"
   }
 }

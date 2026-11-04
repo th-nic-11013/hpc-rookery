@@ -7,5 +7,14 @@
   "CP2K_SMOKE_LAYOUTS": "28x4 8x14",
   "CP2K_BUILD_CORES": 28,
   "CP2K_BUILD_JOBS": 20,
-  "CP2K_BUILD_WALLTIME": "02:00:00"
+  "CP2K_BUILD_WALLTIME": "02:00:00",
+  "CP2K_LAUNCH": {
+    "pre_launch": "source {env_script}",
+    "launcher": "srun {CP2K_SRUN_MPI} --cpus-per-task={T} --cpu-bind=cores --distribution=block:block",
+    "environment": {
+      "OMP_NUM_THREADS": "{T}",
+      "OMP_PLACES": "cores",
+      "OMP_PROC_BIND": "close"
+    }
+  }
 }
