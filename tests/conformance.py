@@ -3014,8 +3014,34 @@ def check_repo() -> None:
                 bad = [n for n in names if n.split(".")[0] == "yagura"]
                 assert not bad, f"{f.relative_to(root)} imports {bad}: rookery must not depend on yagura"
 
+    def file_transfers_judge_by_exit_status():
+        """A login-node banner on stderr must not fail an upload or download
+        (HOKUSAI prints one on every SSH connection); a non-zero exit must."""
+        from types import SimpleNamespace
+        from hpc_agent_core.middleware import _transfer
+
+        class Transport:
+            def __init__(self, code):
+                self.code, self.calls = code, []
+
+            def transfer(self, raise_errors=True):
+                self.calls.append(raise_errors)
+                return [SimpleNamespace(returncode=self.code, stdout="",
+                                        stderr="Welcome to the login node\n")]
+
+        ok = Transport(0)
+        _transfer(ok)
+        assert ok.calls == [False], ok.calls
+        try:
+            _transfer(Transport(23))
+        except RuntimeError as e:
+            assert "exit 23" in str(e) and "Welcome" in str(e), e
+        else:
+            raise AssertionError("a failed transfer was reported as success")
+
     check("cp2k tools parse and check on the login node",
           cp2k_tools_parse_and_check_on_the_login_node)
+    check("file transfers judge by exit status, not stderr", file_transfers_judge_by_exit_status)
     check("cp2k_bench_dryrun runs the stage logic with a stub srun",
           cp2k_bench_dryrun_runs_the_stage_logic_with_a_stub_srun)
     check("cp2k_bench_records appends benchmarks and provenance",

@@ -334,6 +334,25 @@ def _make_transport(facility: "Facility | str"):
         return Scp(url=c)
 
 
+def _transfer(transport) -> None:
+    """Run a queued rsync/scp transfer; raise only if a command failed.
+
+    remotemanager's transfer raises on any stderr by default, and some login
+    nodes print their banner on stderr for every SSH connection (HOKUSAI
+    does), which made every upload and download fail although the copy
+    worked. Judge by exit status instead, as run_command does; the callers'
+    sha256 comparison still catches a transfer that went wrong silently.
+    """
+    with contextlib.redirect_stdout(sys.stderr):
+        cmds = transport.transfer(raise_errors=False) or []
+    for cmd in cmds:
+        code = getattr(cmd, "returncode", 0)
+        if code not in (0, None):
+            detail = (getattr(cmd, "stderr", "") or getattr(cmd, "stdout", "") or "").strip()
+            raise RuntimeError(f"{type(transport).__name__} transfer failed (exit {code}): "
+                               f"{detail[-2000:] or 'no output'}")
+
+
 def _sha256_local(path: Path) -> str:
     """SHA-256 of a local file, streamed in 1 MB chunks."""
     digest = hashlib.sha256()
@@ -358,8 +377,7 @@ def download_file(facility: "Facility | str", remote_path: str, local_dest: Path
         remote=str(Path(remote_path).parent),
         local=str(local_dest.parent),
     )
-    with contextlib.redirect_stdout(sys.stderr):
-        transport.transfer()
+    _transfer(transport)
 
     landed = local_dest.parent / remote_name
     if landed != local_dest:
@@ -400,8 +418,7 @@ def upload_file(facility: "Facility | str", local_path: Path, remote_path: str) 
         local=str(local_path.parent),
         remote=str(Path(remote_path).parent),
     )
-    with contextlib.redirect_stdout(sys.stderr):
-        transport.transfer()
+    _transfer(transport)
 
     landed = str(Path(remote_path).parent / local_path.name)
     if landed != remote_path:
