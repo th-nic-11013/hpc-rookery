@@ -2740,6 +2740,7 @@ def check_repo() -> None:
         kinds; its server starts with an empty HOME; and the three staged
         groups (rookery, yagura, hyogo) import nothing from each other."""
         import ast
+        import re
         from hyogo import server as hsrv
         root = pathlib.Path(__file__).resolve().parent.parent
         fx = root / "tests" / "fixtures" / "structures" / "clean.xyz"
@@ -2777,7 +2778,10 @@ def check_repo() -> None:
                                  env={**os.environ, "HOME": home},
                                  capture_output=True, text=True, timeout=120)
         assert out.returncode == 0, out.stderr[-2000:]
-        assert out.stdout.strip() == "['cp2k_make_subsys']", out.stdout
+        live = sorted(re.findall(r"^\| `(\w+)` \|(?:[^|]*\|){4} live \|",
+                                 (root / "hyogo" / "INVENTORY.md").read_text(), re.M))
+        assert out.stdout.strip() == str(live), (
+            f"hyogo serves {out.stdout.strip()}, INVENTORY.md lists {live} as live")
 
         groups = {"rookery": ("hpc_agent_core", "hpc_mcp", "hpc_codes", "facilities"),
                   "yagura": ("yagura",), "hyogo": ("hyogo",)}
@@ -2791,6 +2795,114 @@ def check_repo() -> None:
                                 and not node.level else [])
                         bad = [m for m in mods if m.split(".")[0] in others]
                         assert not bad, f"{f.relative_to(root)} ({name}) imports {bad}"
+
+    def hyogo_make_input_matches_the_templates_and_uio66():
+        """cp2k_make_input writes, after dropping comments and expanding @SET,
+        the four revPBE templates and the five hand-written UiO-66 functional
+        inputs (whose cp2k --check passed); cp2k_make_subsys writes their
+        AUX_FIT lines; each refusal fires before anything is written."""
+        import re
+        from hyogo import server as hsrv
+        root = pathlib.Path(__file__).resolve().parent.parent
+        fx = root / "tests" / "fixtures" / "cp2k_inputs" / "uio66"
+
+        def norm(text):
+            sets, out = {}, []
+            for line in text.splitlines():
+                s = line.strip()
+                if not s or s.startswith(("#", "!")):
+                    continue
+                m = re.match(r"@SET\s+(\S+)\s+(.*)", s)
+                if m:
+                    sets[m.group(1)] = m.group(2).strip()
+                    continue
+                s = re.sub(r"\$\{(\w+)\}", lambda m: sets[m.group(1)], s)
+                out.append(" ".join(s.split()).upper())
+            return out
+
+        q = {"H": 1, "C": 4, "O": 6, "Zr": 12}
+
+        def uzh(fam, stem, aux):
+            k = {e: {"q": n, "basis": f"DZVP-MOLOPT-{fam}-GTH-q{n}", "potential": f"{stem}-q{n}",
+                     **({"aux_basis": f"admm-dzp-q{n}"} if aux else {})} for e, n in q.items()}
+            return {"files": {"basis": ["BASIS_MOLOPT_UZH_2026.2"] + (["BASIS_ADMM_UZH"] if aux else []),
+                              "potential": "POTENTIAL_UZH_2026.2"}, "kinds": k, "errors": {}}
+
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            xyz = d / "uio66.xyz"
+            xyz.write_text((fx / "uio66_prim_114_ch108.xyz").read_text())
+            for f, fam, stem, aux in (("pbe", "PBE", "GTH-PBE", False), ("r2scan", "SCAN", "GTH-SCAN", False),
+                                      ("pbe0", "PBE0", "GTH-PBE0", True), ("hse06", "PBE0", "GTH-PBE0", True),
+                                      ("r2scan0", "SCAN", "GTH-SCAN", True)):
+                k = uzh(fam, stem, aux)
+                sub = hsrv.cp2k_make_subsys(str(xyz), k, str(d / f"{f}.inc"))
+                if aux:
+                    a = (d / f"{f}.inc").read_text().splitlines()
+                    b = (fx / f"subsys_{'pbe0' if fam == 'PBE0' else 'scan'}_admm.inc").read_text().splitlines()
+                    assert a[:1] + a[2:] == b[:1] + b[2:], f
+                r = hsrv.cp2k_make_input("sp", f, sub, k, project=f"sp-{f}", cutoff=600,
+                                         print_gap=True, save_wfn=True)
+                assert r["out"] == str(d / f"sp-{f}.inp"), r
+                # the hand-written inputs leave CHARGE/MULTIPLICITY/UKS at CP2K's
+                # defaults, and the GGA ones list BASIS_ADMM_UZH though unused
+                got = [l for l in norm(pathlib.Path(r["out"]).read_text())
+                       if not l.startswith(("CHARGE ", "MULTIPLICITY ", "UKS "))]
+                want = [l for l in norm((fx / f"sp_{f}.inp").read_text())
+                        if aux or l != "BASIS_SET_FILE_NAME BASIS_ADMM_UZH"]
+                assert got == want, (f, [l for l in got if l not in want], [l for l in want if l not in got])
+                assert r["settings"].get("HFX_RADIUS") == (5.9 if f in ("pbe0", "r2scan0") else None), r
+
+            legacy = {e: {"q": n, "basis": "DZVP-MOLOPT-SR-GTH", "potential": f"GTH-PBE-q{n}"}
+                      for e, n in q.items()}
+            sub = hsrv.cp2k_make_subsys(str(xyz), legacy, str(d / "rev.inc"))
+            for rt, tpl in (("sp", "single-point/templates/single_point.inp"),
+                            ("geo_opt", "geo-opt/templates/geo_opt.inp"),
+                            ("cell_opt", "geo-opt/templates/cell_opt.inp"),
+                            ("md_nvt", "aimd/templates/aimd_nvt.inp")):
+                r = hsrv.cp2k_make_input(rt, "revpbe", sub, out_path=str(d / f"{rt}.inp"))
+                got = norm(pathlib.Path(r["out"]).read_text())
+                want = norm((root / "codes" / "cp2k" / tpl).read_text())
+                assert got == want, (rt, [l for l in got if l not in want], [l for l in want if l not in got])
+
+            # odd electrons give UKS; PERIODIC NONE gives &POISSON; duration sets WALLTIME
+            water = root / "tests" / "fixtures" / "structures" / "clean.xyz"
+            sub = hsrv.cp2k_make_subsys(str(water), {e: legacy[e] for e in ("O", "H")},
+                                        str(d / "w.inc"), periodic="NONE", charge=1)
+            r = hsrv.cp2k_make_input("md_nvt", "revpbe", sub, out_path=str(d / "w.inp"),
+                                     duration="02:00:00", md={"timestep": 1.0})
+            text = pathlib.Path(r["out"]).read_text()
+            assert r["settings"]["UKS"] == ".TRUE." and r["settings"]["MULTIPLICITY"] == 2, r
+            assert r["settings"]["CHARGE"] == 1 and r["settings"]["WALLTIME"] == 7200 - 900, r
+            assert "PERIODIC NONE" in text and "&POISSON" in text, text
+            assert any("hydrogen" in w for w in r["warnings"]), r
+
+            pbe0 = uzh("PBE0", "GTH-PBE0", True)
+            sub0 = hsrv.cp2k_make_subsys(str(xyz), pbe0, str(d / "p0.inc"))
+            plain0 = uzh("PBE0", "GTH-PBE0", False)
+            subp = hsrv.cp2k_make_subsys(str(xyz), plain0, str(d / "p.inc"))
+            scan = uzh("SCAN", "GTH-SCAN", False)
+            subs = hsrv.cp2k_make_subsys(str(xyz), scan, str(d / "s.inc"))
+            for args, kw, text in (
+                    (("sp", "r2scan", sub, {"files": {"basis": ["BASIS_MOLOPT"],
+                                                      "potential": "GTH_POTENTIALS"}}), {},
+                     "needs GTH-SCAN potentials"),
+                    (("sp", "pbe0", subp, plain0), {}, "uses ADMM"),
+                    (("sp", "pbe0", sub0, pbe0), {"hfx": {"radius": 6.0}}, "below half"),
+                    (("sp", "r2scan", subs, scan), {"d3": "zero"}, "only with BJ"),
+                    (("sp", "r2scan", subs), {}, "pass cp2k_kinds' result"),
+                    (("neb", "revpbe", sub), {}, "run_type is one of"),
+                    (("sp", "b3lyp", sub), {}, "functional is one of"),
+                    (("sp", "revpbe", sub), {"multiplicity": 1}, "impossible"),
+                    (("geo_opt", "revpbe", sub), {"duration": "12h"}, "HH:MM:SS"),
+                    (("sp", "revpbe", sub), {"md": {"steps": 5}}, "md is for md_nvt"),
+                    (("sp", "revpbe", sub), {"out_path": str(d / "w.inp")}, "exists")):
+                try:
+                    hsrv.cp2k_make_input(*args, **kw)
+                except ValueError as e:
+                    assert text in str(e), (text, e)
+                else:
+                    raise AssertionError(f"cp2k_make_input accepted {args[:2]} {kw}")
 
     def launch_plan_picks_from_the_shipped_records():
         """launch_plan against HOKUSAI's shipped benchmarks: the match ladder,
@@ -3099,6 +3211,8 @@ def check_repo() -> None:
     check("yagura cif tools read, convert and warn", yagura_cif_tools_read_convert_and_warn)
     check("hyogo make_subsys matches the script and stays separate",
           hyogo_make_subsys_matches_the_script_and_stays_separate)
+    check("hyogo make_input matches the templates and UiO-66",
+          hyogo_make_input_matches_the_templates_and_uio66)
     check("launch_plan picks from the shipped records", launch_plan_picks_from_the_shipped_records)
     check("yagura structure_check flags and stays separate", yagura_structure_check_flags_and_stays_separate)
     check("yagura trajectory analysis matches analytic cases",

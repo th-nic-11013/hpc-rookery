@@ -40,6 +40,8 @@ def subsys(text: str, name: str, kinds: dict, periodic: str = "XYZ",
         k = kinds[e]
         if not (isinstance(k, dict) and isinstance(k.get("q"), int) and k.get("basis") and k.get("potential")):
             raise ValueError(f"kind for {e} needs q, basis and potential, as cp2k_kinds returns: {k!r}")
+        if "aux_basis" in k and not (isinstance(k["aux_basis"], str) and k["aux_basis"]):
+            raise ValueError(f"aux_basis for {e} is a basis name, as cp2k_kinds returns: {k!r}")
     nelec = sum(kinds[e]["q"] for e in el) - charge
     vol = abs(np.linalg.det(cell))
     widths = [vol / np.linalg.norm(np.cross(cell[(i + 1) % 3], cell[(i + 2) % 3])) for i in range(3)]
@@ -62,9 +64,14 @@ def subsys(text: str, name: str, kinds: dict, periodic: str = "XYZ",
     if periodic == "NONE":
         lines += ["&TOPOLOGY", "  &CENTER_COORDINATES", "  &END CENTER_COORDINATES", "&END TOPOLOGY"]
     for e in elements:
-        lines += [f"&KIND {e}", f"  BASIS_SET {kinds[e]['basis']}", f"  POTENTIAL {kinds[e]['potential']}",
-                  "&END KIND"]
-    info = {"formula": formula, "natoms": len(el), "electrons": nelec, "periodic": periodic,
+        lines += [f"&KIND {e}", f"  BASIS_SET {kinds[e]['basis']}", f"  POTENTIAL {kinds[e]['potential']}"]
+        if kinds[e].get("aux_basis"):
+            lines.append(f"  BASIS_SET AUX_FIT {kinds[e]['aux_basis']}")
+        lines.append("&END KIND")
+    info = {"formula": formula, "natoms": len(el), "electrons": nelec, "charge": charge,
+            "periodic": periodic,
             "widths": [round(float(w), 2) for w in widths],
-            "kinds": {e: kinds[e]["potential"] for e in elements}, "warnings": warnings}
+            "kinds": {e: kinds[e]["potential"] for e in elements},
+            "aux_basis": {e: kinds[e]["aux_basis"] for e in elements if kinds[e].get("aux_basis")},
+            "warnings": warnings}
     return "\n".join(lines) + "\n", info

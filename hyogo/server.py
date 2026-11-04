@@ -7,7 +7,7 @@ rookery's fs_upload / fs_download.
 import argparse
 from pathlib import Path
 
-from hyogo.cp2k import subsys
+from hyogo.cp2k import input as cp2k_input, subsys
 from hyogo.mcp_server import MCPServer
 
 mcp = MCPServer("hyogo-mcp")
@@ -25,14 +25,18 @@ def cp2k_make_subsys(xyz_path: str, kinds: dict, out_path: str | None = None,
     `short_xh`), then cp2k_kinds(facility, elements) for the build that
     will run it; pass that result (or its `kinds`) here.
 
-    Returns {"out", "formula", "natoms", "electrons", "periodic",
-    "widths", "kinds": {element: potential}, "warnings"}; read the
-    warnings to the user (thin cell, odd electron count, PERIODIC NONE).
+    For a hybrid (ADMM), call cp2k_kinds with aux_basis: each kind then
+    carries `aux_basis` and gets a `BASIS_SET AUX_FIT` line.
+
+    Returns {"out", "formula", "natoms", "electrons", "charge", "periodic",
+    "widths", "kinds": {element: potential}, "aux_basis": {element: name},
+    "warnings"}; read the warnings to the user (thin cell, odd electron
+    count, PERIODIC NONE). Pass the whole result to cp2k_make_input.
 
     Args:
         xyz_path: extended xyz (Lattice= on line 2) on this machine.
         kinds: cp2k_kinds' result, or its `kinds` mapping
-            {element: {q, basis, potential}}.
+            {element: {q, basis, potential[, aux_basis]}}.
         out_path: where to write; default subsys.inc beside the xyz.
         periodic: "XYZ" (crystals, liquids) or "NONE" (an isolated molecule).
         charge: total charge, for the electron count only.
@@ -49,6 +53,77 @@ def cp2k_make_subsys(xyz_path: str, kinds: dict, out_path: str | None = None,
     if not isinstance(table, dict):
         raise ValueError("kinds is cp2k_kinds' result or its `kinds` mapping")
     text, info = subsys.subsys(src.read_text(), src.name, table, periodic, charge)
+    dst.write_text(text)
+    return {"out": str(dst), **info}
+
+
+@mcp.tool()
+def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | None = None,
+                    out_path: str | None = None, project: str | None = None,
+                    cutoff: int | None = None, rel_cutoff: int = 60, d3: str | None = None,
+                    scf: str = "ot", multiplicity: int | None = None,
+                    duration: str | None = None, md: dict | None = None, opt: dict | None = None,
+                    hfx: dict | None = None, print_gap: bool = False, save_wfn: bool = False,
+                    overwrite: bool = False) -> dict:
+    """Write a CP2K run input that includes subsys.inc: a single point,
+    a geometry or cell optimisation, or NVT MD, with a functional preset
+    (XC, exact exchange, ADMM, D3). Tunables are @SET lines at the top.
+    Local only; fs_upload it next to subsys.inc, then cp2k_check_input.
+
+    Before it: cp2k_kinds(facility, elements, family=...) for the
+    functional ("molopt" for revpbe/pbe, "uzh-scan" for r2scan/r2scan0,
+    "uzh-pbe0" for pbe0/hse06; hybrids also aux_basis="admm-dzp"), then
+    cp2k_make_subsys with that result. Pass both results here. For
+    duration, use launch_plan's estimate.suggested_duration.
+
+    Refuses: potentials of the wrong family, a hybrid without AUX_FIT
+    bases, an HFX radius at or above half the narrowest cell width, zero
+    damping D3 with r2SCAN presets.
+
+    Returns {"out", "run_type", "functional", "d3", "scf", "settings":
+    {CUTOFF, HFX_RADIUS, WALLTIME, ...}, "files": data files the build
+    needs, "warnings"}; read the warnings to the user (hybrid cost, HFX
+    radius, open shell, assumed walltime).
+
+    Args:
+        run_type: "sp", "geo_opt", "cell_opt" or "md_nvt".
+        functional: "revpbe" (the benchmarked default), "pbe", "r2scan",
+            "pbe0", "hse06" or "r2scan0".
+        subsys: cp2k_make_subsys' result (widths, electrons, charge, kinds).
+        kinds: cp2k_kinds' result, for the data file names; may be
+            omitted only for revpbe/pbe on BASIS_MOLOPT.
+        out_path: where to write; default beside subsys.inc, named as the
+            skills' templates (single_point.inp, geo_opt.inp, cell_opt.inp,
+            aimd_nvt.inp), or <project>.inp when project is given.
+        project: CP2K PROJECT name; default sp, opt, cellopt or md.
+        cutoff: MGRID CUTOFF in Ry; default 450 for GGA, 600 for r2SCAN,
+            hybrids and cell_opt.
+        rel_cutoff: MGRID REL_CUTOFF in Ry.
+        d3: "zero" or "bj"; default zero for revpbe, bj otherwise.
+        scf: "ot" (insulators) or "smear" (metals, small gaps).
+        multiplicity: spin multiplicity; default 1, or 2 for odd electrons.
+        duration: job duration "HH:MM:SS"; WALLTIME leaves a margin.
+        md: {temperature, timestep, steps, timecon} for md_nvt.
+        opt: {max_iter} for geo_opt and cell_opt.
+        hfx: {radius, memory_mb} for hybrids; radius defaults to just
+            below half the narrowest cell width.
+        print_gap: print the HOMO-LUMO gap.
+        save_wfn: write the SCF wavefunction restart (sp), e.g. to start a
+            hybrid from a GGA run.
+        overwrite: replace out_path if it exists.
+    """
+    if not isinstance(subsys, dict) or not subsys.get("out"):
+        raise ValueError("subsys is cp2k_make_subsys' result; call it first")
+    files = kinds.get("files") if isinstance(kinds, dict) else None
+    if kinds is not None and files is None:
+        raise ValueError("kinds is cp2k_kinds' full result (it carries `files`)")
+    text, info = cp2k_input.make_input(run_type, functional, subsys, files, project, cutoff,
+                                       rel_cutoff, d3, scf, multiplicity, duration, md, opt, hfx,
+                                       print_gap, save_wfn)
+    name = f"{project}.inp" if project else cp2k_input.RUN_TYPES[run_type][3]
+    dst = Path(out_path).expanduser() if out_path else Path(subsys["out"]).expanduser().with_name(name)
+    if dst.exists() and not overwrite:
+        raise ValueError(f"{dst} exists; pass overwrite=true to replace it")
     dst.write_text(text)
     return {"out": str(dst), **info}
 

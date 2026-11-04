@@ -1,0 +1,102 @@
+# UiO-66 primitive cell (114 atoms, C-H 1.08 A) single point, r2scan0-D3(BJ).
+# UZH 2026.2 basis/PP family matched to the functional; ADMM admm-dzp for
+# hybrids. HFX_RADIUS must stay below half the cell width (11.97/2 A).
+@SET PROJECT     sp-r2scan0
+@SET CUTOFF      600
+@SET REL_CUTOFF  60
+@SET HFX_RADIUS  5.9
+@SET HFX_MEMORY  2000
+@SET MAX_SCF     50
+
+&GLOBAL
+  PROJECT     ${PROJECT}
+  RUN_TYPE    ENERGY_FORCE
+  PRINT_LEVEL LOW
+&END GLOBAL
+
+&FORCE_EVAL
+  METHOD QS
+  &PRINT
+    &FORCES ON
+    &END FORCES
+  &END PRINT
+  &DFT
+    BASIS_SET_FILE_NAME BASIS_MOLOPT_UZH_2026.2
+    BASIS_SET_FILE_NAME BASIS_ADMM_UZH
+    POTENTIAL_FILE_NAME POTENTIAL_UZH_2026.2
+    &AUXILIARY_DENSITY_MATRIX_METHOD
+      METHOD                   BASIS_PROJECTION
+      ADMM_PURIFICATION_METHOD NONE
+      EXCH_CORRECTION_FUNC     PBEX
+    &END AUXILIARY_DENSITY_MATRIX_METHOD
+    &MGRID
+      CUTOFF     ${CUTOFF}
+      REL_CUTOFF ${REL_CUTOFF}
+    &END MGRID
+    &QS
+      EPS_DEFAULT 1.0E-12
+    &END QS
+    &SCF
+      SCF_GUESS ATOMIC
+      EPS_SCF   1.0E-6
+      MAX_SCF   ${MAX_SCF}
+      &OT ON
+        MINIMIZER      DIIS
+        PRECONDITIONER FULL_ALL
+        ENERGY_GAP     0.05
+      &END OT
+      &OUTER_SCF
+        EPS_SCF 1.0E-6
+        MAX_SCF 10
+      &END OUTER_SCF
+      &PRINT
+        &RESTART ON
+        &END RESTART
+      &END PRINT
+    &END SCF
+    &PRINT
+      # HOMO-LUMO gap from the OT orbitals.
+      &MO_CUBES
+        NHOMO 1
+        NLUMO 1
+        WRITE_CUBE FALSE
+      &END MO_CUBES
+    &END PRINT
+    &XC
+      &XC_FUNCTIONAL
+        &MGGA_X_R2SCAN
+          SCALE 0.75
+        &END MGGA_X_R2SCAN
+        &MGGA_C_R2SCAN
+        &END MGGA_C_R2SCAN
+      &END XC_FUNCTIONAL
+      &HF
+        FRACTION 0.25
+        &SCREENING
+          EPS_SCHWARZ          1.0E-6
+          SCREEN_ON_INITIAL_P  FALSE
+        &END SCREENING
+        &INTERACTION_POTENTIAL
+          POTENTIAL_TYPE TRUNCATED
+          CUTOFF_RADIUS  ${HFX_RADIUS}
+          T_C_G_DATA     t_c_g.dat
+        &END INTERACTION_POTENTIAL
+        &MEMORY
+          MAX_MEMORY          ${HFX_MEMORY}
+          EPS_STORAGE_SCALING 0.1
+        &END MEMORY
+      &END HF
+      &VDW_POTENTIAL
+        POTENTIAL_TYPE PAIR_POTENTIAL
+        &PAIR_POTENTIAL
+          TYPE                 DFTD3(BJ)
+          PARAMETER_FILE_NAME  dftd3.dat
+          REFERENCE_FUNCTIONAL R2SCAN0
+        &END PAIR_POTENTIAL
+      &END VDW_POTENTIAL
+    &END XC
+  &END DFT
+  &SUBSYS
+    @INCLUDE subsys.inc
+  &END SUBSYS
+&END FORCE_EVAL
