@@ -5,7 +5,8 @@ the code-pack skills under codes/ call. Every tool takes the facility slug
 first, like the scheduler tools. The records_* tools work on local files
 and never contact a cluster; the cp2k_* tools run one read-only command on
 the facility's login node, after the same configuration check as the
-scheduler tools; launch_plan reads records and pack values only.
+scheduler tools (cp2k_bench_input then writes its inputs on this
+machine); launch_plan reads records and pack values only.
 """
 import hpc_mcp  # noqa: F401 -- import for its side effect: registers every facility
 from hpc_agent_core.mcp_server import MCPServer
@@ -143,6 +144,48 @@ def cp2k_kinds(facility: str, elements: list[str], basis: str = "DZVP-MOLOPT-SR-
         build_id: a software_registry build_id; omit for the default build.
     """
     return cp2k.kinds(facility, elements, basis, build_id)
+
+
+@mcp.tool()
+def cp2k_bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
+                     build_id: str | None = None, steps: int = 10, smoke_steps: int = 3,
+                     xc: str = "revPBE", d3: str = "zero", cutoff: int = 450,
+                     rel_cutoff: int = 60, basis: str = "DZVP-MOLOPT-SR-GTH",
+                     charge: int = 0, overwrite: bool = False) -> dict:
+    """Write a CP2K NVE AIMD benchmark input (NAME.inp, `steps` MD steps)
+    and a smoke version (NAME-smoke.inp, `smoke_steps`) from an extended
+    xyz on this machine, coordinates inline. revPBE-D3, 450/60 Ry, Gamma
+    point, NVE 0.5 fs from 300 K, OT/DIIS with FULL_SINGLE_INVERSE,
+    IGNORE_CONVERGENCE_FAILURE. Reads each element's valence and GTH-PBE
+    potential from the build's data folder on the login node (as
+    cp2k_kinds), read-only; writes only on this machine, so fs_upload the
+    inputs afterwards.
+
+    Before it: structure_check the xyz (and structure_stretch_xh on
+    `short_xh`, e.g. X-ray C-H bonds).
+
+    Returns {"inputs", "build_id", "formula", "natoms", "electrons",
+    "widths", "kinds": {element: potential}, "warnings"}; read the
+    warnings to the user (odd electron count, cell thinner than 10 A).
+
+    Args:
+        facility: Facility slug, e.g. "hokusai". See get_facilities().
+        xyz_path: extended xyz (Lattice= on line 2) on this machine.
+        name: project and file name, e.g. "UiO66-prim".
+        out_dir: local folder for the two inputs; created if missing.
+        build_id: a software_registry build_id; omit for the default build.
+        steps: MD steps of the benchmark input.
+        smoke_steps: MD steps of the smoke input.
+        xc: "revPBE" or "PBE".
+        d3: "zero", "bj" or "none".
+        cutoff: MGRID CUTOFF in Ry.
+        rel_cutoff: MGRID REL_CUTOFF in Ry.
+        basis: basis set name in BASIS_MOLOPT, for every element.
+        charge: total charge.
+        overwrite: replace the inputs if they exist.
+    """
+    return cp2k.bench_input(facility, xyz_path, name, out_dir, build_id, steps, smoke_steps,
+                            xc, d3, cutoff, rel_cutoff, basis, charge, overwrite)
 
 
 # ---------------------------------------------------------------------------
