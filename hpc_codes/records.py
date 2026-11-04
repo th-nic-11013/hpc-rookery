@@ -53,9 +53,16 @@ def facility_dir(facility: str) -> Path:
 
 
 def user_dir(facility: str) -> Path:
+    """This user's records of a facility. HPC_RECORDS_USER_DIR names the
+    directory itself (one facility, as the tests use it); HPC_RECORDS_ROOT
+    moves every facility's user records to <root>/<slug>/, e.g. into a
+    lab-notebook repository that versions them."""
     config.get_facility(facility)
     override = os.environ.get("HPC_RECORDS_USER_DIR")
-    return Path(override) if override else Path.home() / ".hpc-agent" / "records" / facility
+    if override:
+        return Path(override)
+    root = os.environ.get("HPC_RECORDS_ROOT")
+    return Path(root) / facility if root else Path.home() / ".hpc-agent" / "records" / facility
 
 
 def _load(path: Path) -> list[dict]:
