@@ -25,7 +25,7 @@ looks the way it does.
 - **Writes:** `benchmarks`, one record per layout × node count, with the
   job ID.
 - **Tools:**
-  - `fs_upload`, `run_command_on_cluster` (the dry run), `cp2k_check_input`,
+  - `fs_upload`, `cp2k_bench_dryrun`, `cp2k_check_input`,
     `cp2k_bench_parse` and `fs_view` / `fs_tail` on the login node;
   - `submit_job` and `get_job_status` for the job;
   - `launch_plan` and `{{SLUG}}-records` locally.
@@ -153,21 +153,31 @@ Timeouts: about 2× the fastest layout's run time, plus at least 2 min of
 launch slack (lesson 11). With no timing yet, run the smoke stage alone
 first, or scan only 3–4 layouts.
 
-**Dry-run it before submitting.** It runs on the login node, in a scratch
-copy, with a stub `srun`. The harness refuses to run unless that stub is
-first on `PATH`.
+**Dry-run it before submitting.** `cp2k_bench_dryrun` runs the folder's
+`dryrun.sh` on the login node, in a scratch folder of its own, with a stub
+`srun`; the harness refuses to run unless that stub is first on `PATH`.
+Pass the BENCHMARK SETTINGS as `settings`:
 
-```bash
-REF_OUT=<finished cp2k.out> SMOKE_INPUT=... SCAN_INPUT=... VALIDATE_INPUT=... \
-  bash ~/agent/work/cp2k-runs/<system>/bench/dryrun.sh ~/agent/work/cp2k-runs/<system>/bench <empty scratch dir>
+```text
+cp2k_bench_dryrun(facility="{{SLUG}}", bench_dir="~/agent/work/cp2k-runs/<system>/bench",
+                  ref_out="<finished cp2k.out>",
+                  settings={"SMOKE_INPUT": "...", "SCAN_INPUT": "...", "VALIDATE_INPUT": "...",
+                            "SMOKE_TIMEOUT": "...", "SCAN_TIMEOUT": "...", "VALIDATE_TIMEOUT": "..."})
 ```
 
-Repeat it twice more:
-- with `FAIL_LAYOUT=<a scan layout>`: the stage must stop;
-- with a small `BENCH_LIMIT_S`, such as 400: the guard must refuse a run.
+One call runs three cases, and `ok` is true only if each behaved:
+- `pass`: all stages pass;
+- `fail_layout`: the stub fails one scan layout (`fail_layout`, default the
+  last one not in the smoke stage), and the stage must stop there;
+- `time_limit`: a small `BENCH_LIMIT_S` (`time_limit_s`, default 60), and
+  the guard must refuse a run.
+
+A case with `expected: false` says why; read its `log_tail`. For the
+multi-node job, pass `job_script="multinode_layouts_job.sh"`, `nodes` and
+its settings (`LAYOUTS`, `REF_DIR`, `REF_LAYOUT`, `CP2K_ENV`).
 
 This tests the stage logic, not CP2K. The stub copies a finished `cp2k.out`
-from `REF_OUT`, which is required: use the H2O-32 test output of the build
+from `ref_out`, which is required: use the H2O-32 test output of the build
 being benchmarked (the build skill runs that test). Never run the stage
 scripts outside `dryrun.sh` on a login node, because a real `srun` there
 tries to start a job.
@@ -224,8 +234,8 @@ Only after a single-node scan has passed. `scripts/multinode_layouts_job.sh`:
 
 Submit it like the job above, with `node_count` N. `LAYOUTS` and
 `REF_LAYOUT` have no default: set them. Dry-run it first with
-`JOB=multinode_layouts_job.sh DRY_NODES=N`. Choose the layouts with the
-user, each with a reason:
+`cp2k_bench_dryrun(..., job_script="multinode_layouts_job.sh", nodes=N)`.
+Choose the layouts with the user, each with a reason:
 - the 1-node winner (the baseline);
 - one with fewer ranks per node (less network traffic);
 - one with more ranks per node (wider grid and FFT distribution).

@@ -1,8 +1,10 @@
 """CP2K tools: parse benchmark stages, parse-check an input, check a build,
-look up a build's &KIND facts.
+look up a build's &KIND facts, dry-run a benchmark folder.
 
-All four only read on the cluster. Each runs one shell command on the
-login node through middleware.run_command, after checking that the
+All of them only read on the cluster (the dry run writes a scratch folder
+of its own under ~/agent/work/ and removes it). Each runs one shell command
+(the dry run one per case) on the login node through
+middleware.run_command, after checking that the
 facility opted into the cp2k pack and then the same configuration check
 the scheduler tools use. The facility's CP2K values (front-end
 Python, cores per node) come from facilities/<dir>/codes/cp2k/values.json,
@@ -131,3 +133,108 @@ def kinds(facility: str, elements: list[str], basis: str = "DZVP-MOLOPT-SR-GTH",
     out = run_command(facility, _python_script(vals, KINDS, args))
     result = json.loads(out.strip().splitlines()[-1])
     return {"build_id": build["build_id"], "data_dir": build["data_dir"], **result}
+
+
+DRYRUN_CASES = ("pass", "fail_layout", "time_limit")
+# set by the tool or by dryrun.sh itself; a setting must not override them
+_DRYRUN_RESERVED = {"PATH", "HOME", "BASH_ENV", "ENV", "IFS", "BENCH", "BENCH_START", "REF_OUT",
+                    "FAIL_LAYOUT", "JOB", "DRY_NODES"}
+_DRYRUN_GUARD = "stub srun is not first on PATH"
+DRYRUN_SCRATCH = "agent/work/cp2k-dryrun"
+
+
+def _dryrun_env(settings: dict) -> list[str]:
+    words = []
+    for k, v in (settings or {}).items():
+        if (not re.fullmatch(r"[A-Z][A-Z0-9_]*", k) or k in _DRYRUN_RESERVED
+                or k.startswith(("SLURM_", "LD_", "DYLD_"))):
+            raise ValueError(f"not a benchmark setting the dry run may take: {k!r}")
+        words.append(f"{k}={shlex.quote(str(v))}")
+    return words
+
+
+def _dryrun_expected(case: str, code: int, lines: list[str], job: bool, layout: str | None):
+    if case == "pass":
+        ok = code == 0 and (job or any("all stages passed" in l for l in lines))
+        return ok, "" if ok else "the dry run did not pass"
+    if case == "fail_layout":
+        hit = any("FAILED:" in l and layout in l for l in lines)
+        ok = code != 0 and hit and not any("all stages passed" in l for l in lines)
+        return ok, "" if ok else f"the job did not stop on the failing layout {layout}"
+    ok = code != 0 and any("NOT STARTED" in l for l in lines)
+    return ok, "" if ok else "the time guard did not refuse a run"
+
+
+def bench_dryrun(facility: str, bench_dir: str, ref_out: str, settings: dict | None = None,
+                 cases: list[str] | None = None, fail_layout: str | None = None,
+                 time_limit_s: int = 60, job_script: str | None = None, nodes: int = 4,
+                 keep_scratch: bool = False) -> dict:
+    vals = pack_values(facility)
+    config.require_facility_configuration(facility)
+    cases = list(cases or DRYRUN_CASES)
+    bad = [c for c in cases if c not in DRYRUN_CASES]
+    if bad or not cases:
+        raise ValueError(f"unknown dry-run cases {bad}; choose from {list(DRYRUN_CASES)}")
+    if job_script is not None and not re.fullmatch(r"[A-Za-z0-9._-]+\.sh", job_script):
+        raise ValueError(f"job_script is a script name in bench_dir, e.g. multinode_layouts_job.sh: {job_script!r}")
+    if int(nodes) < 1:
+        raise ValueError("nodes must be at least 1")
+    settings = {k: str(v) for k, v in (settings or {}).items()}
+    env = _dryrun_env(settings)
+    job = job_script is not None
+    if "fail_layout" in cases and not fail_layout:
+        if job:
+            layouts = settings.get("LAYOUTS", "").split()
+        else:
+            smoke = set(settings.get("SMOKE_LAYOUTS", vals.get("CP2K_SMOKE_LAYOUTS", "")).split())
+            scan = settings.get("SCAN_LAYOUTS", vals.get("CP2K_SCAN_LAYOUTS", "")).split()
+            layouts = [l for l in scan if l not in smoke] or scan
+        if not layouts:
+            raise ValueError("give fail_layout, or LAYOUTS / SCAN_LAYOUTS in settings")
+        # the second per-node layout of a multi-node job: the first is the baseline
+        fail_layout = layouts[min(1, len(layouts) - 1)] if job else layouts[-1]
+    if fail_layout and not re.fullmatch(r"\d+x\d+", fail_layout):
+        raise ValueError(f"fail_layout is <ranks>x<threads>, e.g. 8x14: {fail_layout!r}")
+
+    bench = _home_path(bench_dir)
+    script = f"{bench}/dryrun.sh"
+    results = []
+    for case in cases:
+        case_env = list(env)
+        if case == "fail_layout":
+            r, t = (int(x) for x in fail_layout.split("x"))
+            # the stub srun sees the job's total ranks; a multi-node layout is per node
+            case_env.append(f"FAIL_LAYOUT={r * int(nodes) if job else r}x{t}")
+        if case == "time_limit":
+            case_env.append(f"BENCH_LIMIT_S={int(time_limit_s)}")
+        if job:
+            case_env += [f"JOB={job_script}", f"DRY_NODES={int(nodes)}"]
+        case_env.append(f"REF_OUT={_home_path(ref_out)}")
+        # a scratch folder of the tool's own, removed afterwards: the benchmark
+        # folder is only read
+        body = (f"grep -q {shlex.quote(_DRYRUN_GUARD)} {script} || {{ echo HPC_DRYRUN_NO_GUARD; exit 97; }}; "
+                f'mkdir -p "$HOME"/{DRYRUN_SCRATCH} && '
+                f'S=$(mktemp -d "$HOME"/{DRYRUN_SCRATCH}/{case}.XXXXXX) || exit 98; '
+                f"env {' '.join(case_env)} timeout 300 bash {script} {bench} \"$S\" dry-{case}; rc=$?; "
+                f'echo "HPC_DRYRUN_SCRATCH=$S"; '
+                + ("" if keep_scratch else
+                   f'case "$S" in "$HOME"/{DRYRUN_SCRATCH}/{case}.*) rm -rf -- "$S";; esac; ')
+                + "exit $rc")
+        code, lines = _run_with_exit(facility, body)
+        if "HPC_DRYRUN_NO_GUARD" in lines:
+            raise RuntimeError(f"{bench_dir}/dryrun.sh is missing or has no stub-srun check; "
+                               "upload the benchmark skill's scripts/dryrun.sh first")
+        scratch = next((l.split("=", 1)[1] for l in lines if l.startswith("HPC_DRYRUN_SCRATCH=")), None)
+        lines = [l for l in lines if not l.startswith("HPC_DRYRUN_SCRATCH=")]
+        expected, why = _dryrun_expected(case, code, lines, job, fail_layout)
+        results.append({
+            "case": case, "exit_code": code, "expected": expected, "why": why,
+            "stages_run": [m.group(1) for l in lines
+                           if (m := re.fullmatch(r"##### (stage\w+) #####", l.strip()))],
+            "failed": [l.split("FAILED:", 1)[1].strip() for l in lines if "FAILED:" in l],
+            "not_started": [l.strip("= ").split(" NOT STARTED")[0] for l in lines if "NOT STARTED" in l],
+            **({"fail_layout": fail_layout} if case == "fail_layout" else {}),
+            **({"scratch": scratch} if keep_scratch else {}),
+            "log_tail": lines[-40:]})
+    return {"ok": all(r["expected"] for r in results), "bench_dir": bench_dir,
+            "job_script": job_script, "cases": results}

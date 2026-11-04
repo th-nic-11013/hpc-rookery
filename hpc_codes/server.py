@@ -65,8 +65,9 @@ def records_check(facility: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# CP2K. These read on the cluster's login node and change nothing there, so,
-# unlike run_command_on_cluster, they need no preview-and-permission step.
+# CP2K. These read on the cluster's login node and change nothing there (the
+# dry run writes only a scratch folder of its own, and removes it), so, unlike
+# run_command_on_cluster, they need no preview-and-permission step.
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
@@ -143,6 +144,53 @@ def cp2k_kinds(facility: str, elements: list[str], basis: str = "DZVP-MOLOPT-SR-
         build_id: a software_registry build_id; omit for the default build.
     """
     return cp2k.kinds(facility, elements, basis, build_id)
+
+
+@mcp.tool()
+def cp2k_bench_dryrun(facility: str, bench_dir: str, ref_out: str,
+                      settings: dict | None = None, cases: list[str] | None = None,
+                      fail_layout: str | None = None, time_limit_s: int = 60,
+                      job_script: str | None = None, nodes: int = 4,
+                      keep_scratch: bool = False) -> dict:
+    """Dry-run a cp2k-benchmark folder on the login node with its own
+    dryrun.sh: the stage scripts run as the job would, but a stub `srun`
+    copies `ref_out` instead of starting CP2K, and the script refuses to
+    run unless that stub is first on PATH. Tests the stage logic, not
+    CP2K: no job, no compute. bench_dir is only read; each case runs in a
+    new scratch folder under ~/agent/work/cp2k-dryrun/, removed afterwards
+    unless keep_scratch. No permission step needed.
+
+    Cases (all three by default): "pass" (must pass), "fail_layout" (the
+    stub fails one layout; the job must stop there) and "time_limit"
+    (BENCH_LIMIT_S=time_limit_s; the guard must refuse a run).
+
+    Returns {"ok" (every case behaved as expected), "bench_dir",
+    "job_script", "cases": [per case: case, exit_code, expected, why,
+    stages_run, failed, not_started, fail_layout, scratch, log_tail]}.
+
+    Args:
+        facility: Facility slug, e.g. "hokusai". See get_facilities().
+        bench_dir: the benchmark folder on the cluster (dryrun.sh, the stage
+            scripts, inputs/), absolute or under ~.
+        ref_out: a finished cp2k.out on the cluster, e.g. the build's
+            H2O-32 test output.
+        settings: the job's settings as environment variables, e.g.
+            {"SMOKE_INPUT": "x-smoke.inp", "SCAN_INPUT": "x.inp",
+            "VALIDATE_INPUT": "none", "SCAN_LAYOUTS": "28x4 8x14"}.
+        cases: a subset of ["pass", "fail_layout", "time_limit"].
+        fail_layout: the layout the stub fails, e.g. "8x14" (per node for a
+            job_script); omit for the last scan layout not in the smoke
+            stage (for a job_script, the second of LAYOUTS).
+        time_limit_s: BENCH_LIMIT_S for the "time_limit" case.
+        job_script: run this job script in bench_dir instead of the three
+            stages, e.g. "multinode_layouts_job.sh" (set LAYOUTS, REF_DIR,
+            REF_LAYOUT in settings).
+        nodes: node count the job script sees (job_script only).
+        keep_scratch: keep the scratch folders to inspect; their paths are
+            returned.
+    """
+    return cp2k.bench_dryrun(facility, bench_dir, ref_out, settings, cases, fail_layout,
+                             time_limit_s, job_script, nodes, keep_scratch)
 
 
 # ---------------------------------------------------------------------------
