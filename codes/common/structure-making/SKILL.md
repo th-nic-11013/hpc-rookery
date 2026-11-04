@@ -31,7 +31,9 @@ Isolated molecules get a box too.
 | `examples/build_uio66.py` (worked MOF build) | ASE, spglib | the user's machine |
 | `structure_check` tool (checks; the yagura server) | nothing | the user's machine, on a local file |
 | `scripts/geomcheck.py` (the same checks, by hand) | numpy | anywhere, including the {{DISPLAY_NAME}} login node: `{{FRONT_END_PYTHON}} -I geomcheck.py x.xyz` |
-| `cp2k/make_subsys.py` (CP2K &SUBSYS) | numpy and the CP2K data folder | the login node, next to the CP2K build |
+| `cp2k_kinds` (rookery) + `cp2k_make_subsys` (hyogo) (CP2K &SUBSYS) | nothing | kinds on the login node, the file on the user's machine; see `cp2k/cp2k.md` |
+| `structure_stretch_xh` tool (X-H bond lengths; yagura) | nothing | the user's machine |
+| `cp2k/make_subsys.py` (all of the CP2K step, by hand) | numpy and the CP2K data folder | the login node, next to the CP2K build |
 
 On the login node, run these text tools with `{{FRONT_END_PYTHON}} -I`.
 Install ASE locally (`pip install ase spglib`) rather than on the cluster.
@@ -77,7 +79,7 @@ work through `inspect_cif.py`:
   Compare the atom count with Z × the primitive count.
 - **X-ray hydrogens are short** (C-H ≈ 0.95 Å instead of ~1.08). Say so.
   Either relax them, or stretch them for a timing run
-  (`cp2k/make_subsys.py --stretch-ch 1.08`).
+  (`structure_stretch_xh(path, out_path, length=1.08)`).
 
 `examples/build_uio66.py` is a complete worked build (ideal hydroxylated
 UiO-66 from CCDC 1405739), and `references/uio66-1405739.md` records each

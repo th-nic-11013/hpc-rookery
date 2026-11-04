@@ -50,7 +50,7 @@ Ask the user about anything that changes the physics:
 | functional | revPBE-D3 | plain PBE-D3: `PARAMETRIZATION ORIG`, `D3_REFERENCE PBE`. Hybrids or SCAN need other basis/potential files and ADMM. Ask first |
 | `CUTOFF` / `REL_CUTOFF` | 450 / 60 Ry | converge for production: run 350–700 Ry and take the value where the energy changes < 1 meV/atom (and forces < 1e-4 Ha/bohr) |
 | SCF | OT DIIS + FULL_ALL | metals and small-gap systems: replace with the diagonalisation + smearing block given in the template's comments |
-| isolated molecule | periodic | `subsys.inc` made with `--periodic NONE`: uncomment `&POISSON` |
+| isolated molecule | periodic | `subsys.inc` made with `periodic="NONE"`: uncomment `&POISSON` |
 
 The template has **no `IGNORE_CONVERGENCE_FAILURE`**. An unconverged SCF
 must stop the run, not produce an energy that looks valid.
@@ -155,7 +155,7 @@ Common failures:
 
 | symptom | fix |
 |---|---|
-| `no ... for <element>` from `make_subsys.py`, or a basis/potential not found | see `structure-making/cp2k/cp2k.md` |
+| an element in `cp2k_kinds`' `errors` (or `no ... for <element>` from `make_subsys.py`), or a basis/potential not found | see `structure-making/cp2k/cp2k.md` |
 | `error while loading shared libraries`, exit 127 | the job didn't source `cp2k_env.sh` |
 | SCF stalls (OT gradient flat at 1e-5) | check charge and multiplicity. Then try OT CG, or diagonalisation + Broyden (both converged the 456-atom cell) |
 | `module: command not found` | the job was submitted with `--export=NONE`. Don't |

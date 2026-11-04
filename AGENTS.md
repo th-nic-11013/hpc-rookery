@@ -121,6 +121,10 @@ yagura/                Structure checking (and later building and
                         here before it becomes its own repository: it
                         imports nothing from the packages above and they
                         import nothing from it (conformance enforces it).
+hyogo/                 Running simulation methods and writing their
+                        inputs (cp2k_make_subsys so far), its own MCP
+                        server (hyogo-mcp). Staged like yagura; the three
+                        groups import nothing from each other.
 scripts/                render_facility_tables.py (facility table codegen),
                         render_skills.py (per-facility skill codegen), and
                         render_plugins.py (marketplace/manifest codegen).

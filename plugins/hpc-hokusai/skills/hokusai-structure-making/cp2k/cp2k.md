@@ -19,33 +19,46 @@ alike, and the method settings never get mixed up with the structure.
 
 ## Make `subsys.inc`
 
-`make_subsys.py` (next to this file) needs only numpy. Run it on the login
-node, against the data folder of the CP2K build that will run the input:
-that build's `data_dir` in `software_registry`; for the default build,
-`records_query(facility="hokusai", record_type="software_registry", filters={"code": "cp2k", "default": true}, fields=["env_script", "data_dir"])`
-(see `hokusai-records`).
+Three tools, one per owner: the build's facts come from the cluster, the
+text is written here, and the file goes up next to the run input.
+
+1. **The kinds, from the build that will run the input:**
+   ```text
+   cp2k_kinds(facility="hokusai", elements=["Zr", "O", "C", "H"])   # build_id= for a non-default build
+   ```
+   For each element, `q`, the basis (`DZVP-MOLOPT-SR-GTH`, or `basis=`)
+   and the matching `GTH-PBE-q<N>`, read from that build's own data files
+   on the login node. **`q` is never guessed:** Zr q12, Ti q12, Cu q11,
+   N q5. An element with no such basis or potential is in `errors`. Then
+   list what exists (`grep -E "^ *Fe " <data_dir>/BASIS_MOLOPT`, with
+   `data_dir` from the result) and ask the user which to use.
+2. **The file, on this machine**, from the checked xyz:
+   ```text
+   cp2k_make_subsys(xyz_path="UiO66-prim.xyz", kinds=<step 1's result>)          # crystal / MOF / liquid
+   cp2k_make_subsys(xyz_path="mol.xyz", kinds=<...>, periodic="NONE")           # isolated molecule
+   ```
+   It writes `subsys.inc` beside the xyz (or `out_path`) with the cell,
+   the coordinates inline (`&COORD`) and one `&KIND` per element, and
+   returns the electron count and `warnings`: a cell width below 10 Å
+   (poor Gamma-point sampling), an odd electron count (open shell),
+   PERIODIC NONE (enable `&POISSON`). Read them to the user.
+3. `fs_upload` `subsys.inc` into the run folder.
+
+Short X-ray C-H bonds are fixed before step 2, on the xyz:
+`structure_stretch_xh(path, out_path, length=1.08)` (`structure_check`
+flags them as `short_xh`).
+
+**By hand, without the hyogo and yagura servers:** `make_subsys.py` (next
+to this file, numpy only) does all three on the login node, against the
+build's `data_dir` from `software_registry` (see `hokusai-records`):
 
 ```bash
 cd ~/agent/work/<project>/structures/<system>
-/usr/bin/python3.12 -I make_subsys.py UiO66-prim.xyz \
-    --data-dir <data_dir>          # crystal / MOF / liquid
-/usr/bin/python3.12 -I make_subsys.py mol.xyz --periodic NONE \
-    --data-dir <data_dir>          # isolated molecule
+/usr/bin/python3.12 -I make_subsys.py UiO66-prim.xyz --data-dir <data_dir> [--stretch-ch 1.08]
+/usr/bin/python3.12 -I make_subsys.py mol.xyz --periodic NONE --data-dir <data_dir>
 ```
 
-It writes `subsys.inc` with the cell, the coordinates inline (`&COORD`),
-and per element `DZVP-MOLOPT-SR-GTH` with the matching `GTH-PBE-q<N>`.
-**`q` is read from the data files, never guessed:** Zr q12, Ti q12, Cu q11,
-N q5. It stops with a clear message if an element has no such basis or
-potential. In that case, list what exists
-(`grep -E "^ *Fe " <data>/BASIS_MOLOPT`) and ask the user which to use.
-
-It also prints:
-- the cell's perpendicular widths, with a warning below 10 Å (poor Gamma-point sampling);
-- the valence-electron count, with a warning when it is odd (open shell).
-
-`--stretch-ch 1.08` fixes X-ray C-H bonds, and `--basis` chooses another
-MOLOPT basis.
+It writes the same file and prints the same warnings.
 
 ## Matching the potential to the functional
 

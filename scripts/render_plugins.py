@@ -174,6 +174,7 @@ def portable_mcp() -> dict:
             "hpc-docs": {"type": "stdio", "command": "uv", "args": [*args_prefix, "hpc-docs-mcp"], "env": {}},
             "hpc-codes": {"type": "stdio", "command": "uv", "args": [*args_prefix, "hpc-codes-mcp"], "env": {}},
             "yagura": {"type": "stdio", "command": "uv", "args": [*args_prefix, "yagura-mcp"], "env": {}},
+            "hyogo": {"type": "stdio", "command": "uv", "args": [*args_prefix, "hyogo-mcp"], "env": {}},
         },
     }
 
