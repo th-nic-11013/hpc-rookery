@@ -2613,6 +2613,26 @@ def check_repo() -> None:
             assert set(r["errors"]) == {"Zr", "Xx", "N"}, r
             assert "GTH-PBE-q12" in r["errors"]["Zr"] and "no -qN alias" in r["errors"]["Xx"], r
             assert "no DZVP-MOLOPT-SR-GTH for N" in r["errors"]["N"], r
+            assert r["files"] == {"basis": ["BASIS_MOLOPT"], "potential": "GTH_POTENTIALS"}, r
+            # UZH: the newest versioned file wins (the unversioned one has no O),
+            # q comes from the basis name, the potential must be the same family
+            r = server.cp2k_kinds("hokusai", ["Zr", "O", "H"], family="uzh-scan")
+            assert r["files"] == {"basis": ["BASIS_MOLOPT_UZH_2026.2"],
+                                  "potential": "POTENTIAL_UZH_2026.2"}, r
+            assert r["kinds"]["Zr"] == {"q": 12, "basis": "DZVP-MOLOPT-SCAN-GTH-q12",
+                                        "potential": "GTH-SCAN-q12"}, r
+            assert not r["errors"], r
+            r = server.cp2k_kinds("hokusai", ["Zr", "O", "H"], family="uzh-pbe0", aux_basis="admm-dzp")
+            assert r["files"]["basis"] == ["BASIS_MOLOPT_UZH_2026.2", "BASIS_ADMM_UZH"], r
+            assert r["kinds"]["O"]["aux_basis"] == "admm-dzp-q6", r
+            assert set(r["errors"]) == {"Zr"} and "admm-dzp-q12" in r["errors"]["Zr"], r
+            for kw in ({"family": "gth"}, {"aux_basis": "admm-dzp"}):
+                try:
+                    server.cp2k_kinds("hokusai", ["H"], **kw)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"cp2k_kinds accepted {kw}")
             for bad in (["H; rm -rf ~"], []):
                 try:
                     server.cp2k_kinds("hokusai", bad)

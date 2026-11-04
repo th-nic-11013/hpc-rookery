@@ -126,25 +126,37 @@ def cp2k_check_build(facility: str, build_id: str | None = None) -> dict:
 
 
 @mcp.tool()
-def cp2k_kinds(facility: str, elements: list[str], basis: str = "DZVP-MOLOPT-SR-GTH",
-               build_id: str | None = None) -> dict:
+def cp2k_kinds(facility: str, elements: list[str], basis: str | None = None,
+               build_id: str | None = None, family: str = "molopt",
+               aux_basis: str | None = None) -> dict:
     """The CP2K &KIND facts of a recorded build for each element: valence
-    q, basis set and GTH-PBE potential, read from the build's own data
-    folder (BASIS_MOLOPT, GTH_POTENTIALS) on the login node, so q is never
-    guessed. Read-only, no permission step needed. Pass the result's
-    `kinds` to the input writer (cp2k_make_subsys).
+    q, basis set and GTH potential, read from the build's own data folder
+    on the login node, so q is never guessed. Read-only, no permission
+    step needed. Pass the result to the input writers (cp2k_make_subsys,
+    then cp2k_make_input, which reads `files`).
 
-    Returns {"build_id", "data_dir", "kinds": {element: {q, basis,
-    potential}}, "errors": {element: why}}; an element with no such basis
-    or potential is in `errors`, not `kinds`.
+    Pick `family` by functional: "molopt" (BASIS_MOLOPT + GTH_POTENTIALS,
+    GTH-PBE) for revPBE/PBE as benchmarked; "uzh-pbe", "uzh-scan" (r2SCAN,
+    r2SCAN0) or "uzh-pbe0" (PBE0, HSE06) for the newest BASIS_MOLOPT_UZH* and
+    POTENTIAL_UZH* of the build. Hybrids also need `aux_basis` (e.g.
+    "admm-dzp"), read from BASIS_ADMM_UZH.
+
+    Returns {"build_id", "data_dir", "files": {"basis": [file, ...],
+    "potential": file}, "kinds": {element: {q, basis, potential[,
+    aux_basis]}}, "errors": {element: why}}; an element with no such basis,
+    potential or aux basis is in `errors`, not `kinds`.
 
     Args:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
         elements: element symbols, e.g. ["Zr", "O", "C", "H"].
-        basis: basis set name in BASIS_MOLOPT.
+        basis: basis set name without -qN; omit for the family's DZVP
+            (DZVP-MOLOPT-SR-GTH for molopt, DZVP-MOLOPT-SCAN-GTH, ...).
         build_id: a software_registry build_id; omit for the default build.
+        family: "molopt", "uzh-pbe", "uzh-scan" or "uzh-pbe0".
+        aux_basis: ADMM auxiliary basis for hybrids, e.g. "admm-dzp"; UZH
+            families only.
     """
-    return cp2k.kinds(facility, elements, basis, build_id)
+    return cp2k.kinds(facility, elements, basis, build_id, family, aux_basis)
 
 
 @mcp.tool()

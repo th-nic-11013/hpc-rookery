@@ -118,8 +118,14 @@ def check_build(facility: str, build_id: str | None = None) -> dict:
                   and get("DATA") != "missing" and version == build.get("version")}
 
 
-def kinds(facility: str, elements: list[str], basis: str = "DZVP-MOLOPT-SR-GTH",
-          build_id: str | None = None) -> dict:
+KIND_FAMILIES = ("molopt", "uzh-pbe", "uzh-scan", "uzh-pbe0")
+KIND_DEFAULT_BASIS = {"molopt": "DZVP-MOLOPT-SR-GTH", "uzh-pbe": "DZVP-MOLOPT-PBE-GTH",
+                      "uzh-scan": "DZVP-MOLOPT-SCAN-GTH", "uzh-pbe0": "DZVP-MOLOPT-PBE0-GTH"}
+
+
+def kinds(facility: str, elements: list[str], basis: str | None = None,
+          build_id: str | None = None, family: str = "molopt",
+          aux_basis: str | None = None) -> dict:
     vals = pack_values(facility)
     config.require_facility_configuration(facility)
     build = resolve_build(facility, build_id)
@@ -132,9 +138,16 @@ def kinds(facility: str, elements: list[str], basis: str = "DZVP-MOLOPT-SR-GTH",
     bad = [e for e in elements if not re.fullmatch(r"[A-Z][a-z]?", e)]
     if bad:
         raise ValueError(f"not element symbols: {bad}")
-    if not re.fullmatch(r"[A-Za-z0-9._-]+", basis):
-        raise ValueError(f"not a basis set name: {basis!r}")
-    args = " ".join([_home_path(build["data_dir"]), shlex.quote(basis), *elements])
+    if family not in KIND_FAMILIES:
+        raise ValueError(f"family is one of {list(KIND_FAMILIES)}")
+    basis = basis or KIND_DEFAULT_BASIS[family]
+    for word in (basis, aux_basis):
+        if word is not None and not re.fullmatch(r"[A-Za-z0-9._-]+", word):
+            raise ValueError(f"not a basis set name: {word!r}")
+    if aux_basis and family == "molopt":
+        raise ValueError('aux_basis comes from BASIS_ADMM_UZH: use a "uzh-*" family')
+    flags = ["--family", family] + (["--aux", aux_basis] if aux_basis else [])
+    args = " ".join([*flags, _home_path(build["data_dir"]), shlex.quote(basis), *elements])
     out = run_command(facility, _python_script(vals, KINDS, args))
     result = json.loads(out.strip().splitlines()[-1])
     return {"build_id": build["build_id"], "data_dir": build["data_dir"], **result}
