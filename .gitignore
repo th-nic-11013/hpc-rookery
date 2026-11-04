@@ -1,6 +1,7 @@
 *.egg-info/
 *.pyc
-.claude/
+.claude/*
+!.claude/skills/
 .pytest_cache/
 .venv/
 __pycache__/
