@@ -11,10 +11,11 @@ submitting.
 
 ## Contract
 
-- **Reads:** `benchmarks` (the layout), through `hokusai-records`.
+- **Reads:** `benchmarks` and `software_registry`, through `launch_plan`.
 - **Writes:** no records. It writes `single_point.out` and, if asked, the
   wavefunction.
-- **Tools:** `fs_upload`, `cp2k_check_input` (parse check),
+- **Tools:** `launch_plan` (layout, job spec, cost), `fs_upload`,
+  `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `fs_tail` / `fs_view`.
 - **Preconditions:** the two prerequisites below, and the user's approval
   of the input and the cost.
@@ -76,36 +77,41 @@ converges.
 Get the absolute home path once (`echo $HOME`); `directory` is passed to
 `sbatch --chdir`, which doesn't expand `~`.
 
+Ask rookery for the launch, never write it by hand:
+
+```text
+launch_plan(facility="hokusai", code="cp2k", run_type="single_point",
+            system={"label": "<system>", "atoms": <atoms>},
+            build_id=<only if the user named a build>)
+```
+
+Submit its `job_spec` (`pre_launch`, `launcher`, `environment`,
+`resources`, `attributes.queue_name`) unchanged, with these added:
+
 ```json
 {
   "name": "cp2k-sp-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/sp",
-  "pre_launch": "source <env_script>",
-  "launcher": "srun --mpi=pmix --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i single_point.inp -o single_point.out",
-  "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
-  "resources": {"node_count": <N>, "processes_per_node": <R>, "cpu_cores_per_process": <T>},
-  "attributes": {"queue_name": "mpc", "duration": "01:00:00"}
+  "attributes": {"queue_name": "<from job_spec>", "duration": "01:00:00"}
 }
 ```
 
 ### Layout: R ranks × T threads per node, from benchmark records
 
-Don't guess the layout; read it. Through `hokusai-records`:
+`launch_plan` reads the layout from the `single_point` records (never an
+`aimd_step` one: the two workloads rank layouts differently). Tell the user
+what `basis` says:
+- `match: "exact"`: this system was timed; `basis.record_ids` names the
+  record.
+- `match: "similar"`: a system of about this size; the time is rough.
+- `match: "none"`: a common layout with no estimate. Suggest
+  `hokusai-cp2k-benchmark` first if many single points will run.
 
-1. Query `benchmarks` with `code=cp2k`, `run_type=single_point`,
-   `system.label=<this system>` and `valid=true`, and take the fastest.
-   Layouts within 3% of it are ties; any of them will do.
-2. If that finds nothing, query by `code=cp2k`, `run_type=single_point` and
-   `partition=mpc`. Use the fastest layout among systems with a similar size
-   and the same method (`method.functional`, `method.cutoff_ry`, the kind of
-   SCF).
-3. If still nothing matches, say so. Then either use the fastest
-   `single_point` layout on the partition as a provisional choice, or
-   suggest `hokusai-cp2k-benchmark` first if many single points will run.
-
-Don't reuse an `aimd_step` layout for single points: the two workloads rank
-layouts differently. Tell the user which record `id` the layout came from.
+Read `warnings` out too (e.g. the timing came from another build).
+`optimize="time"` buys wall time with more nodes, `nodes=<n>` fixes the
+count; `basis.options` lists every measured node count with its cost and
+parallel efficiency.
 
 A node has 112 cores, so R × T = 112
 for a full node. The rules every layout follows:
@@ -120,8 +126,8 @@ for a full node. The rules every layout follows:
 - **Memory:** memory per rank × ranks per NUMA domain must stay well under
   one domain's memory; CP2K prints `Estimated peak process memory`.
 - **Several nodes:** keep the per-node layout and set `node_count`. Query
-  `benchmarks` at other node counts for the parallel efficiency
-  (`extra.parallel_efficiency`). Use more nodes only when wall time matters.
+  `basis.options` from `launch_plan` for the parallel efficiency at
+  other node counts. Use more nodes only when wall time matters.
 
 ### On HOKUSAI BigWaterfall2 (HBW2)
 

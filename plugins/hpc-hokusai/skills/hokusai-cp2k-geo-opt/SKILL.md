@@ -11,11 +11,12 @@ submitting.
 
 ## Contract
 
-- **Reads:** `benchmarks` (layout and step time), through
-  `hokusai-records`.
+- **Reads:** `benchmarks` (layout and step time) and `software_registry`,
+  through `launch_plan`.
 - **Writes:** no records. It writes the optimised geometry
   (`-FINAL-1_<step>.xyz` / `.cif`) and the restart files.
-- **Tools:** `fs_upload`, `cp2k_check_input` (parse check),
+- **Tools:** `launch_plan` (layout, job spec, cost), `fs_upload`,
+  `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `fs_tail` / `fs_view`, `fs_download`
   (final frame).
 - **Preconditions:** the prerequisites below, and the user's approval of
@@ -73,32 +74,38 @@ Both templates passed `--check` and ran to completion on CP2K 2026.2.
 
 Stage the input and `subsys.inc` in `~/agent/work/cp2k-runs/<system>/opt/`.
 
+Ask rookery for the launch, never write it by hand:
+
+```text
+launch_plan(facility="hokusai", code="cp2k", run_type="geo_opt",
+            system={"label": "<system>", "atoms": <atoms>}, steps=200,
+            build_id=<only if the user named a build>)
+```
+
+Submit its `job_spec` (`pre_launch`, `launcher`, `environment`,
+`resources`, `attributes.queue_name`) unchanged, with these added:
+
 ```json
 {
   "name": "cp2k-opt-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/opt",
-  "pre_launch": "source <env_script>",
-  "launcher": "srun --mpi=pmix --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i geo_opt.inp -o geo_opt.out",
-  "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
-  "resources": {"node_count": <N>, "processes_per_node": <R>, "cpu_cores_per_process": <T>},
-  "attributes": {"queue_name": "mpc", "duration": "12:00:00"}
+  "attributes": {"queue_name": "<from job_spec>", "duration": "12:00:00"}
 }
 ```
 
-**R × T and N come from `benchmarks` records**, through `hokusai-records`.
-Query `run_type=geo_opt` (or `cell_opt`) for this system first. If there is
-none, use `run_type=aimd_step` for the same system and method. After the
-first step, each optimisation step is an ASPC-extrapolated SCF, like an MD
-step, so the MD ranking carries over. Take the fastest valid layout at the
-node count wanted, and name the record `id`. With no record at all, use the
-fastest `aimd_step` layout on `mpc` for a similar system and say so. The
-binding rules are in `hokusai-cp2k-single-point`. Use more nodes only for
-large cells; `extra.parallel_efficiency` in the records shows what they buy.
+Use `run_type="cell_opt"` for a cell optimisation. If `basis.match` is
+`"none"`, call again with `run_type="aimd_step"`: after the first step, each
+optimisation step is an ASPC-extrapolated SCF like an MD step, so the MD
+ranking carries over. Name the record (`basis.record_ids`) and say how good
+the match is (`exact`, or `similar`: rough). Use more nodes only for large
+cells; `basis.options` shows what they buy. The binding rules are in
+`hokusai-cp2k-single-point`.
 
-Cost estimate: one step after the first costs about the matched record's
-`metric.value` (s per MD step). Typical runs take 50–200 steps. Tell the
-user the worst case: nodes × 112 × duration in hours.
+Cost: `estimate` takes one step after the first at the matched record's
+`metric.value` (s per MD step) × `steps`; typical runs take 50–200 steps,
+so ask with the upper end. Tell the user the worst case: nodes ×
+112 × duration in hours.
 
 ## 3. Check progress and the result
 

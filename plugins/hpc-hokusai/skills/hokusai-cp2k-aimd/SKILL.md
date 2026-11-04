@@ -12,11 +12,12 @@ give the core-hour estimate before every submission.
 
 ## Contract
 
-- **Reads:** `benchmarks` (layout and step time), through
-  `hokusai-records`.
+- **Reads:** `benchmarks` (layout and step time) and `software_registry`,
+  through `launch_plan`.
 - **Writes:** no records. It writes the trajectory, `.ener` and restart
   files.
-- **Tools:** `fs_upload`, `cp2k_check_input` (parse check),
+- **Tools:** `launch_plan` (layout, job spec, cost), `fs_upload`,
+  `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `cancel_job`, `fs_tail` / `fs_view`.
 - **Preconditions:** the prerequisites below, and the user's approval of
   the core-hour estimate for every segment.
@@ -47,19 +48,21 @@ give the core-hour estimate before every submission.
 | `STEPS` | 2000 (1 ps) | steps **in this job** (see section 4) |
 | `EPS_SCF` | 1e-6 | forces need it. A looser SCF shows up as conserved-quantity drift |
 
-**Estimate the cost from measured step times.** Query `benchmarks` through
-`hokusai-records` with `code=cp2k`, `run_type=aimd_step`,
-`system.label=<this system>` and `valid=true`, and take the fastest layout's
-`metric.value` (s per steady step) at the node count you plan:
+**Estimate the cost from measured step times** with `launch_plan`
+(section 3), passing `steps`. Its `estimate` gives `total_core_hours` and
+`suggested_duration` from the matched record's s per steady step:
 
 ```text
 core-h = s_per_step × steps × nodes × 112 / 3600
 ```
 
-- If the system has no record, look at records for systems of similar size
-  and the same method (`method.functional`, `method.cutoff_ry`,
-  `method.scf`) to get an order of magnitude, and say that is what it is.
-- Check `method.scf` on the record. Records timed with
+- `optimize="cost"` (default) takes the node count with the fewest
+  core-hours; `optimize="time"` the fastest still at ≥ 70 % parallel
+  efficiency. Show the user `basis.options` when they ask what more nodes
+  would buy.
+- `basis.match: "similar"` is an order of magnitude only; say so.
+  `"none"` gives no estimate: benchmark first, or give a range and say why.
+- Check `method.scf` in `basis.method`. Records timed with
   `FULL_SINGLE_INVERSE` run a little faster than the template's
   `FULL_ALL`, whose preconditioner builds took 16% of a 456-atom step.
 - The first step costs 7–10 steady steps (SCF from the atomic guess).
@@ -94,27 +97,30 @@ pass `build_id` for another). `ok: false` comes with the `errors`.
 
 Stage the input and `subsys.inc` in `~/agent/work/cp2k-runs/<system>/md/`.
 
+Ask rookery for the launch, never write it by hand:
+
+```text
+launch_plan(facility="hokusai", code="cp2k", run_type="aimd_step",
+            system={"label": "<system>", "atoms": <atoms>}, steps=<STEPS>,
+            build_id=<only if the user named a build>)
+```
+
+Submit its `job_spec` (`pre_launch`, `launcher`, `environment`,
+`resources`, `attributes.queue_name`) unchanged, with these added:
+
 ```json
 {
   "name": "cp2k-md-<system>",
   "directory": "/home/<user>/agent/work/cp2k-runs/<system>/md",
-  "pre_launch": "source <env_script>",
-  "launcher": "srun --mpi=pmix --cpus-per-task=<T> --cpu-bind=cores --distribution=block:block",
   "executable": "cp2k.psmp -i aimd_nvt.inp -o aimd_nvt.out",
-  "environment": {"OMP_NUM_THREADS": "<T>", "OMP_PLACES": "cores", "OMP_PROC_BIND": "close"},
-  "resources": {"node_count": <N>, "processes_per_node": <R>, "cpu_cores_per_process": <T>},
-  "attributes": {"queue_name": "mpc", "duration": "24:00:00"}
+  "attributes": {"queue_name": "<from job_spec>", "duration": "<estimate.suggested_duration>"}
 }
 ```
 
-**R × T and N come from `benchmarks` records** with `run_type=aimd_step`,
-the same query as for the cost estimate. Take the fastest valid layout at
-the node count you plan. If this system has none, take the fastest
-`aimd_step` layout on `mpc` for a similar system, and suggest
-`hokusai-cp2k-benchmark` before a long run. Name the record `id` you used.
-The binding rules are in `hokusai-cp2k-single-point`. More nodes buy wall
-time at a falling efficiency; `extra.parallel_efficiency` in the records at
-2 and 4 nodes shows how fast it falls.
+Use the same call as for the cost estimate, so the layout and the
+estimate agree. Name the record (`basis.record_ids`); on `"similar"` or
+`"none"` suggest `hokusai-cp2k-benchmark` before a long run. The binding
+rules are in `hokusai-cp2k-single-point`.
 
 ### On HOKUSAI BigWaterfall2 (HBW2)
 

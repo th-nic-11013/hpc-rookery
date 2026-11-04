@@ -28,7 +28,7 @@ looks the way it does.
   - `fs_upload`, `run_command_on_cluster` (the dry run), `cp2k_check_input`,
     `cp2k_bench_parse` and `fs_view` / `fs_tail` on the login node;
   - `submit_job` and `get_job_status` for the job;
-  - `{{SLUG}}-records` locally.
+  - `launch_plan` and `{{SLUG}}-records` locally.
 - **Preconditions:**
   - a build (`{{SLUG}}-cp2k-build`);
   - the production input, written by its run skill;
@@ -42,28 +42,36 @@ looks the way it does.
 
 ## 1. Look for an existing measurement
 
-Query before spending anything:
+Ask before spending anything. `launch_plan` does the lookup:
 
 ```text
-records_query(facility="{{SLUG}}", record_type="benchmarks",
-              filters={"code": "cp2k", "run_type": "<aimd_step|single_point|geo_opt>",
-                       "system.label": "<label>", "valid": true},
-              fields=["nodes", "ranks_per_node", "threads_per_rank", "metric.value",
-                      "method.scf", "date"])
+launch_plan(facility="{{SLUG}}", code="cp2k", run_type="<aimd_step|single_point|geo_opt>",
+            system={"label": "<label>", "atoms": <atoms>, "electrons": <if known>},
+            method={"functional": "<functional>", "hybrid": <true|false>})
 ```
 
-If nothing matches the label, query by `code`, `run_type` and
-`partition`. Then compare `system.atoms`, `system.elements`,
-`system.kpoints` and `method.*` yourself. A record answers the question when
-**all** of these hold:
+`basis.match` answers it:
+- `"exact"`: this system with this method was timed. No benchmark needed.
+- `"similar"`: a system within 30 % in size with the same hybrid flag.
+  `launch_plan` checks nothing else, so check the record (`basis.method`,
+  `basis.record_ids`) against the rules below before relying on it.
+- `"none"`: benchmark, unless the job is short enough that a guess costs
+  less than the benchmark.
+
+A record answers the question when **all** of these hold:
 - the method is the same: functional, hybrid or not, basis family,
   cutoff within ~10%, and the same kind of SCF (OT or diagonalisation);
 - the system is similar: atom count within ~2×, a similar composition
   class (water, MOF, oxide...), and k-points;
 - the build is the same CP2K version, or one close to it.
 
-Then use the fastest valid layout at the node count wanted. Treat layouts
-within 3% of it as ties.
+For the details `launch_plan` doesn't return, query the records directly
+(`records_query(..., record_type="benchmarks", filters={"code": "cp2k",
+"system.label": "<label>", "valid": true})`, see `{{SLUG}}-records`).
+
+On a match, `launch_plan`'s layout is the fastest valid one at the chosen
+node count; layouts within 3% of it (`basis.options`, or the records) are
+ties.
 
 **Benchmark again only when:**
 - nothing matches;
