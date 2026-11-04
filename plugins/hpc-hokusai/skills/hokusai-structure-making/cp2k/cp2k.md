@@ -73,7 +73,7 @@ basis files. Ask the user, and look the names up in the data folder.
   vacuum in the cell. For polar slabs, add
   `SURFACE_DIPOLE_CORRECTION .TRUE.` to `&DFT`.
 - **`--periodic NONE`**: an isolated molecule in the box from
-  `to_extxyz.py --vacuum`. The run input then needs its `&POISSON` block
+  `structure_to_extxyz(..., vacuum=6)`. The run input then needs its `&POISSON` block
   enabled (each template marks it):
 
   ```text

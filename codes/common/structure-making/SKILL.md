@@ -26,8 +26,9 @@ Isolated molecules get a box too.
 
 | tool | needs | where |
 |---|---|---|
-| `scripts/to_extxyz.py` (any format → extended XYZ) | ASE | the user's machine |
-| `scripts/inspect_cif.py` (sites and occupancies of a CIF) | ASE | the user's machine |
+| `structure_to_extxyz` tool (any format → extended XYZ; yagura) | ASE in the yagura server | the user's machine |
+| `cif_inspect` tool (sites and occupancies of a CIF; yagura) | ASE in the yagura server | the user's machine |
+| `scripts/to_extxyz.py`, `scripts/inspect_cif.py` (the same, by hand) | ASE | the user's machine |
 | `examples/build_uio66.py` (worked MOF build) | ASE, spglib | the user's machine |
 | `structure_check` tool (checks; the yagura server) | nothing | the user's machine, on a local file |
 | `scripts/geomcheck.py` (the same checks, by hand) | numpy | anywhere, including the {{DISPLAY_NAME}} login node: `{{FRONT_END_PYTHON}} -I geomcheck.py x.xyz` |
@@ -46,9 +47,9 @@ Ask where it comes from; don't invent coordinates.
 
 | source | how |
 |---|---|
-| user's file (CIF, XYZ, PDB, POSCAR) | `to_extxyz.py`. XYZ and PDB often lack a cell; ask for one or use `--vacuum` for a molecule |
+| user's file (CIF, XYZ, PDB, POSCAR) | `structure_to_extxyz`. XYZ and PDB often lack a cell; ask for one or pass `vacuum` for a molecule |
 | crystal / MOF from a database | the user downloads the CIF (CSD through the CCDC web search, if the user's institution has a licence; COD; Materials Project). Note the entry and deposition number |
-| small molecule by name or SMILES | RDKit or Open Babel to 3D (`obabel -:"<smiles>" --gen3d -O mol.xyz`), or `ase.build.molecule`, then `to_extxyz.py --vacuum 6` |
+| small molecule by name or SMILES | RDKit or Open Babel to 3D (`obabel -:"<smiles>" --gen3d -O mol.xyz`), or `ase.build.molecule`, then `structure_to_extxyz(..., vacuum=6)` |
 | bulk, surface, supercell | `ase.build.bulk`, `ase.build.surface` / `fcc111`, `atoms.repeat((n, m, k))` |
 | liquid or solvated box | Packmol at the experimental density; say what density was used |
 
@@ -56,7 +57,7 @@ Ask where it comes from; don't invent coordinates.
 
 A deposited CIF is an average over many cells, not one real cell. **Read
 `references/crystal-to-cell.md` before converting any CIF**, and for MOFs
-work through `inspect_cif.py`:
+work through `cif_inspect` (its `partial` and `partial_groups`):
 
 - **Partial occupancies:**
   - two positions of one atom: keep the major one;
@@ -109,8 +110,8 @@ against known values where they exist:
   element pair.
 
 Then ask the user what only they know: **charge**, **spin multiplicity**
-and **periodicity**. `to_extxyz.py` prints which multiplicities the
-electron count allows. Never guess these: a wrong charge or spin silently
+and **periodicity**. `structure_to_extxyz` returns which multiplicities the
+electron count allows (`multiplicities`). Never guess these: a wrong charge or spin silently
 gives a different system.
 
 By eye:

@@ -43,7 +43,7 @@
         "run",
         "--quiet",
         "--from",
-        "git+https://github.com/william-dawson/hpc-rookery.git@main",
+        "hpc-rookery[yagura] @ git+https://github.com/william-dawson/hpc-rookery.git@main",
         "yagura-mcp"
       ],
       "env": {}

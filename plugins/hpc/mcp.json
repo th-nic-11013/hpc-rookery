@@ -43,15 +43,15 @@
     "yagura": {
       "type": "stdio",
       "command": "uv",
+      "env": {},
       "args": [
         "tool",
         "run",
         "--quiet",
         "--from",
-        "git+https://github.com/william-dawson/hpc-rookery.git@main",
+        "hpc-rookery[yagura] @ git+https://github.com/william-dawson/hpc-rookery.git@main",
         "yagura-mcp"
-      ],
-      "env": {}
+      ]
     },
     "hyogo": {
       "type": "stdio",
