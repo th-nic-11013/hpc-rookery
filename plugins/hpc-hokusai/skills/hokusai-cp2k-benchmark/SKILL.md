@@ -22,13 +22,15 @@ looks the way it does.
   - `benchmarks`: earlier timings;
   - `software_registry`: which build to time (`default: true` unless the
     user names one).
-- **Writes:** `benchmarks`, one record per layout × node count, with the
-  job ID.
+- **Writes:** `benchmarks`, one record per layout × node count, and
+  `benchmarks_provenance` with the job IDs (`cp2k_bench_records`).
 - **Tools:**
-  - `fs_upload`, `run_command_on_cluster` (the dry run), `cp2k_check_input`,
+  - `fs_upload`, `cp2k_bench_dryrun`, `cp2k_check_input`,
     `cp2k_bench_parse` and `fs_view` / `fs_tail` on the login node;
   - `submit_job` and `get_job_status` for the job;
-  - `launch_plan` and `hokusai-records` locally.
+  - `cp2k_bench_input` (reads the build's data folder, writes locally),
+    `structure_check` and `structure_stretch_xh` for the structure;
+  - `cp2k_bench_records`, `launch_plan` and `hokusai-records` locally.
 - **Preconditions:**
   - a build (`hokusai-cp2k-build`);
   - the production input, written by its run skill;
@@ -98,8 +100,8 @@ Rules:
   low-cutoff test inputs overstate how much the layout matters.
 - **Inline or absolute includes.** `run_layout` copies only the input file
   into each run folder. Change `@INCLUDE subsys.inc` to an absolute path, or
-  build the input with `scripts/make_cp2k_md_input.py`, which writes the
-  coordinates inline.
+  build the input with `cp2k_bench_input`, which writes the coordinates
+  inline.
 - **Test the SCF of any new or bigger cell with a single point first.** An
   unconverged SCF once bought no timing for a 4-node job (lessons 9–10).
   AIMD benchmark inputs set `IGNORE_CONVERGENCE_FAILURE`, and the gate
@@ -107,14 +109,34 @@ Rules:
 - **Parse-check every input** on the login node, in a scratch copy, using
   the command in `references/facility.md`.
 
-Helpers (run them with `/usr/bin/python3.12 -I` on the login node):
-- `scripts/make_cp2k_md_input.py STRUCT.xyz --name NAME --out-dir <bench>/inputs`
-  writes a 10-step NVE input and a 3-step smoke version from an extended
-  XYZ.
-  - Its defaults are revPBE-D3, 450/60 Ry and `FULL_SINGLE_INVERSE`.
-  - `--data-dir` is required: the build's `data_dir` from
-    `software_registry`.
-  - Use `FULL_ALL` for cells of several hundred atoms.
+For an AIMD benchmark of a structure, write the inputs with the tool, on
+this machine, from the extended XYZ:
+1. `structure_check` the XYZ. If it reports `short_xh` (X-ray C-H bonds
+   near 0.95 Å), run `structure_stretch_xh` first and use its output.
+2. Write the 10-step NVE input and its 3-step smoke version:
+
+   ```text
+   cp2k_bench_input(facility="hokusai", xyz_path="<local>.xyz", name="<label>",
+                    out_dir="<local bench>/inputs", build_id=<omit for the default>)
+   ```
+
+   - Defaults: revPBE-D3 (zero damping), 450/60 Ry, Gamma point,
+     OT/DIIS with `FULL_SINGLE_INVERSE`. Set `xc`, `d3`, `cutoff`,
+     `rel_cutoff`, `charge` and `steps` to match production.
+   - q and the GTH-PBE potential come from the build's own data folder,
+     the same lookup as `cp2k_kinds`; an element it lacks stops the tool.
+   - Read its `warnings` to the user: an odd electron count needs UKS
+     and `MULTIPLICITY` added by hand; a cell under 10 Å wide samples
+     Gamma poorly.
+   - Change `PRECONDITIONER` to `FULL_ALL` for cells of several hundred
+     atoms.
+3. `fs_upload` both files into `bench/inputs/`.
+
+By hand, without the tool (run with `/usr/bin/python3.12 -I` on the login
+node):
+- `scripts/make_cp2k_md_input.py STRUCT.xyz --name NAME --out-dir <bench>/inputs
+  --data-dir <the build's data_dir>` writes the same two inputs. Its
+  `--stretch-ch 1.08` stands in for `structure_stretch_xh`.
 - `scripts/make_sp_inputs.py` turns MD inputs into FULL_ALL single points.
   Edit its `SOURCES` list for the system.
 
@@ -153,21 +175,31 @@ Timeouts: about 2× the fastest layout's run time, plus at least 2 min of
 launch slack (lesson 11). With no timing yet, run the smoke stage alone
 first, or scan only 3–4 layouts.
 
-**Dry-run it before submitting.** It runs on the login node, in a scratch
-copy, with a stub `srun`. The harness refuses to run unless that stub is
-first on `PATH`.
+**Dry-run it before submitting.** `cp2k_bench_dryrun` runs the folder's
+`dryrun.sh` on the login node, in a scratch folder of its own, with a stub
+`srun`; the harness refuses to run unless that stub is first on `PATH`.
+Pass the BENCHMARK SETTINGS as `settings`:
 
-```bash
-REF_OUT=<finished cp2k.out> SMOKE_INPUT=... SCAN_INPUT=... VALIDATE_INPUT=... \
-  bash ~/agent/work/cp2k-runs/<system>/bench/dryrun.sh ~/agent/work/cp2k-runs/<system>/bench <empty scratch dir>
+```text
+cp2k_bench_dryrun(facility="hokusai", bench_dir="~/agent/work/cp2k-runs/<system>/bench",
+                  ref_out="<finished cp2k.out>",
+                  settings={"SMOKE_INPUT": "...", "SCAN_INPUT": "...", "VALIDATE_INPUT": "...",
+                            "SMOKE_TIMEOUT": "...", "SCAN_TIMEOUT": "...", "VALIDATE_TIMEOUT": "..."})
 ```
 
-Repeat it twice more:
-- with `FAIL_LAYOUT=<a scan layout>`: the stage must stop;
-- with a small `BENCH_LIMIT_S`, such as 400: the guard must refuse a run.
+One call runs three cases, and `ok` is true only if each behaved:
+- `pass`: all stages pass;
+- `fail_layout`: the stub fails one scan layout (`fail_layout`, default the
+  last one not in the smoke stage), and the stage must stop there;
+- `time_limit`: a small `BENCH_LIMIT_S` (`time_limit_s`, default 60), and
+  the guard must refuse a run.
+
+A case with `expected: false` says why; read its `log_tail`. For the
+multi-node job, pass `job_script="multinode_layouts_job.sh"`, `nodes` and
+its settings (`LAYOUTS`, `REF_DIR`, `REF_LAYOUT`, `CP2K_ENV`).
 
 This tests the stage logic, not CP2K. The stub copies a finished `cp2k.out`
-from `REF_OUT`, which is required: use the H2O-32 test output of the build
+from `ref_out`, which is required: use the H2O-32 test output of the build
 being benchmarked (the build skill runs that test). Never run the stage
 scripts outside `dryrun.sh` on a login node, because a real `srun` there
 tries to start a job.
@@ -224,8 +256,8 @@ Only after a single-node scan has passed. `scripts/multinode_layouts_job.sh`:
 
 Submit it like the job above, with `node_count` N. `LAYOUTS` and
 `REF_LAYOUT` have no default: set them. Dry-run it first with
-`JOB=multinode_layouts_job.sh DRY_NODES=N`. Choose the layouts with the
-user, each with a reason:
+`cp2k_bench_dryrun(..., job_script="multinode_layouts_job.sh", nodes=N)`.
+Choose the layouts with the user, each with a reason:
 - the 1-node winner (the baseline);
 - one with fewer ranks per node (less network traffic);
 - one with more ranks per node (wider grid and FFT distribution).
@@ -235,27 +267,37 @@ may already show where the efficiency drops.
 
 ## 5. Record
 
-Append one `benchmarks` record per layout × node count through
-`hokusai-records` (the schema is its `schema.yaml`):
-- **Identity:** `facility`, `partition`, `node_type` (from
-  `references/facility.md`), and the build's `build_id`.
-- **System:**
-  - `label`, `atoms` and `elements` (from the structure);
-  - `cell_volume_A3`, `periodic` and `kpoints`.
-- **Method:** functional, dispersion, basis, cutoffs, `hybrid`, and the SCF
-  as used.
-- **Run:**
-  - `run_type`, `nodes`, `ranks_per_node`, `threads_per_rank`;
-  - `metric` (`s_per_step` or `wall_s`);
-  - `extra`: `first_step_s`, `parallel_efficiency`, `core_hours`,
-    `scf_steps`, where known.
-- **Provenance:** `job_id`, `date`, `valid`.
-  - A failed, timed-out or unconverged run gets `valid: false` and a
-    `reason`.
+`cp2k_bench_records` writes the `benchmarks` records: one per layout of
+one input at one node count, repeats averaged. Failed, killed, unconverged
+or disagreeing runs get `valid: false` and a `reason`; the job IDs go to
+`benchmarks_provenance`, not into the records. Pass the `cp2k_bench_parse`
+result from step 4, or the stage folders:
 
-Run `records_check` afterwards. Keep `bench/results.md` in the benchmark
-folder for the full tables, if the user wants it. Records hold the numbers
-other skills use.
+```text
+cp2k_bench_records(facility="hokusai", run_type="<aimd_step|single_point|geo_opt>",
+                   stage_dirs=["~/agent/work/cp2k-runs/<system>/bench/runs/<jobid>/stage2"],
+                   input_name="<the scan input>", nodes=<N>,
+                   system={"label": ..., "atoms": ..., "elements": {...}, "periodic": "xyz",
+                           "kpoints": "gamma", "electrons": ..., "cell_volume_A3": ...},
+                   method={"functional": ..., "dispersion": ..., "basis": ..., "cutoff_ry": ...,
+                           "rel_cutoff_ry": ..., "hybrid": ..., "scf": "<the SCF as used>"})
+```
+
+- **The system and method** come from the structure and the input, not
+  from the folder: label, atoms and elements; functional, basis,
+  cutoffs and the SCF exactly as the input sets them.
+- **One input per call.** Stage 3 times a different system: record it in
+  its own call, with its own `system`. Smoke runs are too short to keep.
+- The build is the default one unless you pass `build_id`; `partition` and
+  `node_type` come from the facility.
+- An id that already exists stops the call and writes nothing. For the same
+  system timed with another method on the same day, pass a `tag`.
+- It refuses dry-run results.
+
+The result's `check_errors` is `records_check` afterwards: it must be
+empty. `extra.parallel_efficiency` and `extra.core_hours` are not filled
+in. Keep `bench/results.md` in the benchmark folder for the full tables,
+if the user wants it. Records hold the numbers other skills use.
 
 Hand the chosen layout and node count back to the production run skill,
 and project the production cost: s/step × steps × nodes × cores per node ÷

@@ -73,6 +73,8 @@ records_append(facility="hokusai", record_type="benchmarks", record={...})
   on update.
 - Keep the scheduler job ID in the user's `benchmarks` record (`job_id`) or
   in `benchmarks_provenance`.
+- CP2K benchmark runs need no hand-written records: `cp2k_bench_records`
+  builds them (see the cp2k-benchmark skill).
 - Use stable ids. For a benchmark:
   `<facility>-<code>-<date>-<system>-<run type>-<nodes>n-<R>x<T>`, e.g.
   `hokusai-cp2k-2026-10-22-uio66conv-aimdstep-2n-16x7`.
