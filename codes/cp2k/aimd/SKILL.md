@@ -16,7 +16,8 @@ give the core-hour estimate before every submission.
   through `launch_plan`.
 - **Writes:** no records. It writes the trajectory, `.ener` and restart
   files.
-- **Tools:** `launch_plan` (layout, job spec, cost), `fs_upload`,
+- **Tools:** `cp2k_make_input` (the hyogo server, writes the input),
+  `launch_plan` (layout, job spec, cost), `fs_upload`,
   `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `cancel_job`, `fs_tail` / `fs_view`,
   `fs_download`; for analysis, `trajectory_rdf`, `trajectory_msd` and
@@ -75,19 +76,33 @@ core-h = s_per_step × steps × nodes × {{CP2K_CORES_PER_NODE}} / 3600
 
 ## 2. Write the input
 
-Start from `templates/aimd_nvt.inp`. It has the single-point DFT block
-(revPBE-D3, DZVP-MOLOPT-SR-GTH, 450/60 Ry, OT DIIS + FULL_ALL) plus:
+```text
+cp2k_make_input(run_type="md_nvt", functional=<as the single point>,
+                subsys=<cp2k_make_subsys' result>, kinds=<cp2k_kinds' result>,
+                duration=<launch_plan's suggested_duration, at most 24:00:00>,
+                md={"temperature": 300, "timestep": 0.5, "steps": 2000, "timecon": 100})
+```
+
+It writes `aimd_nvt.inp` beside `subsys.inc`, with the single point's DFT
+block (pass the same `functional`, `cutoff`, `scf`, `multiplicity`) plus:
 - ASPC extrapolation (order 3), which makes later steps several times cheaper;
 - trajectory and velocities every step;
 - a restart file every 10 steps;
-- `WALLTIME` = the job's duration minus ~15 minutes (`24:00:00` → `85500`),
-  so CP2K stops cleanly with a fresh restart file.
+- `WALLTIME` = `duration` minus 15 minutes (`24:00:00` → `85500`), so
+  CP2K stops cleanly with a fresh restart file. Without `duration` the
+  tool assumes 24 hours and warns.
+
+Read its `warnings` to the user (e.g. a timestep above 0.5 fs with H).
 
 `FULL_ALL` converged every cell tested on {{DISPLAY_NAME}}.
 `FULL_SINGLE_INVERSE` is slightly cheaper for ~100-atom cells, but it
 stalled on a 456-atom cell.
 
-**NVE production:** set `ENSEMBLE NVE` and delete `&THERMOSTAT`. Start it
+**By hand, without the hyogo server:** copy `templates/aimd_nvt.inp`
+(revPBE-D3 only) and set its `@SET` lines.
+
+**NVE production:** set `ENSEMBLE NVE` in the written input and delete
+`&THERMOSTAT`. Start it
 from the equilibrated run's restart (section 4) so it inherits the
 velocities.
 

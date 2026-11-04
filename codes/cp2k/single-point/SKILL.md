@@ -14,7 +14,8 @@ submitting.
 - **Reads:** `benchmarks` and `software_registry`, through `launch_plan`.
 - **Writes:** no records. It writes `single_point.out` and, if asked, the
   wavefunction.
-- **Tools:** `launch_plan` (layout, job spec, cost), `fs_upload`,
+- **Tools:** `cp2k_make_input` (the hyogo server, writes the input),
+  `launch_plan` (layout, job spec, cost), `fs_upload`,
   `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `fs_tail` / `fs_view`.
 - **Preconditions:** the two prerequisites below, and the user's approval
@@ -29,12 +30,21 @@ submitting.
   `records_query(facility="{{SLUG}}", record_type="software_registry", filters={"code": "cp2k", "default": true}, fields=["env_script", "data_dir"])`.
   Builds are made by `{{SLUG}}-cp2k-build`.
 - **`subsys.inc`** for the structure, from `{{SLUG}}-structure-making` and
-  its `cp2k/cp2k.md`.
+  its `cp2k/cp2k.md`. Keep both results: `cp2k_kinds`' and
+  `cp2k_make_subsys`'. The kinds must come from the functional's family
+  (see "Functionals" below), so choose the functional first.
 
 ## 1. Write the input
 
-Copy `templates/single_point.inp` next to `subsys.inc` and set its `@SET`
-lines. Its DFT settings are the ones run and benchmarked on {{DISPLAY_NAME}}:
+```text
+cp2k_make_input(run_type="sp", functional="revpbe",
+                subsys=<cp2k_make_subsys' result>, kinds=<cp2k_kinds' result>)
+```
+
+It writes `single_point.inp` beside `subsys.inc` on this machine (or at
+`out_path`), with the tunables as `@SET` lines at the top, and returns
+the `settings` and `warnings`. Read the warnings to the user. The default
+preset is the one run and benchmarked on {{DISPLAY_NAME}}:
 - revPBE-D3 (zero damping), `DZVP-MOLOPT-SR-GTH` with `GTH-PBE-q<N>`;
 - 450/60 Ry, Gamma point;
 - OT DIIS with `PRECONDITIONER FULL_ALL` and `ENERGY_GAP 0.05`.
@@ -44,16 +54,47 @@ steps. The older default, `FULL_SINGLE_INVERSE`, stalled on the same cell.
 
 Ask the user about anything that changes the physics:
 
-| setting | template | change when |
+| setting | default | change when |
 |---|---|---|
-| `CHARGE`, `MULTIPLICITY`, `UKS` | 0, 1, `.FALSE.` | the user says so. Odd electron counts and open shells need `UKS .TRUE.` |
-| functional | revPBE-D3 | plain PBE-D3: `PARAMETRIZATION ORIG`, `D3_REFERENCE PBE`. Hybrids or SCAN need other basis/potential files and ADMM. Ask first |
-| `CUTOFF` / `REL_CUTOFF` | 450 / 60 Ry | converge for production: run 350–700 Ry and take the value where the energy changes < 1 meV/atom (and forces < 1e-4 Ha/bohr) |
-| SCF | OT DIIS + FULL_ALL | metals and small-gap systems: replace with the diagonalisation + smearing block given in the template's comments |
-| isolated molecule | periodic | `subsys.inc` made with `periodic="NONE"`: uncomment `&POISSON` |
+| charge, `MULTIPLICITY`, `UKS` | from `cp2k_make_subsys` (its `charge`); 1, or 2 for odd electrons | the user says so: `multiplicity=` (UKS follows) |
+| functional | `revpbe` (revPBE-D3, zero damping) | the user asks for another: see "Functionals" below. Ask first |
+| `CUTOFF` / `REL_CUTOFF` | 450 / 60 Ry (600 for r²SCAN and hybrids) | converge for production: run 350–700 Ry and take the value where the energy changes < 1 meV/atom (and forces < 1e-4 Ha/bohr) |
+| SCF | OT DIIS + FULL_ALL | metals and small-gap systems: `scf="smear"` (diagonalisation, Fermi-Dirac 300 K, Broyden) |
+| isolated molecule | periodic | follows `subsys.inc`: made with `periodic="NONE"`, the input gets `&POISSON` |
+| gap, wavefunction | off | `print_gap=True` (HOMO-LUMO), `save_wfn=True` (`<PROJECT>-RESTART.wfn`) |
 
-The template has **no `IGNORE_CONVERGENCE_FAILURE`**. An unconverged SCF
+The input has **no `IGNORE_CONVERGENCE_FAILURE`**. An unconverged SCF
 must stop the run, not produce an energy that looks valid.
+
+### Functionals
+
+Each preset needs its own basis and potential family, so it starts at
+`cp2k_kinds`. The tool refuses a mismatch.
+
+| `functional` | `cp2k_kinds(...)` | D3 | notes |
+|---|---|---|---|
+| `revpbe` | `family="molopt"` (default) | zero | benchmarked on {{DISPLAY_NAME}} |
+| `pbe` | `"molopt"` or `"uzh-pbe"` | BJ | |
+| `r2scan` | `"uzh-scan"` | BJ only | meta-GGA: ~3× the PBE cost per SCF step; converge the cutoff |
+| `pbe0` | `"uzh-pbe0"`, `aux_basis="admm-dzp"` | BJ | truncated exact exchange plus long-range correction |
+| `hse06` | `"uzh-pbe0"`, `aux_basis="admm-dzp"` | BJ | screened; no radius limit; the robust hybrid for small cells |
+| `r2scan0` | `"uzh-scan"`, `aux_basis="admm-dzp"` | BJ only | truncated exact exchange, no long-range correction |
+
+For the hybrids (ADMM, 25 % exact exchange):
+- `subsys.inc` is made from the `aux_basis` kinds, so it carries the
+  `AUX_FIT` lines;
+- the truncation radius defaults to just below half the narrowest cell
+  width (from `cp2k_make_subsys`' `widths`). A larger one is refused: use a
+  supercell. Converge the property against the radius;
+- expect 5–20× the GGA cost per step, and set `hfx={"memory_mb": ...}`
+  from the node's memory per rank. Run a short test job (`MAX_SCF` small)
+  first to measure both;
+- starting from a converged GGA wavefunction (`save_wfn=True` on the GGA
+  run, then `SCF_GUESS RESTART`) saves many hybrid SCF steps.
+
+**By hand, without the hyogo server:** copy `templates/single_point.inp`
+(revPBE-D3 only) next to `subsys.inc` and set its `@SET` lines; its
+comments give PBE, smearing and `&POISSON`.
 
 Check the syntax on the login node before any job. A serial parse takes a
 few seconds:

@@ -15,7 +15,8 @@ submitting.
   through `launch_plan`.
 - **Writes:** no records. It writes the optimised geometry
   (`-FINAL-1_<step>.xyz` / `.cif`) and the restart files.
-- **Tools:** `launch_plan` (layout, job spec, cost), `fs_upload`,
+- **Tools:** `cp2k_make_input` (the hyogo server, writes the input),
+  `launch_plan` (layout, job spec, cost), `fs_upload`,
   `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `fs_tail` / `fs_view`, `fs_download`
   (final frame), `structure_check` (the yagura server).
@@ -38,16 +39,21 @@ submitting.
 
 ## 1. Choose the run type
 
-| the user wants | template | notes |
+| the user wants | `run_type` | notes |
 |---|---|---|
-| relax atoms, fixed cell (molecule, slab, defect, X-ray H) | `templates/geo_opt.inp` | `RUN_TYPE GEO_OPT` |
-| relax atoms **and** lattice (bulk, MOF, equation of state) | `templates/cell_opt.inp` | `RUN_TYPE CELL_OPT` with the analytical stress tensor. Default `CUTOFF` 600: stress needs a higher cutoff than energies (Pulay stress), so converge it on the stress |
+| relax atoms, fixed cell (molecule, slab, defect, X-ray H) | `"geo_opt"` | `RUN_TYPE GEO_OPT`, writes `geo_opt.inp` |
+| relax atoms **and** lattice (bulk, MOF, equation of state) | `"cell_opt"` | `RUN_TYPE CELL_OPT` with the analytical stress tensor, writes `cell_opt.inp`. Default `CUTOFF` 600: stress needs a higher cutoff than energies (Pulay stress), so converge it on the stress |
 
-Both have the single-point template's DFT block (revPBE-D3,
-`DZVP-MOLOPT-SR-GTH`, OT DIIS + FULL_ALL) plus ASPC wavefunction
-extrapolation between steps. Keep any change made there (functional,
-cutoff, smearing, charge, spin) in step here, or the energies won't be
-comparable.
+```text
+cp2k_make_input(run_type="geo_opt", functional=<as the single point>,
+                subsys=<cp2k_make_subsys' result>, kinds=<cp2k_kinds' result>,
+                duration=<launch_plan's suggested_duration>, opt={"max_iter": 200})
+```
+
+It writes the single point's DFT block plus ASPC wavefunction
+extrapolation between steps. Pass the same `functional`, `cutoff`, `scf`
+and `multiplicity` as the single point, or the energies won't be
+comparable. Read its `warnings` to the user.
 
 Settings to confirm:
 - **Optimiser:** `BFGS` up to a few hundred atoms. For larger systems use
@@ -55,20 +61,26 @@ Settings to confirm:
   when BFGS oscillates.
 - **Convergence:** `MAX_FORCE 4.5E-4` hartree/bohr (≈ 0.023 eV/Å, CP2K's
   default). Tighten to `1.0E-4` before computing frequencies.
-- **Fixed atoms:** the commented `&CONSTRAINT / &FIXED_ATOMS` block, with
-  1-based indices in `subsys.inc` order.
-- **Cell optimisation:** `KEEP_SYMMETRY` or `KEEP_ANGLES` (commented in the
-  template), `EXTERNAL_PRESSURE` 1 bar, `PRESSURE_TOLERANCE` 100 bar. Don't
-  add a `TYPE` keyword: recent CP2K removed it (`--check` aborts on it),
-  and direct cell optimisation is always used.
-- **`WALLTIME`** (seconds) is the job's duration minus ~10 minutes:
-  `12:00:00` → `42600`. CP2K then stops cleanly and writes its restart
-  file before Slurm kills the job.
+- **Fixed atoms:** the tool doesn't write them. Add the
+  `&CONSTRAINT / &FIXED_ATOMS` block (commented in `templates/geo_opt.inp`)
+  to the written input, with 1-based indices in `subsys.inc` order.
+- **Cell optimisation:** `EXTERNAL_PRESSURE` 1 bar, `PRESSURE_TOLERANCE`
+  100 bar. `KEEP_SYMMETRY` or `KEEP_ANGLES` are added by hand (commented
+  in `templates/cell_opt.inp`). Don't add a `TYPE` keyword: recent CP2K
+  removed it (`--check` aborts on it), and direct cell optimisation is
+  always used.
+- **`WALLTIME`** (seconds) is the job's duration minus 10 minutes, from
+  `duration`: `12:00:00` → `42600`. CP2K then stops cleanly and writes its
+  restart file before Slurm kills the job. Without `duration` the tool
+  assumes 12 hours and warns.
 
 Parse-check on the login node before submitting:
 `cp2k_check_input(facility="hokusai", input_path="<run dir>/geo_opt.inp")` (the default build;
 pass `build_id` for another). `ok: false` comes with the `errors`.
 Both templates passed `--check` and ran to completion on CP2K 2026.2.
+
+**By hand, without the hyogo server:** copy `templates/geo_opt.inp` or
+`templates/cell_opt.inp` (revPBE-D3 only) and set its `@SET` lines.
 
 ## 2. Stage and submit
 
