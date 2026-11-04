@@ -178,18 +178,14 @@ HOME=$(mktemp -d) .venv/bin/python tests/notebook_client.py
 
 ### P1
 
-- **The `fs_rm` refusal test can delete the test runner's own files.**
-  `tests/conformance.py:1032` sets `CELL2026_HOST=localhost` and calls the
-  real `fs_rm` over `["", " ", ".", "..", "/", "~", "~/", "*", "$HOME",
-  ".//"]`. `middleware.is_local_host("localhost")` is true, so this runs in
-  a bare local shell on the machine running the tests — no SSH, no cluster.
-  The `_RM_REFUSED` guard stops all ten today, but this test exists to catch
-  a regression *in that guard*, and the moment it regresses the test runs
-  `rm -r -- ~` against a real home directory instead of failing. The test's
-  only safety net is the code under test. Point it at an unreachable
-  non-local host, or patch `hpc_mcp.hpc_server.run_command`.
-  **Verified:** a canary file passed to `fs_rm("cell2026", ...)` under
-  `CELL2026_HOST=localhost` was really deleted from the local filesystem.
+- ~~**The `fs_rm` refusal test can delete the test runner's own files.**~~
+  **Fixed.** `fs_rm_refuses_dangerous_paths` now patches
+  `hpc_mcp.hpc_server.run_command` with a stub that raises, and points
+  `CELL2026_HOST` at the unresolvable `fs-rm-test.invalid`, so a guard
+  regression fails the test without reaching any shell. Checked by dropping
+  `"."` from `_RM_REFUSED` (`"~"` alone is redundant: `norm_path` maps it
+  to `"."`): the test failed naming `rm -- .`, and a canary in a temporary
+  `HOME` survived.
 
 - ~~**The configuration gate also blocks the tools that need no cluster.**~~
   **Fixed.** `get_facility`, `render_job_script` and the three docs tools
