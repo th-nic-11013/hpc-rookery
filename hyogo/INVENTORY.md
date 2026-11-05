@@ -64,4 +64,8 @@ was agreed), `candidate` (seen, not yet planned).
 | `cp2k_restart_md` | md | restart | cp2k | `hyogo/cp2k/restart.py` | candidate | `codes/cp2k/aimd/SKILL.md` (24-hour restarts) | |
 
 Changes to a live tool (not new rows): `aux_basis` per kind in
-`cp2k_make_subsys`, done with `cp2k_make_input`.
+`cp2k_make_subsys`, done with `cp2k_make_input`. Done (G18):
+`symmetry` in `cp2k_make_subsys` (`&CELL SYMMETRY`, checked against the
+cell); `opt` keys `max_force`, `rms_force`, `keep_angles`, `keep_symmetry`
+in `cp2k_make_input`; and a `@SET RESTART` / `&EXT_RESTART` block in every
+geo_opt, cell_opt and md_nvt input, so a run continues after a walltime stop.

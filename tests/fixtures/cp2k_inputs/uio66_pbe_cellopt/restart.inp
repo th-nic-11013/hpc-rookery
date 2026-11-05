@@ -1,0 +1,2 @@
+@SET RESTART 1
+@INCLUDE /lustre/home/thnic123/software/cp2k/hse06_uio66/02_pbe_opt/opt.inp

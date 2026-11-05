@@ -1,0 +1,52 @@
+# Stage 1b: PBE-D3(BJ) CELL_OPT of UiO-66 (456 atoms), cubic cell kept cubic.
+# Not run directly: start.inp sets RESTART 0, restart.inp sets RESTART 1
+# (continues from pbe-1.restart after a walltime stop). Grid in params.inc.
+@INCLUDE /lustre/home/thnic123/software/cp2k/hse06_uio66/02_pbe_opt/params.inc
+&GLOBAL
+  PRINT_LEVEL LOW
+  PROJECT pbe
+  RUN_TYPE CELL_OPT
+&END GLOBAL
+
+@IF ${RESTART} == 1
+&EXT_RESTART
+  RESTART_FILE_NAME pbe-1.restart
+&END EXT_RESTART
+@ENDIF
+
+&MOTION
+  &CELL_OPT
+    OPTIMIZER BFGS
+    MAX_ITER 300
+    MAX_FORCE 1.0E-4
+    RMS_FORCE 5.0E-5
+    ! Default is 100 bar; we want the zero-pressure cell.
+    EXTERNAL_PRESSURE 1.0
+    PRESSURE_TOLERANCE 100.0
+    KEEP_ANGLES TRUE
+    KEEP_SYMMETRY TRUE
+  &END CELL_OPT
+  &PRINT
+    &TRAJECTORY
+      FORMAT XYZ
+    &END TRAJECTORY
+    &CELL
+    &END CELL
+  &END PRINT
+&END MOTION
+
+&FORCE_EVAL
+  METHOD QS
+  STRESS_TENSOR ANALYTICAL
+  &PRINT
+    &STRESS_TENSOR ON
+      STRESS_UNIT GPa
+    &END STRESS_TENSOR
+  &END PRINT
+@INCLUDE /lustre/home/thnic123/software/cp2k/hse06_uio66/00_prep/pbe_d3bj_dft.inc
+  &SUBSYS
+@INCLUDE /lustre/home/thnic123/software/cp2k/hse06_uio66/00_prep/cell.inc
+@INCLUDE /lustre/home/thnic123/software/cp2k/hse06_uio66/00_prep/coord.inc
+@INCLUDE /lustre/home/thnic123/software/cp2k/hse06_uio66/00_prep/kinds_pbe.inc
+  &END SUBSYS
+&END FORCE_EVAL

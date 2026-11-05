@@ -25,12 +25,62 @@ def read_extxyz(text: str):
     return cell, el, xyz
 
 
+# &CELL SYMMETRY names this tool can check: name -> (equal lengths, angle rule)
+SYMMETRIES = {
+    "CUBIC": ("abc", "all90"),
+    "TETRAGONAL_AB": ("ab", "all90"),
+    "TETRAGONAL_AC": ("ac", "all90"),
+    "TETRAGONAL_BC": ("bc", "all90"),
+    "ORTHORHOMBIC": ("", "all90"),
+    "RHOMBOHEDRAL": ("abc", "allequal"),
+}
+LENGTH_TOL = 1e-3  # A
+ANGLE_TOL = 0.01   # degrees
+
+
+def cell_params(cell) -> tuple[list[float], list[float]]:
+    """Lengths a, b, c (A) and angles alpha, beta, gamma (degrees)."""
+    lengths = [float(np.linalg.norm(v)) for v in cell]
+    angles = []
+    for i, j in ((1, 2), (0, 2), (0, 1)):
+        c = np.dot(cell[i], cell[j]) / (lengths[i] * lengths[j])
+        angles.append(float(np.degrees(np.arccos(np.clip(c, -1, 1)))))
+    return lengths, angles
+
+
+def check_symmetry(cell, symmetry: str) -> None:
+    """Refuse a SYMMETRY the cell vectors don't have (CP2K would impose it)."""
+    if symmetry not in SYMMETRIES:
+        raise ValueError(f"symmetry is one of {list(SYMMETRIES)}; other CP2K lattices are not "
+                         "checked by this tool")
+    equal, rule = SYMMETRIES[symmetry]
+    lengths, angles = cell_params(cell)
+    idx = {"a": 0, "b": 1, "c": 2}
+    same = [lengths[idx[x]] for x in equal]
+    ok = all(abs(x - same[0]) <= LENGTH_TOL for x in same)
+    if rule == "all90":
+        ok = ok and all(abs(t - 90) <= ANGLE_TOL for t in angles)
+    else:
+        ok = ok and all(abs(t - angles[0]) <= ANGLE_TOL for t in angles)
+    if not ok:
+        raise ValueError(f"the cell is not {symmetry}: a, b, c = "
+                         f"{', '.join(f'{x:.4f}' for x in lengths)} A, alpha, beta, gamma = "
+                         f"{', '.join(f'{t:.3f}' for t in angles)} deg")
+
+
 def subsys(text: str, name: str, kinds: dict, periodic: str = "XYZ",
-           charge: int = 0) -> tuple[str, dict]:
-    """subsys.inc text for the structure `text` (file `name`), and a summary."""
+           charge: int = 0, symmetry: str | None = None) -> tuple[str, dict]:
+    """subsys.inc text for the structure `text` (file `name`), and a summary.
+
+    symmetry writes &CELL SYMMETRY (needed by CELL_OPT KEEP_SYMMETRY) after
+    checking the cell has it."""
     if periodic not in ("XYZ", "NONE"):
         raise ValueError('periodic is "XYZ" or "NONE"')
     cell, el, xyz = read_extxyz(text)
+    if symmetry is not None:
+        if periodic == "NONE":
+            raise ValueError("symmetry is for a periodic cell; drop it with periodic=\"NONE\"")
+        check_symmetry(cell, symmetry)
     elements = list(dict.fromkeys(el))
     missing = [e for e in elements if e not in kinds]
     if missing:
@@ -58,7 +108,10 @@ def subsys(text: str, name: str, kinds: dict, periodic: str = "XYZ",
              f"# from {name}; written by cp2k_make_subsys",
              "&CELL"]
     lines += [f"  {n} {v[0]:14.8f} {v[1]:14.8f} {v[2]:14.8f}" for n, v in zip("ABC", cell)]
-    lines += [f"  PERIODIC {periodic}", "&END CELL", "&COORD"]
+    lines.append(f"  PERIODIC {periodic}")
+    if symmetry is not None:
+        lines.append(f"  SYMMETRY {symmetry}")
+    lines += ["&END CELL", "&COORD"]
     lines += [f"  {e:2s} {p[0]:14.8f} {p[1]:14.8f} {p[2]:14.8f}" for e, p in zip(el, xyz)]
     lines.append("&END COORD")
     if periodic == "NONE":
@@ -69,7 +122,7 @@ def subsys(text: str, name: str, kinds: dict, periodic: str = "XYZ",
             lines.append(f"  BASIS_SET AUX_FIT {kinds[e]['aux_basis']}")
         lines.append("&END KIND")
     info = {"formula": formula, "natoms": len(el), "electrons": nelec, "charge": charge,
-            "periodic": periodic,
+            "periodic": periodic, "symmetry": symmetry,
             "widths": [round(float(w), 2) for w in widths],
             "kinds": {e: kinds[e]["potential"] for e in elements},
             "aux_basis": {e: kinds[e]["aux_basis"] for e in elements if kinds[e].get("aux_basis")},

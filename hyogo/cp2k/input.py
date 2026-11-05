@@ -44,7 +44,8 @@ FAMILY_FOR_STEM = {"GTH-PBE": '"molopt" or "uzh-pbe"', "GTH-SCAN": '"uzh-scan"',
 MOLOPT_FILES = {"basis": ["BASIS_MOLOPT"], "potential": "GTH_POTENTIALS"}
 ADMM_FILE = "BASIS_ADMM_UZH"
 MD_DEFAULTS = {"temperature": 300, "timestep": 0.5, "steps": 2000, "timecon": 100}
-OPT_DEFAULTS = {"max_iter": 200}
+OPT_DEFAULTS = {"max_iter": 200, "max_force": 4.5e-4, "rms_force": None,
+                "keep_angles": False, "keep_symmetry": False}
 HFX_DEFAULTS = {"radius": None, "memory_mb": 3000, "eps_schwarz": 1.0e-6,
                 "screen_on_initial_p": None}
 PRECISION_DEFAULTS = {"eps_default": 1.0e-12, "eps_pgf_orb": None}
@@ -101,15 +102,26 @@ def _hf(interaction: str, screen_p: bool) -> list[str]:
                "&END HF"])
 
 
-def _motion(run_type: str) -> list[str]:
+def _sci(v: float) -> str:
+    return f"{v:.1E}".replace("E-0", "E-")
+
+
+def _motion(run_type: str, o: dict | None = None) -> list[str]:
+    if run_type in ("geo_opt", "cell_opt"):
+        tol = [f"MAX_FORCE {_sci(o['max_force'])}"]
+        if o["rms_force"] is not None:
+            tol.append(f"RMS_FORCE {_sci(o['rms_force'])}")
     if run_type == "geo_opt":
-        body = ["&GEO_OPT", "  OPTIMIZER BFGS", "  MAX_ITER  ${MAX_ITER}", "  MAX_FORCE 4.5E-4",
-                "&END GEO_OPT"]
+        body = ["&GEO_OPT", "  OPTIMIZER BFGS", "  MAX_ITER  ${MAX_ITER}"] + ["  " + t for t in tol]
+        body.append("&END GEO_OPT")
         prints = [("TRAJECTORY", "GEO_OPT 1"), ("RESTART", "GEO_OPT 1")]
     elif run_type == "cell_opt":
-        body = ["&CELL_OPT", "  OPTIMIZER          BFGS", "  MAX_ITER           ${MAX_ITER}",
-                "  MAX_FORCE          4.5E-4", "  EXTERNAL_PRESSURE  [bar] 1.0",
-                "  PRESSURE_TOLERANCE [bar] 100.0", "&END CELL_OPT"]
+        body = ["&CELL_OPT", "  OPTIMIZER          BFGS", "  MAX_ITER           ${MAX_ITER}"]
+        body += ["  " + t.replace(" ", " " * (19 - t.index(" ")), 1) for t in tol]
+        body += ["  EXTERNAL_PRESSURE  [bar] 1.0", "  PRESSURE_TOLERANCE [bar] 100.0"]
+        body += ["  KEEP_ANGLES        TRUE"] if o["keep_angles"] else []
+        body += ["  KEEP_SYMMETRY      TRUE"] if o["keep_symmetry"] else []
+        body.append("&END CELL_OPT")
         prints = [("TRAJECTORY", "CELL_OPT 1"), ("CELL", "CELL_OPT 1"), ("RESTART", "CELL_OPT 1")]
     else:
         body = ["&MD", "  ENSEMBLE    NVT", "  STEPS       ${STEPS}", "  TIMESTEP    ${TIMESTEP}",
@@ -243,10 +255,28 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
     elif hfx:
         raise ValueError(f"{functional} has no exact exchange; drop hfx")
 
+    o = None
     if run_type in ("geo_opt", "cell_opt"):
-        sets["MAX_ITER"] = _merge("opt", opt, OPT_DEFAULTS)["max_iter"]
+        o = _merge("opt", opt, OPT_DEFAULTS)
+        sets["MAX_ITER"] = o["max_iter"]
+        if not 0 < o["max_force"] < 1e-1:
+            raise ValueError("opt max_force is in Ha/bohr, e.g. 4.5E-4 (CP2K's default) or 1.0E-4")
+        if o["rms_force"] is not None and not 0 < o["rms_force"] <= o["max_force"]:
+            raise ValueError("opt rms_force is positive and at most max_force")
+        if run_type == "geo_opt" and (o["keep_angles"] or o["keep_symmetry"]):
+            raise ValueError("keep_angles and keep_symmetry are for cell_opt; geo_opt keeps the cell fixed")
+        if o["keep_symmetry"] and not subsys.get("symmetry"):
+            raise ValueError("keep_symmetry needs &CELL SYMMETRY: call cp2k_make_subsys with "
+                             "symmetry=... (e.g. \"CUBIC\") and pass its result")
     elif opt:
         raise ValueError("opt is for geo_opt and cell_opt")
+    if run_type != "sp":
+        # continuing after a walltime stop: set RESTART 1 and resubmit
+        sets["RESTART"] = 0
+        if guess_wfn is None:
+            sets["SCF_GUESS"] = "ATOMIC"
+        else:
+            sets["WFN"] = guess_wfn
     if run_type == "md_nvt":
         m = _merge("md", md, MD_DEFAULTS)
         sets.update(TEMPERATURE=m["temperature"], TIMESTEP=m["timestep"], STEPS=m["steps"],
@@ -280,14 +310,25 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
              "# Edit the @SET values; the structure is in subsys.inc."]
     if purpose == "guess":
         lines.append("# GUESS ONLY: the energy is not a result; the wavefunction seeds a hybrid.")
+    if "RESTART" in sets:
+        lines.append("# RESTART 1 continues from ${PROJECT}-1.restart and its wavefunction "
+                     "(after a walltime stop).")
     lines += [f"@SET {k:<{width}}{_fmt(v)}" for k, v in sets.items()]
+    if "RESTART" in sets:
+        lines += ["@IF ${RESTART} == 1",
+                  f"@SET {'WFN' if 'WFN' in sets else 'SCF_GUESS':<{width}}"
+                  + ("${PROJECT}-RESTART.wfn" if "WFN" in sets else "RESTART"),
+                  "@ENDIF"]
     lines += ["", "&GLOBAL", "  PROJECT     ${PROJECT}", f"  RUN_TYPE    {'ENERGY' if purpose == 'guess' else RUN_TYPES[run_type][0]}",
               "  PRINT_LEVEL LOW"]
     if "WALLTIME" in sets:
         lines.append("  WALLTIME    ${WALLTIME}")
     lines += ["&END GLOBAL", ""]
+    if "RESTART" in sets:
+        lines += ["@IF ${RESTART} == 1", "&EXT_RESTART", "  RESTART_FILE_NAME ${PROJECT}-1.restart",
+                  "&END EXT_RESTART", "@ENDIF", ""]
     if run_type != "sp":
-        lines += _motion(run_type) + [""]
+        lines += _motion(run_type, o) + [""]
 
     lines += ["&FORCE_EVAL", "  METHOD QS"]
     if run_type == "cell_opt":
@@ -302,7 +343,7 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
     lines += [f"    BASIS_SET_FILE_NAME {f}" for f in files["basis"]]
     lines.append(f"    POTENTIAL_FILE_NAME {files['potential']}")
     if guess_wfn:
-        lines.append(f"    WFN_RESTART_FILE_NAME {guess_wfn}")
+        lines.append(f"    WFN_RESTART_FILE_NAME {'${WFN}' if 'WFN' in sets else guess_wfn}")
     if hf:
         lines += ["    &AUXILIARY_DENSITY_MATRIX_METHOD", "      METHOD                   BASIS_PROJECTION",
                   "      ADMM_PURIFICATION_METHOD NONE",
@@ -325,7 +366,8 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
     if subsys["periodic"] == "NONE":
         lines += ["    &POISSON", "      PERIODIC NONE", "      PSOLVER  MT", "    &END POISSON"]
     # No IGNORE_CONVERGENCE_FAILURE: an unconverged SCF must stop the run.
-    lines += ["    &SCF", f"      SCF_GUESS {'RESTART' if guess_wfn else 'ATOMIC'}", "      EPS_SCF   1.0E-6",
+    guess = "${SCF_GUESS}" if "SCF_GUESS" in sets else "RESTART" if guess_wfn else "ATOMIC"
+    lines += ["    &SCF", f"      SCF_GUESS {guess}", "      EPS_SCF   1.0E-6",
               # hybrids and MD: inner MAX_SCF 30 under OUTER_SCF (CP2K docs, convergence page: ~16-32)
               f"      MAX_SCF   {30 if run_type == 'md_nvt' or hf else 50}"]
     if scf == "ot":
@@ -357,7 +399,10 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
 
     info = {"run_type": run_type, "functional": functional, "d3": d3, "scf": scf, "purpose": purpose,
             "wfn": f"{project}-RESTART.wfn" if save_wfn and run_type == "sp" else None,
+            "restart": ({"set": "RESTART", "file": f"{project}-1.restart",
+                         "wfn": f"{project}-RESTART.wfn"} if "RESTART" in sets else None),
             "settings": {k: v for k, v in sets.items() if k != "PROJECT"},
+            "opt": o,
             "files": files["basis"] + [files["potential"]] + (["t_c_g.dat"] if hf == "truncated" else []),
             "warnings": warnings}
     return "\n".join(lines) + "\n", info

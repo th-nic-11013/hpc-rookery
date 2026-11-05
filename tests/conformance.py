@@ -2806,17 +2806,29 @@ def check_repo() -> None:
         root = pathlib.Path(__file__).resolve().parent.parent
         fx = root / "tests" / "fixtures" / "cp2k_inputs" / "uio66"
 
-        def norm(text):
-            sets, out = {}, []
+        def norm(text, fixed=None):
+            """Drop comments and blanks, run @SET/@IF/@ENDIF as CP2K's preprocessor
+            does (`fixed` pins variables, e.g. {"RESTART": "1"}), expand ${...}."""
+            sets, out, live = dict(fixed or {}), [], []
             for line in text.splitlines():
                 s = line.strip()
                 if not s or s.startswith(("#", "!")):
                     continue
+                s = re.sub(r"\$\{(\w+)\}", lambda m: sets[m.group(1)], s)
+                if s.upper() == "@ENDIF":
+                    live.pop()
+                    continue
+                m = re.match(r"@IF\s+(\S+)\s*(==|/=)\s*(\S+)$", s)
+                if m:
+                    live.append((m.group(1) == m.group(3)) == (m.group(2) == "=="))
+                    continue
+                if not all(live):
+                    continue
                 m = re.match(r"@SET\s+(\S+)\s+(.*)", s)
                 if m:
-                    sets[m.group(1)] = m.group(2).strip()
+                    if m.group(1) not in (fixed or {}):
+                        sets[m.group(1)] = m.group(2).strip()
                     continue
-                s = re.sub(r"\$\{(\w+)\}", lambda m: sets[m.group(1)], s)
                 out.append(" ".join(s.split()).upper())
             return out
 
@@ -2938,6 +2950,74 @@ def check_repo() -> None:
                     (("sp", "revpbe", sub), {"out_path": str(d / "w.inp")}, "exists")):
                 try:
                     hsrv.cp2k_make_input(*args, **kw)
+                except ValueError as e:
+                    assert text in str(e), (text, e)
+                else:
+                    raise AssertionError(f"cp2k_make_input accepted {args[:2]} {kw}")
+
+            # G18: the user's PBE-D3(BJ) cell_opt (cubic kept cubic, tight forces,
+            # restart after a walltime stop). Compared: &CELL_OPT, the restart block
+            # and SYMMETRY in &CELL; the DFT block and includes are that run's own.
+            src = root / "tests" / "fixtures" / "cp2k_inputs" / "uio66_pbe_cellopt"
+            conv = d / "conv.xyz"
+            cell_inc = (src / "cell.inc").read_text()
+            a = float(re.search(r"^\s*A\s+(\S+)", cell_inc, re.M).group(1))
+            xyz_lines = (fx / "uio66_prim_114_ch108.xyz").read_text().splitlines()
+            conv.write_text("\n".join([xyz_lines[0], f'Lattice="{a} 0 0 0 {a} 0 0 0 {a}" Properties=species:S:1:pos:R:3']
+                                      + xyz_lines[2:]) + "\n")
+            pbe = uzh("PBE", "GTH-PBE", False)
+            subc = hsrv.cp2k_make_subsys(str(conv), pbe, str(d / "c.inc"), symmetry="CUBIC")
+            assert subc["symmetry"] == "CUBIC" and "  SYMMETRY CUBIC" in (d / "c.inc").read_text(), subc
+            assert norm(cell_inc)[-2:] == ["SYMMETRY CUBIC", "&END CELL"], norm(cell_inc)
+            opt = {"max_iter": 300, "max_force": 1e-4, "rms_force": 5e-5,
+                   "keep_angles": True, "keep_symmetry": True}
+            r = hsrv.cp2k_make_input("cell_opt", "pbe", subc, pbe, out_path=str(d / "co.inp"),
+                                     project="pbe", cutoff=1000, opt=opt)
+            assert r["restart"] == {"set": "RESTART", "file": "pbe-1.restart", "wfn": "pbe-RESTART.wfn"}, r
+            assert r["opt"] == {**opt}, r
+
+            def section(lines, name):
+                i = lines.index(f"&{name}")
+                return lines[i:lines.index(f"&END {name}", i) + 1]
+            theirs = norm("@SET RESTART 1\n" + (src / "opt.inp").read_text().split("&FORCE_EVAL")[0]
+                          .replace("@INCLUDE", "# @INCLUDE"))
+            text = pathlib.Path(r["out"]).read_text()
+            for restart in ("0", "1"):
+                # the one named difference: we write CP2K's default unit, [bar], explicitly
+                ours = [l.replace(" [BAR]", "") for l in norm(text, {"RESTART": restart})]
+                assert section(ours, "CELL_OPT") == section(theirs, "CELL_OPT"), \
+                    (section(ours, "CELL_OPT"), section(theirs, "CELL_OPT"))
+                ext = ["&EXT_RESTART", "RESTART_FILE_NAME PBE-1.RESTART", "&END EXT_RESTART"]
+                assert (section(ours, "EXT_RESTART") == ext) if restart == "1" else ("&EXT_RESTART" not in ours)
+                assert ("SCF_GUESS RESTART" if restart == "1" else "SCF_GUESS ATOMIC") in ours, (restart, ours)
+            assert section(theirs, "EXT_RESTART") == ext, section(theirs, "EXT_RESTART")
+            # from a hybrid guess: RESTART 0 reads guess_wfn, RESTART 1 the run's own wavefunction
+            r = hsrv.cp2k_make_input("cell_opt", "hse06", {**sub0, "symmetry": None}, pbe0,
+                                     out_path=str(d / "hco.inp"), guess_wfn="../sp/sp-RESTART.wfn")
+            text = pathlib.Path(r["out"]).read_text()
+            assert "WFN_RESTART_FILE_NAME ../SP/SP-RESTART.WFN" in norm(text, {"RESTART": "0"})
+            assert "WFN_RESTART_FILE_NAME CELLOPT-RESTART.WFN" in norm(text, {"RESTART": "1"})
+            for rt in ("geo_opt", "md_nvt"):
+                r = hsrv.cp2k_make_input(rt, "revpbe", sub, out_path=str(d / f"r-{rt}.inp"))
+                assert r["restart"]["file"] == f"{'opt' if rt == 'geo_opt' else 'md'}-1.restart", r
+            assert hsrv.cp2k_make_input("sp", "revpbe", sub, out_path=str(d / "r-sp.inp"))["restart"] is None
+            for kw, text in (({"symmetry": "CUBIC"}, "not CUBIC"),            # 60 deg primitive cell
+                             ({"symmetry": "FCC"}, "symmetry is one of"),
+                             ({"symmetry": "RHOMBOHEDRAL", "periodic": "NONE"}, "periodic cell")):
+                try:
+                    hsrv.cp2k_make_subsys(str(xyz), pbe, str(d / "bad.inc"), **kw)
+                except ValueError as e:
+                    assert text in str(e), (text, e)
+                else:
+                    raise AssertionError(f"cp2k_make_subsys accepted {kw}")
+            assert hsrv.cp2k_make_subsys(str(xyz), pbe, str(d / "rh.inc"), symmetry="RHOMBOHEDRAL")["symmetry"]
+            for args, kw, text in (
+                    (("cell_opt", "pbe", subc, pbe), {"opt": {"rms_force": 1e-3}}, "at most max_force"),
+                    (("cell_opt", "pbe", subc, pbe), {"opt": {"max_force": 5}}, "Ha/bohr"),
+                    (("geo_opt", "pbe", subc, pbe), {"opt": {"keep_angles": True}}, "for cell_opt"),
+                    (("cell_opt", "revpbe", sub), {"opt": {"keep_symmetry": True}}, "symmetry=")):
+                try:
+                    hsrv.cp2k_make_input(*args, out_path=str(d / "bad.inp"), overwrite=True, **kw)
                 except ValueError as e:
                     assert text in str(e), (text, e)
                 else:

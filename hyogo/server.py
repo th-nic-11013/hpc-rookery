@@ -15,7 +15,8 @@ mcp = MCPServer("hyogo-mcp")
 
 @mcp.tool()
 def cp2k_make_subsys(xyz_path: str, kinds: dict, out_path: str | None = None,
-                     periodic: str = "XYZ", charge: int = 0, overwrite: bool = False) -> dict:
+                     periodic: str = "XYZ", charge: int = 0, symmetry: str | None = None,
+                     overwrite: bool = False) -> dict:
     """Write a CP2K &SUBSYS include (subsys.inc: &CELL, &COORD, one &KIND
     per element) from an extended xyz on this machine. Run inputs include
     it inside &SUBSYS with `@INCLUDE subsys.inc`. Local only; fs_upload
@@ -28,8 +29,11 @@ def cp2k_make_subsys(xyz_path: str, kinds: dict, out_path: str | None = None,
     For a hybrid (ADMM), call cp2k_kinds with aux_basis: each kind then
     carries `aux_basis` and gets a `BASIS_SET AUX_FIT` line.
 
+    For a cell_opt that keeps the lattice (KEEP_SYMMETRY), pass symmetry:
+    it writes &CELL SYMMETRY after checking the cell vectors have it.
+
     Returns {"out", "formula", "natoms", "electrons", "charge", "periodic",
-    "widths", "kinds": {element: potential}, "aux_basis": {element: name},
+    "symmetry", "widths", "kinds": {element: potential}, "aux_basis": {element: name},
     "warnings"}; read the warnings to the user (thin cell, odd electron
     count, PERIODIC NONE). Pass the whole result to cp2k_make_input.
 
@@ -40,6 +44,9 @@ def cp2k_make_subsys(xyz_path: str, kinds: dict, out_path: str | None = None,
         out_path: where to write; default subsys.inc beside the xyz.
         periodic: "XYZ" (crystals, liquids) or "NONE" (an isolated molecule).
         charge: total charge, for the electron count only.
+        symmetry: CP2K &CELL SYMMETRY: "CUBIC", "TETRAGONAL_AB",
+            "TETRAGONAL_AC", "TETRAGONAL_BC", "ORTHORHOMBIC" or
+            "RHOMBOHEDRAL"; refused when the cell doesn't have it.
         overwrite: replace out_path if it exists.
     """
     src = Path(xyz_path).expanduser()
@@ -52,7 +59,7 @@ def cp2k_make_subsys(xyz_path: str, kinds: dict, out_path: str | None = None,
     table = kinds.get("kinds", kinds) if isinstance(kinds, dict) else kinds
     if not isinstance(table, dict):
         raise ValueError("kinds is cp2k_kinds' result or its `kinds` mapping")
-    text, info = subsys.subsys(src.read_text(), src.name, table, periodic, charge)
+    text, info = subsys.subsys(src.read_text(), src.name, table, periodic, charge, symmetry)
     dst.write_text(text)
     return {"out": str(dst), **info}
 
@@ -93,8 +100,13 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
     purpose="guess"), run it, then the hybrid with guess_wfn set to that
     result's `wfn`.
 
+    geo_opt, cell_opt and md_nvt inputs start with @SET RESTART 0. After a
+    walltime stop, set it to 1 and resubmit: the run continues from its
+    <project>-1.restart and its own wavefunction.
+
     Returns {"out", "run_type", "functional", "d3", "scf", "purpose", "wfn"
-    (the restart file a sp writes, or null), "settings":
+    (the restart file a sp writes, or null), "restart" ({set, file, wfn}
+    for geo_opt/cell_opt/md_nvt, else null), "opt", "settings":
     {CUTOFF, HFX_RADIUS, WALLTIME, ...}, "files": data files the build
     needs, "warnings"}; read the warnings to the user (hybrid cost, HFX
     radius, open shell, assumed walltime).
@@ -118,7 +130,10 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
         multiplicity: spin multiplicity; default 1, or 2 for odd electrons.
         duration: job duration "HH:MM:SS"; WALLTIME leaves a margin.
         md: {temperature, timestep, steps, timecon} for md_nvt.
-        opt: {max_iter} for geo_opt and cell_opt.
+        opt: for geo_opt and cell_opt, {max_iter (200), max_force (4.5e-4
+            Ha/bohr), rms_force (CP2K's default), keep_angles,
+            keep_symmetry}. The keep flags are cell_opt only, and
+            keep_symmetry needs cp2k_make_subsys' symmetry.
         hfx: for hybrids, {radius, memory_mb (3000, MiB per MPI rank),
             eps_schwarz (1e-6), screen_on_initial_p}. radius defaults to
             just below half the narrowest width (pbe0, r2scan0), or for
