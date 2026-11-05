@@ -77,20 +77,36 @@ Each preset needs its own basis and potential family, so it starts at
 | `pbe` | `"molopt"` or `"uzh-pbe"` | BJ | |
 | `r2scan` | `"uzh-scan"` | BJ only | meta-GGA: ~3× the PBE cost per SCF step; converge the cutoff |
 | `pbe0` | `"uzh-pbe0"`, `aux_basis="admm-dzp"` | BJ | truncated exact exchange plus long-range correction |
-| `hse06` | `"uzh-pbe0"`, `aux_basis="admm-dzp"` | BJ | screened; no radius limit; the robust hybrid for small cells |
+| `hse06` | `"uzh-pbe0"`, `aux_basis="admm-dzp"` | BJ | screened (ω = 0.11 bohr⁻¹); the robust hybrid for small cells |
 | `r2scan0` | `"uzh-scan"`, `aux_basis="admm-dzp"` | BJ only | truncated exact exchange, no long-range correction |
 
 For the hybrids (ADMM, 25 % exact exchange):
 - `subsys.inc` is made from the `aux_basis` kinds, so it carries the
   `AUX_FIT` lines;
-- the truncation radius defaults to just below half the narrowest cell
-  width (from `cp2k_make_subsys`' `widths`). A larger one is refused: use a
-  supercell. Converge the property against the radius;
-- expect 5–20× the GGA cost per step, and set `hfx={"memory_mb": ...}`
-  from the node's memory per rank. Run a short test job (`MAX_SCF` small)
-  first to measure both;
-- starting from a converged GGA wavefunction (`save_wfn=True` on the GGA
-  run, then `SCF_GUESS RESTART`) saves many hybrid SCF steps.
+- **the operator stays below half the narrowest cell width** (from
+  `cp2k_make_subsys`' `widths`): Γ-point HFX counts periodic images twice
+  beyond it. PBE0 and r²SCAN0 truncate just below; HSE06 keeps CP2K's own
+  range, where erfc(0.11 r)/r reaches `EPS_SCHWARZ` (14.3 Å at 1e-6), and
+  is capped with a warning when that's too far. A larger `hfx={"radius"}`
+  is refused: use a supercell. Converge the property against the radius;
+- the tool also writes the settings that keep HFX correct, so don't edit
+  them out: `EXCH_CORRECTION_FUNC DEFAULT` (the ADMM correction for the HF
+  operator in use), `MIN_PAIR_LIST_RADIUS -1`, and `EPS_SCHWARZ_FORCES` equal
+  to `EPS_SCHWARZ`;
+- **start from a converged GGA wavefunction in the same basis**:
+  `save_wfn=True` on a PBE single point, then `guess_wfn="<its
+  -RESTART.wfn>"`. From the atomic guess every SCF step costs the full HFX
+  price; a 456-atom HSE06 run on {{DISPLAY_NAME}} ran out of time that way.
+  `screen_on_initial_p` follows: on with a restart, off from scratch;
+- expect 5–20× the GGA cost per step. Set `hfx={"memory_mb": ...}` (MiB
+  per MPI rank, default 3000) from the node's memory per rank; the output's
+  `HFX_MEM_INFO` lines show whether the integrals fit. Run a short test
+  job first to measure both;
+- convergence tests vary one setting at a time inside one hybrid-matched
+  family. The reference for the ADMM basis is a run **without** ADMM: an
+  auxiliary basis as large as the primary is outside what ADMM is for;
+- `stress=True` adds the analytical stress tensor (GPa), and
+  `precision={"eps_pgf_orb": ...}` tightens `&QS`.
 
 **By hand, without the hyogo server:** copy `templates/single_point.inp`
 (revPBE-D3 only) next to `subsys.inc` and set its `@SET` lines; its
