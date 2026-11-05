@@ -64,7 +64,8 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
                     scf: str = "ot", multiplicity: int | None = None,
                     duration: str | None = None, md: dict | None = None, opt: dict | None = None,
                     hfx: dict | None = None, print_gap: bool = False, save_wfn: bool = False,
-                    overwrite: bool = False) -> dict:
+                    stress: bool = False, precision: dict | None = None,
+                    guess_wfn: str | None = None, overwrite: bool = False) -> dict:
     """Write a CP2K run input that includes subsys.inc: a single point,
     a geometry or cell optimisation, or NVT MD, with a functional preset
     (XC, exact exchange, ADMM, D3). Tunables are @SET lines at the top.
@@ -75,6 +76,12 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
     "uzh-pbe0" for pbe0/hse06; hybrids also aux_basis="admm-dzp"), then
     cp2k_make_subsys with that result. Pass both results here. For
     duration, use launch_plan's estimate.suggested_duration.
+
+    Hybrids get the CP2K settings that keep HFX correct: the ADMM
+    correction matched to the HF operator (EXCH_CORRECTION_FUNC DEFAULT),
+    MIN_PAIR_LIST_RADIUS -1, force screening as tight as the energy, and
+    an operator range below half the narrowest cell width (Gamma-point
+    HFX), capped there with a warning for hse06.
 
     Refuses: potentials of the wrong family, a hybrid without AUX_FIT
     bases, an HFX radius at or above half the narrowest cell width, zero
@@ -105,11 +112,20 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
         duration: job duration "HH:MM:SS"; WALLTIME leaves a margin.
         md: {temperature, timestep, steps, timecon} for md_nvt.
         opt: {max_iter} for geo_opt and cell_opt.
-        hfx: {radius, memory_mb} for hybrids; radius defaults to just
-            below half the narrowest cell width.
+        hfx: for hybrids, {radius, memory_mb (3000, MiB per MPI rank),
+            eps_schwarz (1e-6), screen_on_initial_p}. radius defaults to
+            just below half the narrowest width (pbe0, r2scan0), or for
+            hse06 to the range where erfc(0.11 r)/r reaches eps_schwarz,
+            capped below half the width. screen_on_initial_p defaults to
+            true only with guess_wfn.
         print_gap: print the HOMO-LUMO gap.
         save_wfn: write the SCF wavefunction restart (sp), e.g. to start a
             hybrid from a GGA run.
+        stress: analytical stress tensor in a single point (GPa).
+        precision: {eps_default (1e-12), eps_pgf_orb} for &QS.
+        guess_wfn: wavefunction to start from (SCF_GUESS RESTART), a path
+            on the cluster relative to the run folder or absolute; it must
+            use the same basis. Start hybrids from a converged GGA run.
         overwrite: replace out_path if it exists.
     """
     if not isinstance(subsys, dict) or not subsys.get("out"):
@@ -119,7 +135,7 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
         raise ValueError("kinds is cp2k_kinds' full result (it carries `files`)")
     text, info = cp2k_input.make_input(run_type, functional, subsys, files, project, cutoff,
                                        rel_cutoff, d3, scf, multiplicity, duration, md, opt, hfx,
-                                       print_gap, save_wfn)
+                                       print_gap, save_wfn, stress, precision, guess_wfn)
     name = f"{project}.inp" if project else cp2k_input.RUN_TYPES[run_type][3]
     dst = Path(out_path).expanduser() if out_path else Path(subsys["out"]).expanduser().with_name(name)
     if dst.exists() and not overwrite:

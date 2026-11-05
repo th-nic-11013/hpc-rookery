@@ -45,7 +45,11 @@ MOLOPT_FILES = {"basis": ["BASIS_MOLOPT"], "potential": "GTH_POTENTIALS"}
 ADMM_FILE = "BASIS_ADMM_UZH"
 MD_DEFAULTS = {"temperature": 300, "timestep": 0.5, "steps": 2000, "timecon": 100}
 OPT_DEFAULTS = {"max_iter": 200}
-HFX_DEFAULTS = {"radius": None, "memory_mb": 2000}
+HFX_DEFAULTS = {"radius": None, "memory_mb": 3000, "eps_schwarz": 1.0e-6,
+                "screen_on_initial_p": None}
+PRECISION_DEFAULTS = {"eps_default": 1.0e-12, "eps_pgf_orb": None}
+HSE_OMEGA = 0.11  # bohr^-1, in both &XWPBE and &HF
+BOHR = 0.529177210903  # angstrom
 
 
 def _fmt(v) -> str:
@@ -72,14 +76,29 @@ def _merge(name: str, given: dict | None, defaults: dict) -> dict:
     return {**defaults, **given}
 
 
-def _hf(interaction: str) -> list[str]:
+def erfc_range(eps: float, omega: float = HSE_OMEGA) -> float:
+    """Distance in A where erfc(omega r)/r falls to eps: CP2K's default
+    CUTOFF_RADIUS for the short-range operator."""
+    lo, hi = 0.1, 500.0  # bohr; erfc(w r)/r decreases monotonically
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if math.erfc(omega * mid) / mid > eps else (lo, mid)
+    return lo * BOHR
+
+
+def _hf(interaction: str, screen_p: bool) -> list[str]:
     pot = (["POTENTIAL_TYPE TRUNCATED", "CUTOFF_RADIUS  ${HFX_RADIUS}", "T_C_G_DATA     t_c_g.dat"]
-           if interaction == "truncated" else ["POTENTIAL_TYPE SHORTRANGE", "OMEGA          0.11"])
-    return (["&HF", "  FRACTION 0.25", "  &SCREENING", "    EPS_SCHWARZ          1.0E-6",
-             "    SCREEN_ON_INITIAL_P  FALSE", "  &END SCREENING", "  &INTERACTION_POTENTIAL"]
+           if interaction == "truncated" else
+           ["POTENTIAL_TYPE SHORTRANGE", f"OMEGA          {HSE_OMEGA}", "CUTOFF_RADIUS  ${HFX_RADIUS}"])
+    # EPS_SCHWARZ_FORCES defaults to 100x EPS_SCHWARZ; CP2K says it should be similar to EPS_SCF
+    return (["&HF", "  FRACTION 0.25", "  &SCREENING", "    EPS_SCHWARZ          ${HFX_EPS_SCHWARZ}",
+             "    EPS_SCHWARZ_FORCES   ${HFX_EPS_SCHWARZ}",
+             f"    SCREEN_ON_INITIAL_P  {'TRUE' if screen_p else 'FALSE'}", "  &END SCREENING",
+             "  &INTERACTION_POTENTIAL"]
             + ["    " + p for p in pot]
             + ["  &END INTERACTION_POTENTIAL", "  &MEMORY", "    MAX_MEMORY          ${HFX_MEMORY}",
-               "    EPS_STORAGE_SCALING 0.1", "  &END MEMORY", "&END HF"])
+               "    EPS_STORAGE_SCALING 0.1", "  &END MEMORY", "  &HF_INFO ON", "  &END HF_INFO",
+               "&END HF"])
 
 
 def _motion(run_type: str) -> list[str]:
@@ -109,7 +128,8 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
                d3: str | None = None, scf: str = "ot", multiplicity: int | None = None,
                duration: str | None = None, md: dict | None = None, opt: dict | None = None,
                hfx: dict | None = None, print_gap: bool = False,
-               save_wfn: bool = False) -> tuple[str, dict]:
+               save_wfn: bool = False, stress: bool = False,
+               precision: dict | None = None, guess_wfn: str | None = None) -> tuple[str, dict]:
     """The input text and a summary; `subsys` is cp2k_make_subsys' result."""
     if run_type not in RUN_TYPES:
         raise ValueError(f"run_type is one of {list(RUN_TYPES)}")
@@ -163,19 +183,41 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
 
     if hf:
         h = _merge("hfx", hfx, HFX_DEFAULTS)
+        if not 0 < h["eps_schwarz"] < 1e-3:
+            raise ValueError("hfx eps_schwarz is a small threshold, e.g. 1.0E-6")
+        # Gamma-point HFX: an operator reaching past half the cell counts periodic images twice
         half = min(subsys["widths"]) / 2
-        if hf == "truncated":
-            radius = h["radius"] if h["radius"] is not None else math.floor((half - 1e-6) * 10) / 10
+        below_half = math.floor((half - 1e-6) * 10) / 10
+        if h["radius"] is not None:
+            radius = h["radius"]
+        elif hf == "truncated":
+            radius = below_half
+        else:
+            reach = erfc_range(h["eps_schwarz"])
+            radius = math.ceil(reach * 10) / 10
             if radius >= half:
-                raise ValueError(f"HFX radius {radius} A must stay below half the narrowest cell "
-                                 f"width ({half:.2f} A); use a supercell for a larger radius")
-            sets["HFX_RADIUS"] = radius
+                radius = below_half
+                warnings.append(f"the short-range operator reaches {reach:.1f} A at EPS_SCHWARZ "
+                                f"{h['eps_schwarz']:g}, past half the cell ({half:.2f} A): capped at "
+                                f"{radius} A. Converge against it, or use a supercell")
+        if radius >= half:
+            raise ValueError(f"HFX radius {radius} A must stay below half the narrowest cell "
+                             f"width ({half:.2f} A); use a supercell for a larger radius")
+        sets["HFX_RADIUS"] = radius
+        sets["HFX_EPS_SCHWARZ"] = f"{h['eps_schwarz']:.1E}".replace("E-0", "E-")
+        if hf == "truncated":
             warnings.append(f"truncated exact exchange at {radius} A: converge the result against "
                             "the radius, and the build's data folder must hold t_c_g.dat")
             if functional == "r2scan0":
                 warnings.append("r2SCAN0 has no long-range correction: the 25 % exact exchange "
                                 "beyond the radius is simply missing")
         sets["HFX_MEMORY"] = h["memory_mb"]
+        screen_p = h["screen_on_initial_p"]
+        if screen_p is None:
+            screen_p = guess_wfn is not None  # safe from a converged restart, not an atomic guess
+        if guess_wfn is None:
+            warnings.append("hybrid from the atomic guess: SCF steps cost the full HFX price; "
+                            "start from a GGA wavefunction in the same basis (guess_wfn)")
         warnings.append(f"hybrid with ADMM: expect ~5-20x the GGA cost per step and "
                         f"{h['memory_mb']} MB HFX memory per MPI rank; run a short test job first")
     elif hfx:
@@ -204,6 +246,11 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
     if run_type == "cell_opt":
         warnings.append(f"stress converges slowly with CUTOFF ({cutoff} Ry): check it before "
                         "trusting the cell")
+    if stress and run_type != "sp":
+        raise ValueError("stress is for sp; cell_opt computes it anyway")
+    prec = _merge("precision", precision, PRECISION_DEFAULTS)
+    if guess_wfn is not None and not re.fullmatch(r"[\w./~-]+", guess_wfn):
+        raise ValueError(f"guess_wfn is a path on the cluster, without spaces: {guess_wfn!r}")
     if scf == "smear" and run_type == "md_nvt":
         warnings.append("smearing in MD: the conserved quantity drifts more; watch it")
 
@@ -225,24 +272,38 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
         lines += ["  STRESS_TENSOR ANALYTICAL", "  &PRINT", "    &STRESS_TENSOR ON",
                   "    &END STRESS_TENSOR", "  &END PRINT"]
     elif run_type == "sp":
-        lines += ["  &PRINT", "    &FORCES ON", "    &END FORCES", "  &END PRINT"]
+        lines += ["  STRESS_TENSOR ANALYTICAL"] if stress else []
+        lines += ["  &PRINT", "    &FORCES ON", "    &END FORCES"]
+        lines += ["    &STRESS_TENSOR ON", "      STRESS_UNIT GPa", "    &END STRESS_TENSOR"] if stress else []
+        lines.append("  &END PRINT")
     lines.append("  &DFT")
     lines += [f"    BASIS_SET_FILE_NAME {f}" for f in files["basis"]]
     lines.append(f"    POTENTIAL_FILE_NAME {files['potential']}")
+    if guess_wfn:
+        lines.append(f"    WFN_RESTART_FILE_NAME {guess_wfn}")
     if hf:
         lines += ["    &AUXILIARY_DENSITY_MATRIX_METHOD", "      METHOD                   BASIS_PROJECTION",
-                  "      ADMM_PURIFICATION_METHOD NONE", "      EXCH_CORRECTION_FUNC     PBEX",
+                  "      ADMM_PURIFICATION_METHOD NONE",
+                  # DEFAULT is the PBE-based correction for the HF operator in use (short-range
+                  # wPBE for HSE06, truncated PBE hole for PBE0); PBEX is full-range only
+                  "      EXCH_CORRECTION_FUNC     DEFAULT",
                   "    &END AUXILIARY_DENSITY_MATRIX_METHOD"]
     lines += ["    CHARGE       ${CHARGE}", "    MULTIPLICITY ${MULTIPLICITY}", "    UKS          ${UKS}",
               "    &MGRID", "      CUTOFF     ${CUTOFF}", "      REL_CUTOFF ${REL_CUTOFF}", "    &END MGRID",
-              "    &QS", "      EPS_DEFAULT 1.0E-12"]
+              "    &QS", f"      EPS_DEFAULT {prec['eps_default']:.1E}"]
+    if prec["eps_pgf_orb"] is not None:
+        lines.append(f"      EPS_PGF_ORB {prec['eps_pgf_orb']:.1E}")
+    if hf:
+        # otherwise HFX terms outside the orbital pair list are dropped (CP2K warns:
+        # "The Kohn Sham matrix is not 100% occupied")
+        lines.append("      MIN_PAIR_LIST_RADIUS -1")
     if run_type != "sp":
         lines += ["      EXTRAPOLATION       ASPC", "      EXTRAPOLATION_ORDER 3"]
     lines.append("    &END QS")
     if subsys["periodic"] == "NONE":
         lines += ["    &POISSON", "      PERIODIC NONE", "      PSOLVER  MT", "    &END POISSON"]
     # No IGNORE_CONVERGENCE_FAILURE: an unconverged SCF must stop the run.
-    lines += ["    &SCF", "      SCF_GUESS ATOMIC", "      EPS_SCF   1.0E-6",
+    lines += ["    &SCF", f"      SCF_GUESS {'RESTART' if guess_wfn else 'ATOMIC'}", "      EPS_SCF   1.0E-6",
               f"      MAX_SCF   {30 if run_type == 'md_nvt' else 50}"]
     if scf == "ot":
         lines += ["      &OT ON", "        MINIMIZER      DIIS", "        PRECONDITIONER FULL_ALL",
@@ -264,7 +325,7 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
                   "        WRITE_CUBE FALSE", "      &END MO_CUBES", "    &END PRINT"]
     lines += ["    &XC", "      &XC_FUNCTIONAL"] + _indent(_XC[functional], 8) + ["      &END XC_FUNCTIONAL"]
     if hf:
-        lines += _indent("\n".join(_hf(hf)), 6)
+        lines += _indent("\n".join(_hf(hf, screen_p)), 6)
     lines += ["      &VDW_POTENTIAL", "        POTENTIAL_TYPE PAIR_POTENTIAL", "        &PAIR_POTENTIAL",
               f"          TYPE                 {'DFTD3(BJ)' if d3 == 'bj' else 'DFTD3'}",
               "          PARAMETER_FILE_NAME  dftd3.dat", f"          REFERENCE_FUNCTIONAL {d3_ref}",

@@ -2842,7 +2842,8 @@ def check_repo() -> None:
                     b = (fx / f"subsys_{'pbe0' if fam == 'PBE0' else 'scan'}_admm.inc").read_text().splitlines()
                     assert a[:1] + a[2:] == b[:1] + b[2:], f
                 r = hsrv.cp2k_make_input("sp", f, sub, k, project=f"sp-{f}", cutoff=600,
-                                         print_gap=True, save_wfn=True)
+                                         print_gap=True, save_wfn=True,
+                                         hfx={"memory_mb": 2000} if aux else None)
                 assert r["out"] == str(d / f"sp-{f}.inp"), r
                 # the hand-written inputs leave CHARGE/MULTIPLICITY/UKS at CP2K's
                 # defaults, and the GGA ones list BASIS_ADMM_UZH though unused
@@ -2851,7 +2852,9 @@ def check_repo() -> None:
                 want = [l for l in norm((fx / f"sp_{f}.inp").read_text())
                         if aux or l != "BASIS_SET_FILE_NAME BASIS_ADMM_UZH"]
                 assert got == want, (f, [l for l in got if l not in want], [l for l in want if l not in got])
-                assert r["settings"].get("HFX_RADIUS") == (5.9 if f in ("pbe0", "r2scan0") else None), r
+                assert r["settings"].get("HFX_RADIUS") == (5.9 if aux else None), r
+                if f == "hse06":  # erfc(0.11 r)/r = 1e-6 at 14.3 A, capped below half of 11.97 A
+                    assert any("reaches 14.3 A" in w for w in r["warnings"]), r
 
             legacy = {e: {"q": n, "basis": "DZVP-MOLOPT-SR-GTH", "potential": f"GTH-PBE-q{n}"}
                       for e, n in q.items()}
@@ -2879,6 +2882,20 @@ def check_repo() -> None:
 
             pbe0 = uzh("PBE0", "GTH-PBE0", True)
             sub0 = hsrv.cp2k_make_subsys(str(xyz), pbe0, str(d / "p0.inc"))
+            # a cell wider than twice the erfc range keeps CP2K's own range, uncapped
+            wide = {**sub0, "widths": [40.0, 40.0, 40.0]}
+            r = hsrv.cp2k_make_input("sp", "hse06", wide, pbe0, out_path=str(d / "wide.inp"),
+                                     stress=True, guess_wfn="../pbe/pbe-RESTART.wfn",
+                                     precision={"eps_pgf_orb": 1e-20}, hfx={"eps_schwarz": 1e-7})
+            text = pathlib.Path(r["out"]).read_text()
+            assert r["settings"]["HFX_RADIUS"] == 15.9 and not any("capped" in w for w in r["warnings"]), r
+            for want in ("STRESS_TENSOR ANALYTICAL", "STRESS_UNIT GPa", "SCF_GUESS RESTART",
+                         "WFN_RESTART_FILE_NAME ../pbe/pbe-RESTART.wfn", "SCREEN_ON_INITIAL_P  TRUE",
+                         "EPS_PGF_ORB 1.0E-20", "EXCH_CORRECTION_FUNC     DEFAULT",
+                         "MIN_PAIR_LIST_RADIUS -1", "EPS_SCHWARZ_FORCES   ${HFX_EPS_SCHWARZ}",
+                         "@SET HFX_EPS_SCHWARZ  1.0E-7"):
+                assert want in text, (want, text)
+            assert not any("atomic guess" in w for w in r["warnings"]), r
             plain0 = uzh("PBE0", "GTH-PBE0", False)
             subp = hsrv.cp2k_make_subsys(str(xyz), plain0, str(d / "p.inc"))
             scan = uzh("SCAN", "GTH-SCAN", False)
@@ -2889,6 +2906,11 @@ def check_repo() -> None:
                      "needs GTH-SCAN potentials"),
                     (("sp", "pbe0", subp, plain0), {}, "uses ADMM"),
                     (("sp", "pbe0", sub0, pbe0), {"hfx": {"radius": 6.0}}, "below half"),
+                    (("sp", "hse06", sub0, pbe0), {"hfx": {"radius": 6.0}}, "below half"),
+                    (("sp", "hse06", sub0, pbe0), {"hfx": {"eps_schwarz": 0.1}}, "small threshold"),
+                    (("geo_opt", "pbe0", sub0, pbe0), {"stress": True}, "stress is for sp"),
+                    (("sp", "pbe0", sub0, pbe0), {"guess_wfn": "a b.wfn"}, "without spaces"),
+                    (("sp", "revpbe", sub), {"precision": {"eps": 1}}, "precision takes"),
                     (("sp", "r2scan", subs, scan), {"d3": "zero"}, "only with BJ"),
                     (("sp", "r2scan", subs), {}, "pass cp2k_kinds' result"),
                     (("neb", "revpbe", sub), {}, "run_type is one of"),
