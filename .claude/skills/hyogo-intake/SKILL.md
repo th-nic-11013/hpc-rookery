@@ -6,9 +6,12 @@ description: Adapt an existing skill, script, template or snippet into MCP tools
 # Adapting a skill or code into hyogo tools
 
 The inventory and its categories are in `hyogo/INVENTORY.md`. Read it
-first; this skill does not repeat it. `notes/cp2k-make-subsys.md` is the
-worked example of the whole procedure: one 135-line script split into a
-rookery tool, a yagura tool and a hyogo tool.
+first; this skill does not repeat it. `cp2k_make_subsys` is the worked
+example of the whole procedure: one 135-line script split into a rookery
+tool (`cp2k_kinds`), a yagura tool (`structure_check`) and a hyogo tool.
+
+`notes/` is the user's personal, gitignored folder of plans and gap
+lists. It may be empty or missing in a fresh clone; that's fine.
 
 ## 1. Read the source and the inventory
 
@@ -47,11 +50,11 @@ existing one. The name and module follow from the categories
 
 ## 4. Write the plan, then ask
 
-Write `notes/<tool-or-topic>.md` in the shape of
-`notes/cp2k-make-subsys.md`: the split table (unit, what it is, owner),
+Write `notes/<tool-or-topic>.md` (local, not committed): the split table (unit, what it is, owner),
 the tool signatures with their returns, the agent flow across servers,
 the tests, and the commits (one per owning folder). Add the rows to
-INVENTORY.md as `planned`. Point the user at the note and wait for a yes
+INVENTORY.md as `planned`, with the plan's content summarised in the
+`notes` column (the note itself stays local). Point the user at the note and wait for a yes
 before writing code.
 
 ## 5. Build

@@ -54,14 +54,14 @@ MCP wrapper lives in `hyogo/server.py`.
 
 ## Tools
 
-`status`: `live` (served by `hyogo-mcp`), `planned` (a plan in notes/
+`status`: `live` (served by `hyogo-mcp`), `planned` (a plan
 was agreed), `candidate` (seen, not yet planned).
 
 | tool | method | stage | code | module | status | source | notes |
 |---|---|---|---|---|---|---|---|
-| `cp2k_make_subsys` | any | input | cp2k | `hyogo/cp2k/subsys.py` | live | `codes/common/structure-making/cp2k/make_subsys.py` | [cp2k-make-subsys.md](../notes/cp2k-make-subsys.md) |
-| `cp2k_make_input` | any | input | cp2k | `hyogo/cp2k/input.py` | live | `codes/cp2k/*/templates/`, UiO-66 `make_inputs.sh` | [cp2k-make-input.md](../notes/cp2k-make-input.md); G3, includes the HFX radius check |
+| `cp2k_make_subsys` | any | input | cp2k | `hyogo/cp2k/subsys.py` | live | `codes/common/structure-making/cp2k/make_subsys.py` | split of `make_subsys.py`: kinds and data files → rookery `cp2k_kinds`, checks → yagura `structure_check`, `&SUBSYS` writing → here |
+| `cp2k_make_input` | any | input | cp2k | `hyogo/cp2k/input.py` | live | `codes/cp2k/*/templates/`, UiO-66 `make_inputs.sh` | templates and UiO-66 functional presets as one tool; includes the HFX radius check |
 | `cp2k_restart_md` | md | restart | cp2k | `hyogo/cp2k/restart.py` | candidate | `codes/cp2k/aimd/SKILL.md` (24-hour restarts) | |
 
-Changes to a live tool (not new rows): G2, `aux_basis` per kind in
-`cp2k_make_subsys`, done with `cp2k_make_input` ([cp2k-make-input.md](../notes/cp2k-make-input.md)).
+Changes to a live tool (not new rows): `aux_basis` per kind in
+`cp2k_make_subsys`, done with `cp2k_make_input`.

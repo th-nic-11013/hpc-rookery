@@ -8,3 +8,17 @@
 - **RDF (radial distribution function)** — how likely you are to find atom B at distance r from atom A, relative to random; peaks are bond/shell distances.
 - **MSD (mean-squared displacement)** — average squared distance atoms have moved after time t; a straight-line rise means diffusion, a plateau means atoms are caged.
 - **VDOS (vibrational density of states)** — the spectrum of vibration frequencies in an MD run, like an unweighted IR/Raman spectrum.
+- **Run state** — the agent-notes summary of one campaign (goal, current step, next step, what was tried, live jobs), kept on disk so an agent can resume after its context fills up.
+- **Provisional entry** — a lab-notebook entry the agent wrote on its own; it counts as unreviewed until you confirm it with `notes.py promote`.
+- **PostToolUse hook** — a command Claude Code runs after every tool call; agent-notes uses one to log each call of an open run.
+- **Meta-GGA (e.g. r²SCAN)** — a functional that also uses the kinetic-energy density, one rung above GGA (PBE/revPBE); better bonding at modest extra cost.
+- **Hybrid functional** — mixes a fraction of exact (Hartree–Fock) exchange into DFT exchange (PBE0, r²SCAN0: 25 %), which mainly fixes too-small band gaps.
+- **Screened hybrid (HSE06)** — a hybrid whose exact exchange is switched off at long range, so it converges well in periodic solids.
+- **ADMM** — CP2K's trick of computing exact exchange in a small auxiliary basis and correcting the difference with a GGA, making hybrids ~10× cheaper.
+- **D3(BJ)** — Grimme's dispersion correction with Becke–Johnson damping; the r²SCAN-family parameters exist only in this form.
+- **Truncated Coulomb (HFX)** — cutting exact exchange off at a radius below half the cell width so a periodic cell does not see its own images.
+- **Core dump** — a snapshot of a crashed program's memory written to disk for debugging; for a large MPI job it can be tens of GB.
+- **Gap (G1, G2, …)** — a numbered entry in a personal "tool audit" note (local `notes/`, not committed): a step the repo's tools couldn't do, with its owner and proposed fix; numbers run on across notes.
+- **Guess run** — a cheap GGA calculation whose only product is the starting wavefunction for a hybrid, in the hybrid's own basis; its energy is not a result.
+- **Experience record** — a proposed record type holding one symptom → cause → fix lesson, looked up before a run (and matched against the error if one fails).
+- **SessionStart hook** — a command Claude Code runs when a session opens; agent-notes uses it to print the project's notebook index.

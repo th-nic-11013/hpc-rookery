@@ -13,3 +13,5 @@ dist/
 dist_check/
 remotemanager.log
 uv.lock
+# personal working notes; anchored so code-pack notes.md and skill_notes/ stay tracked
+/notes/
