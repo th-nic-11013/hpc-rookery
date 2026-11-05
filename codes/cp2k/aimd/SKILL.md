@@ -145,14 +145,12 @@ rules are in `{{SLUG}}-cp2k-single-point`.
 
 ## 4. Continue a run
 
-Each continuation is a copy of the input with `SCF_GUESS RESTART` in
-`&SCF`, plus, at the top level:
-
-```text
-&EXT_RESTART
-  RESTART_FILE_NAME <PROJECT>-1.restart
-&END EXT_RESTART
-```
+Inputs from `cp2k_make_input` start with `@SET RESTART 0`. A
+continuation is a copy of the input with `@SET RESTART 1`: that turns on
+`&EXT_RESTART` from `<PROJECT>-1.restart` and `SCF_GUESS RESTART` from the
+run's own wavefunction. (A hand-written input needs `SCF_GUESS RESTART`
+in `&SCF` and, at the top level, `&EXT_RESTART` with
+`RESTART_FILE_NAME <PROJECT>-1.restart`.)
 
 This restores positions, velocities, thermostat state and the step
 counter. Verified on CP2K 2026.2:

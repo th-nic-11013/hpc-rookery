@@ -60,15 +60,18 @@ Settings to confirm:
   `LBFGS`, since BFGS keeps a dense Hessian. `CG` is a robust fallback
   when BFGS oscillates.
 - **Convergence:** `MAX_FORCE 4.5E-4` hartree/bohr (≈ 0.023 eV/Å, CP2K's
-  default). Tighten to `1.0E-4` before computing frequencies.
+  default). Tighten to `1.0E-4` before computing frequencies, or to match
+  an earlier run: `opt={"max_force": 1e-4, "rms_force": 5e-5}`.
 - **Fixed atoms:** the tool doesn't write them. Add the
   `&CONSTRAINT / &FIXED_ATOMS` block (commented in `templates/geo_opt.inp`)
   to the written input, with 1-based indices in `subsys.inc` order.
 - **Cell optimisation:** `EXTERNAL_PRESSURE` 1 bar, `PRESSURE_TOLERANCE`
-  100 bar. `KEEP_SYMMETRY` or `KEEP_ANGLES` are added by hand (commented
-  in `templates/cell_opt.inp`). Don't add a `TYPE` keyword: recent CP2K
-  removed it (`--check` aborts on it), and direct cell optimisation is
-  always used.
+  100 bar. To keep the lattice (a cubic MOF staying cubic), call
+  `cp2k_make_subsys(..., symmetry="CUBIC")` (it refuses a cell that isn't)
+  and pass `opt={"keep_angles": true, "keep_symmetry": true}`. Ask the user
+  first: it forbids a real symmetry-lowering distortion. Don't add a
+  `TYPE` keyword: recent CP2K removed it (`--check` aborts on it), and
+  direct cell optimisation is always used.
 - **`WALLTIME`** (seconds) is the job's duration minus 10 minutes, from
   `duration`: `12:00:00` → `42600`. CP2K then stops cleanly and writes its
   restart file before Slurm kills the job. Without `duration` the tool
@@ -147,17 +150,17 @@ frame and run `structure_check` on it (`{{SLUG}}-structure-making`).
 
 ## 4. Restart
 
-Copy the input and add, at the top level:
+Inputs from `cp2k_make_input` start with `@SET RESTART 0`; the result's
+`restart` names the files. To continue after a walltime stop, change it
+to `@SET RESTART 1` in the run folder's input and resubmit with a new
+output name (`-o geo_opt_2.out`). That turns on `&EXT_RESTART` from
+`<PROJECT>-1.restart` and starts the SCF from the run's own
+`<PROJECT>-RESTART.wfn`, so the optimisation continues from the latest
+geometry and step counter. The BFGS Hessian is rebuilt.
 
-```text
-&EXT_RESTART
-  RESTART_FILE_NAME <PROJECT>-1.restart
-&END EXT_RESTART
-```
-
-Also set `SCF_GUESS RESTART`, then submit with a new output name
-(`-o geo_opt_2.out`). The optimisation continues from the restart file's
-geometry and step counter.
+A hand-written input needs the same by hand: `&EXT_RESTART` with
+`RESTART_FILE_NAME <PROJECT>-1.restart` at the top level, and
+`SCF_GUESS RESTART`.
 
 Prefer one longer job to a dependency chain.
 

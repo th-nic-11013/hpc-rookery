@@ -22,3 +22,6 @@
 - **Guess run** — a cheap GGA calculation whose only product is the starting wavefunction for a hybrid, in the hybrid's own basis; its energy is not a result.
 - **Experience record** — a proposed record type holding one symptom → cause → fix lesson, looked up before a run (and matched against the error if one fails).
 - **SessionStart hook** — a command Claude Code runs when a session opens; agent-notes uses it to print the project's notebook index.
+- **Plugin vs repo** — a repo is who owns and versions the code; a plugin is how a user installs its tools and skills. One repo can ship one plugin, and one marketplace can list plugins from many repos.
+- **Contract test** — a test in one repo that pins the names and arguments of the tools it calls in another, so a change on either side fails loudly instead of silently breaking a skill.
+- **Walltime restart** — a run stopped cleanly by CP2K's WALLTIME continues from its own `<project>-1.restart` (`&EXT_RESTART`); tool-written inputs switch this with one line, `@SET RESTART 1`.
