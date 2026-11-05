@@ -1,6 +1,6 @@
 # UiO-66 functional inputs (golden files)
 
-The five single points of [notes/uio66-functionals.md](../../../../notes/uio66-functionals.md),
+The five single points of the UiO-66 functional comparison (PBE, r2SCAN, PBE0, HSE06, r2SCAN0),
 written by hand with `make_inputs.sh` on 2026-11-04. `cp2k --check` passed on all
 five (CP2K 2026.2). `sp_<functional>.inp` is that run's `sp.inp` with its
 `xc.inc` inlined. `subsys_*_admm.inc` are the `&SUBSYS` includes with the ADMM
@@ -8,7 +8,7 @@ five (CP2K 2026.2). `sp_<functional>.inp` is that run's `sp.inp` with its
 
 `cp2k_make_input` and `cp2k_make_subsys` are tested against them; don't edit.
 
-**Corrected 2026-11-05** (notes/hokusai-hse06-uio66-review.md, C4/G12). The
+**Corrected 2026-11-05**, after a review of the HOKUSAI HSE06 runs. The
 hand-written hybrid inputs (`sp_pbe0`, `sp_hse06`, `sp_r2scan0`) broke CP2K's
 own HFX rules, so they were fixed here rather than kept as written:
 - `EXCH_CORRECTION_FUNC PBEX` → `DEFAULT`. PBEX is a full-range correction;
@@ -20,6 +20,8 @@ own HFX rules, so they were fixed here rather than kept as written:
   manual says it should be similar to EPS_SCF;
 - HSE06: `CUTOFF_RADIUS ${HFX_RADIUS}` on the SHORTRANGE operator. At
   EPS_SCHWARZ 1e-6 it would reach 14.3 Å, past half this cell (5.99 Å);
-- `&HF_INFO` printed (memory diagnostics; this doesn't change results).
+- `&HF_INFO` printed (memory diagnostics; this doesn't change results);
+- inner `MAX_SCF` 50 → 30 under `&OUTER_SCF` (CP2K docs, convergence page:
+  about 16–32; lit-search record `conv-maxscf-inner`).
 
 None of these corrected inputs has been run.

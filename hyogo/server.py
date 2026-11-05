@@ -65,7 +65,8 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
                     duration: str | None = None, md: dict | None = None, opt: dict | None = None,
                     hfx: dict | None = None, print_gap: bool = False, save_wfn: bool = False,
                     stress: bool = False, precision: dict | None = None,
-                    guess_wfn: str | None = None, overwrite: bool = False) -> dict:
+                    guess_wfn: str | None = None, purpose: str = "result",
+                    overwrite: bool = False) -> dict:
     """Write a CP2K run input that includes subsys.inc: a single point,
     a geometry or cell optimisation, or NVT MD, with a functional preset
     (XC, exact exchange, ADMM, D3). Tunables are @SET lines at the top.
@@ -87,7 +88,13 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
     bases, an HFX radius at or above half the narrowest cell width, zero
     damping D3 with r2SCAN presets.
 
-    Returns {"out", "run_type", "functional", "d3", "scf", "settings":
+    To start a hybrid from a GGA wavefunction in the hybrid's own basis:
+    first cp2k_make_input("sp", "pbe", <the hybrid's subsys>, <its kinds>,
+    purpose="guess"), run it, then the hybrid with guess_wfn set to that
+    result's `wfn`.
+
+    Returns {"out", "run_type", "functional", "d3", "scf", "purpose", "wfn"
+    (the restart file a sp writes, or null), "settings":
     {CUTOFF, HFX_RADIUS, WALLTIME, ...}, "files": data files the build
     needs, "warnings"}; read the warnings to the user (hybrid cost, HFX
     radius, open shell, assumed walltime).
@@ -126,6 +133,9 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
         guess_wfn: wavefunction to start from (SCF_GUESS RESTART), a path
             on the cluster relative to the run folder or absolute; it must
             use the same basis. Start hybrids from a converged GGA run.
+        purpose: "result" (default) or "guess": a GGA single point (RUN_TYPE
+            ENERGY, wavefunction saved) in a hybrid's basis and potentials,
+            labelled as not a result. Its only use is the hybrid's guess_wfn.
         overwrite: replace out_path if it exists.
     """
     if not isinstance(subsys, dict) or not subsys.get("out"):
@@ -135,8 +145,9 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
         raise ValueError("kinds is cp2k_kinds' full result (it carries `files`)")
     text, info = cp2k_input.make_input(run_type, functional, subsys, files, project, cutoff,
                                        rel_cutoff, d3, scf, multiplicity, duration, md, opt, hfx,
-                                       print_gap, save_wfn, stress, precision, guess_wfn)
-    name = f"{project}.inp" if project else cp2k_input.RUN_TYPES[run_type][3]
+                                       print_gap, save_wfn, stress, precision, guess_wfn, purpose)
+    name = (f"{project}.inp" if project else "guess.inp" if purpose == "guess"
+            else cp2k_input.RUN_TYPES[run_type][3])
     dst = Path(out_path).expanduser() if out_path else Path(subsys["out"]).expanduser().with_name(name)
     if dst.exists() and not overwrite:
         raise ValueError(f"{dst} exists; pass overwrite=true to replace it")

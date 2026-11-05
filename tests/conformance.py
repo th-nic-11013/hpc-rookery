@@ -2896,6 +2896,18 @@ def check_repo() -> None:
                          "@SET HFX_EPS_SCHWARZ  1.0E-7"):
                 assert want in text, (want, text)
             assert not any("atomic guess" in w for w in r["warnings"]), r
+            # purpose="guess": PBE in the hybrid's basis and potentials, wavefunction kept
+            g = hsrv.cp2k_make_input("sp", "pbe", sub0, pbe0, purpose="guess")
+            text = pathlib.Path(g["out"]).read_text()
+            assert g["out"] == str(d / "guess.inp") and g["wfn"] == "guess-RESTART.wfn", g
+            for want in ("RUN_TYPE    ENERGY", "# GUESS ONLY", "&RESTART ON", "SCF_GUESS ATOMIC",
+                         "MAX_SCF   50", "POTENTIAL_FILE_NAME POTENTIAL_UZH_2026.2"):
+                assert want in text, (want, text)
+            assert "&HF" not in text and "AUXILIARY_DENSITY" not in text, text
+            assert any("NOT a result" in w for w in g["warnings"]), g
+            h = hsrv.cp2k_make_input("sp", "hse06", sub0, pbe0, out_path=str(d / "h.inp"),
+                                     guess_wfn=g["wfn"])
+            assert "MAX_SCF   30" in pathlib.Path(h["out"]).read_text(), h
             plain0 = uzh("PBE0", "GTH-PBE0", False)
             subp = hsrv.cp2k_make_subsys(str(xyz), plain0, str(d / "p.inc"))
             scan = uzh("SCAN", "GTH-SCAN", False)
@@ -2910,6 +2922,11 @@ def check_repo() -> None:
                     (("sp", "hse06", sub0, pbe0), {"hfx": {"eps_schwarz": 0.1}}, "small threshold"),
                     (("geo_opt", "pbe0", sub0, pbe0), {"stress": True}, "stress is for sp"),
                     (("sp", "pbe0", sub0, pbe0), {"guess_wfn": "a b.wfn"}, "without spaces"),
+                    (("sp", "pbe", sub0, pbe0), {}, "needs GTH-PBE potentials"),
+                    (("sp", "hse06", sub0, pbe0), {"purpose": "guess"}, "the hybrid itself"),
+                    (("geo_opt", "pbe", sub0, pbe0), {"purpose": "guess"}, "single point"),
+                    (("sp", "pbe", sub0), {"purpose": "guess"}, "hybrid's data files"),
+                    (("sp", "pbe", sub0, pbe0), {"purpose": "seed"}, "purpose is"),
                     (("sp", "revpbe", sub), {"precision": {"eps": 1}}, "precision takes"),
                     (("sp", "r2scan", subs, scan), {"d3": "zero"}, "only with BJ"),
                     (("sp", "r2scan", subs), {}, "pass cp2k_kinds' result"),

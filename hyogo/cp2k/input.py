@@ -2,7 +2,7 @@
 
 The DFT block of the four templates in codes/cp2k/*/templates/ (revPBE-D3,
 OT DIIS + FULL_ALL, the settings benchmarked on HOKUSAI) plus the functional
-presets of the UiO-66 comparison (notes/uio66-functionals.md): PBE,
+presets of the UiO-66 functional comparison: PBE,
 r2SCAN, PBE0, HSE06 and r2SCAN0 with D3(BJ) and ADMM. Facts come in as
 arguments: the structure's widths, charge and electrons from
 cp2k_make_subsys, the data file names from rookery's cp2k_kinds.
@@ -129,8 +129,16 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
                duration: str | None = None, md: dict | None = None, opt: dict | None = None,
                hfx: dict | None = None, print_gap: bool = False,
                save_wfn: bool = False, stress: bool = False,
-               precision: dict | None = None, guess_wfn: str | None = None) -> tuple[str, dict]:
-    """The input text and a summary; `subsys` is cp2k_make_subsys' result."""
+               precision: dict | None = None, guess_wfn: str | None = None,
+               purpose: str = "result") -> tuple[str, dict]:
+    """The input text and a summary; `subsys` is cp2k_make_subsys' result.
+
+    purpose="guess" writes a GGA single point whose only product is the
+    wavefunction a hybrid restarts from, in the hybrid's basis and
+    potentials (a wavefunction can't move between bases). Its energy is not
+    a result: the potentials belong to another functional."""
+    if purpose not in ("result", "guess"):
+        raise ValueError('purpose is "result" or "guess" (a wavefunction for a hybrid to restart from)')
     if run_type not in RUN_TYPES:
         raise ValueError(f"run_type is one of {list(RUN_TYPES)}")
     if functional not in PRESETS:
@@ -143,8 +151,19 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
     stem, d3_ref, d3_default, bj_only, cutoff_default, hf = PRESETS[functional]
     warnings = []
 
+    if purpose == "guess":
+        if hf:
+            raise ValueError(f"purpose=\"guess\" is a GGA run that seeds a hybrid; {functional} is "
+                             "the hybrid itself: use pbe (or revpbe)")
+        if run_type != "sp" or stress:
+            raise ValueError('purpose="guess" is a single point (run_type="sp") without stress')
+        if files is None:
+            raise ValueError("purpose=\"guess\" needs cp2k_kinds' result for the hybrid's data files")
+        save_wfn = True
+        warnings.append("guess only: this energy is NOT a result (the potentials belong to the "
+                        "hybrid); use only its wavefunction, as the hybrid's guess_wfn")
     wrong = {e: p for e, p in subsys["kinds"].items() if not re.fullmatch(re.escape(stem) + r"-q\d+", p)}
-    if wrong:
+    if wrong and purpose != "guess":
         raise ValueError(f"{functional} needs {stem} potentials, subsys.inc has {wrong}: call "
                          f"cp2k_kinds(family={FAMILY_FOR_STEM[stem]}) and cp2k_make_subsys again")
     if files is None:
@@ -177,7 +196,8 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
         warnings.append(f"open shell: UKS with multiplicity {multiplicity}")
 
     cutoff = cutoff or (max(cutoff_default, 600) if run_type == "cell_opt" else cutoff_default)
-    sets = {"PROJECT": project or RUN_TYPES[run_type][1], "CHARGE": subsys.get("charge", 0),
+    project = project or ("guess" if purpose == "guess" else RUN_TYPES[run_type][1])
+    sets = {"PROJECT": project, "CHARGE": subsys.get("charge", 0),
             "MULTIPLICITY": multiplicity, "UKS": ".TRUE." if multiplicity > 1 else ".FALSE.",
             "CUTOFF": cutoff, "REL_CUTOFF": rel_cutoff}
 
@@ -258,8 +278,10 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
     lines = [f"# CP2K {run_type}, {functional}-D3{'(BJ)' if d3 == 'bj' else ''}, "
              f"{subsys.get('formula', '?')}; written by cp2k_make_input",
              "# Edit the @SET values; the structure is in subsys.inc."]
+    if purpose == "guess":
+        lines.append("# GUESS ONLY: the energy is not a result; the wavefunction seeds a hybrid.")
     lines += [f"@SET {k:<{width}}{_fmt(v)}" for k, v in sets.items()]
-    lines += ["", "&GLOBAL", "  PROJECT     ${PROJECT}", f"  RUN_TYPE    {RUN_TYPES[run_type][0]}",
+    lines += ["", "&GLOBAL", "  PROJECT     ${PROJECT}", f"  RUN_TYPE    {'ENERGY' if purpose == 'guess' else RUN_TYPES[run_type][0]}",
               "  PRINT_LEVEL LOW"]
     if "WALLTIME" in sets:
         lines.append("  WALLTIME    ${WALLTIME}")
@@ -304,7 +326,8 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
         lines += ["    &POISSON", "      PERIODIC NONE", "      PSOLVER  MT", "    &END POISSON"]
     # No IGNORE_CONVERGENCE_FAILURE: an unconverged SCF must stop the run.
     lines += ["    &SCF", f"      SCF_GUESS {'RESTART' if guess_wfn else 'ATOMIC'}", "      EPS_SCF   1.0E-6",
-              f"      MAX_SCF   {30 if run_type == 'md_nvt' else 50}"]
+              # hybrids and MD: inner MAX_SCF 30 under OUTER_SCF (CP2K docs, convergence page: ~16-32)
+              f"      MAX_SCF   {30 if run_type == 'md_nvt' or hf else 50}"]
     if scf == "ot":
         lines += ["      &OT ON", "        MINIMIZER      DIIS", "        PRECONDITIONER FULL_ALL",
                   "        ENERGY_GAP     0.05", "      &END OT", "      &OUTER_SCF", "        EPS_SCF 1.0E-6",
@@ -332,7 +355,8 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
               "        &END PAIR_POTENTIAL", "      &END VDW_POTENTIAL", "    &END XC", "  &END DFT",
               "  &SUBSYS", "    @INCLUDE subsys.inc", "  &END SUBSYS", "&END FORCE_EVAL"]
 
-    info = {"run_type": run_type, "functional": functional, "d3": d3, "scf": scf,
+    info = {"run_type": run_type, "functional": functional, "d3": d3, "scf": scf, "purpose": purpose,
+            "wfn": f"{project}-RESTART.wfn" if save_wfn and run_type == "sp" else None,
             "settings": {k: v for k, v in sets.items() if k != "PROJECT"},
             "files": files["basis"] + [files["potential"]] + (["t_c_g.dat"] if hf == "truncated" else []),
             "warnings": warnings}
