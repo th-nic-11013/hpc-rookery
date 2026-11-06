@@ -25,3 +25,4 @@
 - **Plugin vs repo** — a repo is who owns and versions the code; a plugin is how a user installs its tools and skills. One repo can ship one plugin, and one marketplace can list plugins from many repos.
 - **Contract test** — a test in one repo that pins the names and arguments of the tools it calls in another, so a change on either side fails loudly instead of silently breaking a skill.
 - **Walltime restart** — a run stopped cleanly by CP2K's WALLTIME continues from its own `<project>-1.restart` (`&EXT_RESTART`); tool-written inputs switch this with one line, `@SET RESTART 1`.
+- **Run chaining** — starting a CP2K run from a previous run's outputs (its final structure and its `-RESTART.wfn`); hyogo's `guess_from` does the wavefunction half and refuses one that can't fit.

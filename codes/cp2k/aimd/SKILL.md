@@ -14,14 +14,15 @@ give the core-hour estimate before every submission.
 
 - **Reads:** `benchmarks` (layout and step time) and `software_registry`,
   through `launch_plan`.
-- **Writes:** no records. It writes the trajectory, `.ener` and restart
-  files.
+- **Writes:** one `benchmarks` record per segment (`cp2k_record_from_run`).
+  It writes the trajectory, `.ener` and restart files.
 - **Tools:** `cp2k_make_input` (the hyogo server, writes the input),
   `launch_plan` (layout, job spec, cost), `fs_upload`,
   `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `cancel_job`, `fs_tail` / `fs_view`,
   `fs_download`, `cp2k_parse_output` (the hyogo server: finished, SCF per
-  step, steps done, time per step); for analysis, `trajectory_rdf`, `trajectory_msd` and
+  step, steps done, time per step), `cp2k_record_from_run` (the timing
+  record); for analysis, `trajectory_rdf`, `trajectory_msd` and
   `trajectory_vdos` (yagura, on the downloaded files).
 - **Preconditions:** the prerequisites below, and the user's approval of
   the core-hour estimate for every segment.
@@ -182,6 +183,8 @@ segment leaves the rest pending with `DependencyNeverSatisfied`. So either:
 `scf.not_converged` (any after the first step: stop the run, below),
 `md.steps` done and `md.s_per_step`, and `warnings`. A finished segment
 with fewer steps than asked stopped at `WALLTIME`: continue it (section 4).
+
+Record the timing (it is what `launch_plan` sizes the next run from): `cp2k_record_from_run` with the whole parse result as `parsed`, `nodes`, `job_id`, and `like` = a `benchmarks` id of the same system and method (`records_query`), overriding what differs with `method={...}` (e.g. `{"functional": "PBE0"}`). Use `dry_run: true` first to show the user the record. Don't type a record by hand ({{SLUG}}-records).
 
 `<PROJECT>-1.ener` has one line per step:
 `Step  Time[fs]  Kin[a.u.]  Temp[K]  Pot[a.u.]  Cons Qty[a.u.]  UsedTime[s]`.

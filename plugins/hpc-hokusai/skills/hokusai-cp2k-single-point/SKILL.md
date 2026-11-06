@@ -12,13 +12,14 @@ submitting.
 ## Contract
 
 - **Reads:** `benchmarks` and `software_registry`, through `launch_plan`.
-- **Writes:** no records. It writes `single_point.out` and, if asked, the
-  wavefunction.
+- **Writes:** one `benchmarks` record per run (`cp2k_record_from_run`).
+  It writes `single_point.out` and, if asked, the wavefunction.
 - **Tools:** `cp2k_make_input` (the hyogo server, writes the input),
   `launch_plan` (layout, job spec, cost), `fs_upload`,
   `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `fs_download`, `cp2k_parse_output`
-  (the hyogo server, reads the output); `fs_tail` / `fs_view` while it runs.
+  (the hyogo server, reads the output), `cp2k_record_from_run` (the
+  timing record); `fs_tail` / `fs_view` while it runs.
 - **Preconditions:** the two prerequisites below, and the user's approval
   of the input and the cost.
 - **Done when:** the SCF converged and the energy (and forces) are
@@ -95,8 +96,9 @@ For the hybrids (ADMM, 25 % exact exchange):
   operator in use), `MIN_PAIR_LIST_RADIUS -1`, and `EPS_SCHWARZ_FORCES` equal
   to `EPS_SCHWARZ`;
 - **start from a converged GGA wavefunction in the same basis**:
-  `save_wfn=True` on a PBE single point, then `guess_wfn="<its
-  -RESTART.wfn>"`. From the atomic guess every SCF step costs the full HFX
+  `save_wfn=True` on a PBE single point, then pass that run's
+  `cp2k_parse_output` result as `guess_from` (and `guess_dir`, its folder
+  relative to the hybrid's) rather than typing `guess_wfn`. From the atomic guess every SCF step costs the full HFX
   price; a 456-atom HSE06 run on HOKUSAI BigWaterfall2 (HBW2) ran out of time that way.
   `screen_on_initial_p` follows: on with a restart, off from scratch;
 - expect 5–20× the GGA cost per step. Set `hfx={"memory_mb": ...}` (MiB
@@ -218,7 +220,7 @@ an unconverged SCF, and CP2K's own `*** WARNING` boxes in full.
   Report it; don't quote a number.
 - Quote energy, gap, forces and stress from the result, not from memory
   of a grep.
-- `cost` is what a benchmark record needs (`hokusai-records`).
+- Record the timing (it is what `launch_plan` sizes the next run from): `cp2k_record_from_run` with the whole parse result as `parsed`, `nodes`, `job_id`, and `like` = a `benchmarks` id of the same system and method (`records_query`), overriding what differs with `method={...}` (e.g. `{"functional": "PBE0"}`). Use `dry_run: true` first to show the user the record. Don't type a record by hand (hokusai-records). An unconverged run is recorded with `valid: false`.
 
 By hand, if the hyogo server isn't available: `fs_tail` / `fs_view` on
 the `.out`:
@@ -243,5 +245,9 @@ Common failures:
 | `module: command not found` | the job was submitted with `--export=NONE`. Don't |
 
 Save the wavefunction (`<PROJECT>-RESTART.wfn`) when a follow-up
-calculation on the same geometry will need it, and start that from it with
-`SCF_GUESS RESTART`.
+calculation on the same geometry will need it. Start the follow-up from it
+with `cp2k_make_input(..., guess_from=<this run's cp2k_parse_output>,
+guess_dir="../<this run's folder>")`: it sets `SCF_GUESS RESTART` and the
+path, and refuses a wavefunction from other atoms, electrons, basis or
+potential files. For a follow-up on an optimised structure, see
+hokusai-cp2k-geo-opt, "Use the result in the next run".
