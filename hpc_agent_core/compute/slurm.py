@@ -57,7 +57,15 @@ from hpc_agent_core.models import Job, JobSpec, JobState, JobStatus, map_slurm_s
 from .base import SchedulerBackend, duration_to_hms, parse_exit_code, render_body, to_epoch
 
 _SACCT_FIELDS = "JobID,JobName,Partition,State,Elapsed,Start,End,ExitCode,NodeList,WorkDir"
-_SQUEUE_FIELDS = "%i|%T|%R|%P|%Z"  # id|state|reason|partition|workdir(cwd at submit)
+_SQUEUE_FIELDS = "%i|%T|%R|%P|%Z|%S"  # id|state|reason|partition|workdir(cwd at submit)|start
+
+
+def _expected_start(raw: str) -> str | None:
+    """squeue's %S for a waiting job: the backfill scheduler's estimated
+    start (ISO, local time), or N/A / Unknown when it has none yet. None
+    unless it parses as a time, so a placeholder never reads as an estimate."""
+    raw = raw.strip()
+    return raw if to_epoch(raw) else None
 
 _GPU_REQUEST_STYLES = ("gpus_total", "gres")
 
@@ -107,19 +115,20 @@ def _parse_squeue(output: str) -> list[Job]:
         job_id, native_state, reason, partition, workdir = parts[:5]
         reason = reason.strip()
         state = map_slurm_state(native_state)
+        meta = {"native_state": native_state, "partition": partition, "workdir": workdir}
         # %R is a wait reason for QUEUED/HELD jobs but the *node list* for an
         # ACTIVE job — only surface it as `message` where it's actually a
         # reason, so message doesn't hold a node name for a running job.
         message = None
-        if state in (JobState.QUEUED, JobState.HELD) and reason and reason not in ("None", "(null)"):
-            message = reason
+        if state in (JobState.QUEUED, JobState.HELD):
+            if reason and reason not in ("None", "(null)"):
+                message = reason
+            expected = _expected_start(parts[5]) if len(parts) > 5 else None
+            if expected:
+                meta["expected_start"] = expected
         jobs.append(Job(
             id=job_id,
-            status=JobStatus(
-                state=state,
-                message=message,
-                meta_data={"native_state": native_state, "partition": partition, "workdir": workdir},
-            ),
+            status=JobStatus(state=state, message=message, meta_data=meta),
         ))
     return jobs
 
@@ -213,21 +222,29 @@ class SlurmBackend(SchedulerBackend):
 
     def _attach_reasons(self, jobs: list[Job]) -> list[Job]:
         """For queued/held jobs, attach the squeue wait reason as
-        status.message. Only used on the has_accounting=True path — sacct
-        has no wait-reason field, so this is a follow-up squeue call. The
-        has_accounting=False path gets the reason "for free" as part of its
-        primary squeue query instead."""
+        status.message and, when Slurm has one, its estimated start time as
+        meta_data["expected_start"]. Only used on the has_accounting=True
+        path — sacct has neither (its Start is "Unknown" until the job runs),
+        so this is a follow-up squeue call. The has_accounting=False path
+        gets both "for free" as part of its primary squeue query instead."""
         waiting = [j for j in jobs if j.status and j.status.state in (JobState.QUEUED, JobState.HELD)]
         if not waiting:
             return jobs
         ids = ",".join(j.id for j in waiting)
-        output = run_command(self.facility, f"squeue --jobs={ids} --format='%i|%R' --noheader")
-        reasons = dict(
-            line.split("|", 1) for line in output.strip().splitlines() if "|" in line
-        )
+        output = run_command(self.facility, f"squeue --jobs={ids} --format='%i|%R|%S' --noheader")
+        rows = {}
+        for line in output.strip().splitlines():
+            parts = line.split("|")
+            if len(parts) >= 2:
+                rows[parts[0].strip()] = parts[1:]
         for job in jobs:
-            if job.status and job.id in reasons:
-                job.status.message = reasons[job.id].strip()
+            if not (job.status and job.id in rows):
+                continue
+            row = rows[job.id]
+            job.status.message = row[0].strip()
+            expected = _expected_start(row[1]) if len(row) > 1 else None
+            if expected:
+                job.status.meta_data = {**(job.status.meta_data or {}), "expected_start": expected}
         return jobs
 
     def _header(self, spec: JobSpec) -> list[str]:

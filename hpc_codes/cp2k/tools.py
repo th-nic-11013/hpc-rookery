@@ -561,3 +561,172 @@ def bench_records(facility: str, system: dict, method: dict, run_type: str,
             "invalid": {r["id"]: r["reason"] for r in bench if not r["valid"]},
             "provenance": [p["id"] for p in prov], "records": bench,
             "check_errors": records.check(facility)["errors"]}
+
+
+# ---------------------------------------------------------------------------
+# record_from_run (G24): one production run -> one benchmarks record
+# ---------------------------------------------------------------------------
+
+_RUN_TYPES = {"ENERGY": "single_point", "ENERGY_FORCE": "single_point",
+              "GEO_OPT": "geo_opt", "CELL_OPT": "cell_opt", "MD": "aimd_step"}
+
+
+def _id_part(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(text).lower())
+
+
+def record_from_run(facility: str, parsed: dict, nodes: int, like: str | None = None,
+                    system: dict | None = None, method: dict | None = None,
+                    job_id: str | None = None, build_id: str | None = None,
+                    date: str | None = None, tag: str | None = None,
+                    notes: str | None = None, dry_run: bool = False) -> dict:
+    """Build a benchmarks record (plus its provenance) from a parsed CP2K
+    output, validate it, and append it unless dry_run. Local only: the
+    parse result is hyogo's cp2k_parse_output, passed in as data."""
+    if not isinstance(parsed, dict) or "cost" not in parsed or "run_type" not in parsed:
+        raise ValueError("parsed must be a cp2k_parse_output result (hyogo): "
+                         "fs_download the .out, then cp2k_parse_output")
+    for key in ("ranks", "threads", "started"):
+        if key not in parsed:
+            raise ValueError(f"parsed has no {key!r}: it is from an older cp2k_parse_output; "
+                             "restart the session and parse again")
+    run_type = _RUN_TYPES.get(str(parsed["run_type"]).upper())
+    if run_type is None:
+        raise ValueError(f"run type {parsed['run_type']!r} has no benchmarks run_type "
+                         f"(recorded: {sorted(_RUN_TYPES)})")
+    nodes = int(nodes)
+    R, T = parsed["ranks"], parsed["threads"]
+    if nodes < 1 or not R or not T or R % nodes:
+        raise ValueError(f"{R} ranks do not divide over {nodes} node(s): is nodes right?")
+    if tag is not None and not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", tag):
+        raise ValueError(f"tag is a short lower-case id part, e.g. hse06 or pbe0-hse06cell: {tag!r}")
+
+    base = {}
+    if like:
+        found = records.query(facility, "benchmarks", {"id": like})
+        if not found:
+            raise ValueError(f"no benchmarks record {like!r} on {facility} (records_query to list them)")
+        base = found[0]
+    sys_ = {**(base.get("system") or {}), **(system or {})}
+    meth = {**(base.get("method") or {}), **(method or {})}
+    if not sys_.get("label") or not meth.get("functional"):
+        raise ValueError("no system/method to record: pass like=<a benchmarks id> of the same "
+                         "system and method, or system= and method= blocks")
+    if sys_.get("atoms") not in (None, parsed["natoms"]):
+        raise ValueError(f"system {sys_['label']} has {sys_['atoms']} atoms but the output has "
+                         f"{parsed['natoms']}: wrong like= or a different structure")
+    sys_["atoms"] = parsed["natoms"]
+    if parsed.get("electrons"):
+        sys_["electrons"] = parsed["electrons"]
+    if not sys_.get("cell_volume_A3") and (parsed.get("cell") or {}).get("volume"):
+        sys_["cell_volume_A3"] = round(parsed["cell"]["volume"], 1)
+
+    vals = pack_values(facility)
+    cores = int(vals["CP2K_CORES_PER_NODE"])
+    if build_id or not base:
+        build = resolve_build(facility, build_id)
+        build_fields = {"build_id": build["build_id"]}
+        version = str(build["version"])
+    else:
+        build_fields = {k: base[k] for k in ("build_id", "build_external", "build_desc") if k in base}
+        version = str(base["version"])
+    warnings = []
+    printed = (parsed.get("version") or "").rsplit(" ", 1)[-1]
+    if printed and printed != version:
+        warnings.append(f"the output is CP2K {printed} but the build recorded is {version}")
+    partition = base.get("partition") or vals["CP2K_PARTITION"]
+    node_type = base.get("node_type")
+    if not node_type:
+        known = records.query(facility, "benchmarks", {"partition": partition}, ["node_type"])
+        node_type = known[0]["node_type"] if known else f"{partition}, {cores} cores"
+
+    cost, opt, scf = parsed["cost"] or {}, parsed.get("opt") or {}, parsed.get("scf") or {}
+    wall = cost.get("cp2k_s")
+    reason, extra, said = None, {}, []
+    if not parsed["finished"] and not (opt.get("steps") or (parsed.get("md") or {}).get("steps")):
+        reason = "did not finish (no PROGRAM ENDED) and no completed steps"
+    elif scf.get("not_converged"):
+        reason = f"SCF not converged in {scf['not_converged']} force evaluation(s)"
+    if run_type == "single_point":
+        name, value = "wall_s", wall
+        timers = dict(cost.get("top_timers") or [])
+        if "qs_forces" in timers:
+            extra["forces_s"] = round(timers["qs_forces"], 1)
+        if scf.get("steps"):
+            extra["scf_steps"] = sum(scf["steps"])
+    elif run_type == "aimd_step":
+        name, value = "s_per_step", (parsed.get("md") or {}).get("s_per_step")
+        said.append(f"{(parsed.get('md') or {}).get('steps')} MD steps")
+    else:
+        steps = opt.get("steps") or 0
+        times = opt.get("step_times_s") or []
+        # finished: whole CP2K time / steps, as the earlier records (setup and
+        # step 0 included, so launch_plan's value x steps is the job's time);
+        # killed by the walltime there is no total, so the steps' own times
+        if wall and steps:
+            name, value = "s_per_step", wall / steps
+        else:
+            name, value = "s_per_step", (sum(times) / steps if times and steps else None)
+            if value:
+                said.append("no CP2K total time (killed?): per step from OPT| Used time")
+        if times:
+            extra["first_step_s"] = round(times[0], 1)
+        extra["opt_steps"] = steps
+        said.append(f"{'converged' if opt.get('converged') else 'NOT converged'} in {steps} steps"
+                    + (f", {wall:.0f} s total (per step includes the first)" if wall else ""))
+        if run_type == "cell_opt" and opt.get("internal_pressure_bar") is not None:
+            extra["final_pressure_bar"] = round(opt["internal_pressure_bar"], 2)
+        if parsed.get("cell"):
+            said.append(f"final a {parsed['cell']['a']:.4f} A, V {parsed['cell']['volume']:.1f} A^3")
+        if not opt.get("converged"):
+            warnings.append("the optimisation did not converge: the per-step time is still "
+                            "a valid timing, but continue the run (@SET RESTART 1)")
+    if value is None and reason is None:
+        reason = "no timing in the output (no CP2K total time / steps)"
+    if parsed.get("gap_ev") is not None:
+        said.append(f"gap {parsed['gap_ev']:.3f} eV")
+    if cost.get("peak_mib"):
+        extra["peak_mib_per_rank"] = int(cost["peak_mib"])
+    hfx = cost.get("hfx") or {}
+    if hfx.get("eri_ram_mib") is not None:
+        extra["hfx_eri_mib"] = int(hfx["eri_ram_mib"])
+    spent = wall or (sum(opt.get("step_times_s") or []) or None)
+    if spent:
+        extra["core_hours"] = round(spent * nodes * cores / 3600, 1)
+
+    date = date or parsed.get("started") or datetime.date.today().isoformat()
+    rpn = R // nodes
+    tag = tag or _id_part(meth["functional"]) or None
+    rid = (f"{facility}-cp2k-{date}-{_id_part(sys_['label'])}-{_id_part(run_type)}"
+           + (f"-{tag}" if tag else "") + f"-{nodes}n-{rpn}x{T}")
+    rec = {"id": rid, "facility": facility, "partition": partition, "node_type": node_type,
+           "code": "cp2k", "version": version, **build_fields,
+           "system": sys_, "method": meth, "run_type": run_type, "nodes": nodes,
+           "ranks_per_node": rpn, "threads_per_rank": T,
+           "metric": {"name": name, "value": round(float(value or 0.0), 3)},
+           **({"extra": extra} if extra else {}),
+           "job_id": None, "date": date, "valid": reason is None}
+    if reason:
+        rec["reason"] = reason
+    text = "; ".join(x for x in [*said, notes or ""] if x)
+    text += (f". From {parsed.get('project') or 'the output'}" + (f", job {job_id}" if job_id else "")
+             + " (cp2k_record_from_run)")
+    rec["notes"] = text.lstrip(". ")
+    prov = {"id": rid, "benchmark_id": rid, "job_ids": [str(job_id)]} if job_id else None
+
+    errs = records.errors(facility, "benchmarks", rec)
+    if prov:
+        errs += records.errors(facility, "benchmarks_provenance", prov)
+    if errs:
+        raise records.RecordsError("nothing appended:\n  " + "\n  ".join(errs)
+                                   + ("\n(an id that exists: pass a tag, or supersede the old record)"
+                                      if any("already exists" in e for e in errs) else ""))
+    out = {"id": rid, "valid": rec["valid"], "record": rec, "provenance": prov,
+           "warnings": warnings, "appended": False}
+    if dry_run:
+        return out
+    records.append(facility, "benchmarks", rec)
+    if prov:
+        records.append(facility, "benchmarks_provenance", prov)
+    out["appended"] = True
+    return out

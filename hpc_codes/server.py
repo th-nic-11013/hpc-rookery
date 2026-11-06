@@ -303,6 +303,58 @@ def cp2k_bench_records(facility: str, system: dict, method: dict, run_type: str,
                               input_name, nodes, build_id, job_ids, date, node_type, tag)
 
 
+@mcp.tool()
+def cp2k_record_from_run(facility: str, parsed: dict, nodes: int, like: str | None = None,
+                         system: dict | None = None, method: dict | None = None,
+                         job_id: str | None = None, build_id: str | None = None,
+                         date: str | None = None, tag: str | None = None,
+                         notes: str | None = None, dry_run: bool = False) -> dict:
+    """Turn one finished production run (a single point, geo/cell opt or
+    MD) into a `benchmarks` record and append it to this user's records,
+    with a benchmarks_provenance record for the job ID. Local only: no
+    cluster command.
+
+    Before it: fs_download the .out, then hyogo's cp2k_parse_output; pass
+    that whole result as `parsed`.
+
+    From the parse: run_type, ranks and threads (ranks_per_node = ranks /
+    nodes), atoms and electrons, the date the run started, the timing
+    (single point: wall_s = CP2K total time; opt: s_per_step = total time
+    / opt steps, first step included, or the steps' own OPT| Used times
+    when a killed run has no total; MD: s_per_step), and extra fields:
+    forces_s (qs_forces), scf_steps, first_step_s, opt_steps, final_pressure_bar,
+    hfx_eri_mib, peak_mib_per_rank, core_hours. From `like` (an existing
+    benchmarks id of the same system and method): system, method, build,
+    partition and node_type, so nothing is retyped; `system` / `method`
+    override single keys (e.g. method={"functional": "PBE0"}). A run that
+    did not finish without completed steps, or whose SCF did not
+    converge, is recorded with valid: false and a reason; an optimisation
+    stopped before converging is still a valid per-step timing (warned).
+    The id is <facility>-cp2k-<date>-<label>-<runtype>-<tag>-<N>n-<R>x<T>,
+    tag defaulting to the functional.
+
+    Returns {"id", "valid", "record", "provenance", "warnings",
+    "appended"}. Read the warnings to the user.
+
+    Args:
+        facility: Facility slug, e.g. "hokusai". See get_facilities().
+        parsed: the cp2k_parse_output result (hyogo), unchanged.
+        nodes: nodes the job ran on.
+        like: a benchmarks id to copy system, method and build from.
+        system: the benchmarks system block, or keys overriding like's.
+        method: the benchmarks method block, or keys overriding like's.
+        job_id: the scheduler job ID (kept in benchmarks_provenance).
+        build_id: the software_registry build; omit to use like's, or the default.
+        date: YYYY-MM-DD; omit for the date the run started.
+        tag: id part instead of the functional, e.g. "pbe0-hse06cell" when
+            the same functional ran twice on one date.
+        notes: appended to the generated notes.
+        dry_run: build and validate the record but append nothing.
+    """
+    return cp2k.record_from_run(facility, parsed, nodes, like, system, method, job_id,
+                                build_id, date, tag, notes, dry_run)
+
+
 # ---------------------------------------------------------------------------
 # Launch planning. Local: reads records and pack values, never the cluster.
 # ---------------------------------------------------------------------------
