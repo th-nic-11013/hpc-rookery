@@ -13,7 +13,11 @@ must stay that way so CI can run it. Anything needing a live cluster
 belongs in tests/live_smoke.py instead.
 
     .venv/bin/python tests/conformance.py
+    .venv/bin/python tests/conformance.py --empty-home   # as a brand-new user (CI)
 """
+import _harness  # noqa: I001 -- first: this checkout on sys.path, --empty-home (G28, G29)
+_harness.setup(__file__)
+
 import contextlib
 import json
 import os
@@ -1474,6 +1478,25 @@ def check_facility(slug: str) -> None:
 # --- repo-wide checks ----------------------------------------------------
 
 def check_repo() -> None:
+    def tests_import_this_checkout():
+        """The packages under test, and a child Python the tests start,
+        load from the checkout this file is in, not from wherever the
+        venv's editable install points (a worktree would otherwise test
+        the main checkout's code)."""
+        import hpc_codes
+        import hyogo
+        import yagura
+        root = pathlib.Path(__file__).resolve().parent.parent
+        for mod in (hpc_codes, hyogo, yagura, config):
+            assert pathlib.Path(mod.__file__).resolve().is_relative_to(root), (mod.__name__, mod.__file__)
+        with tempfile.TemporaryDirectory() as elsewhere:   # not the repo: no '' on sys.path helps
+            out = subprocess.run([sys.executable, "-c", "import hyogo; print(hyogo.__file__)"],
+                                 cwd=elsewhere, capture_output=True, text=True, timeout=60)
+        assert out.returncode == 0, out.stderr[-1000:]
+        assert pathlib.Path(out.stdout.strip()).resolve().is_relative_to(root), out.stdout
+
+    check("tests import this checkout", tests_import_this_checkout)
+
     print("\n=== repo-wide ===")
 
     def facilities_exist():

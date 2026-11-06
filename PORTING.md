@@ -699,6 +699,7 @@ python scripts/render_skills.py                   # after editing skill_notes/
 python scripts/check_wheel_data.py                # your data/ really ships in a wheel
 
 .venv/bin/python tests/conformance.py             # offline; the shared per-facility behavioral checks
+.venv/bin/python tests/conformance.py --empty-home   # the same, as a brand-new user (empty ~/.hpc-agent/, like CI)
 .venv/bin/python -m hpc_mcp.doctor mymachine      # config, ssh, YOUR scheduler, guide, docs index, embedding
 .venv/bin/python tests/live_smoke.py              # read-only tier, every registered facility (live SSH)
 .venv/bin/python tests/live_smoke.py --job mymachine   # + submits a real tiny job on your facility

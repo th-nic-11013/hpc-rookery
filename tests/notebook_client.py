@@ -4,7 +4,12 @@ Exercises the synchronous facade a notebook uses against a real MCP stdio
 server, verifies lazy/replay caching, and covers the two argument-construction
 bugs that previously made every generated notebook fail before doing useful
 work. No SSH, scheduler, network, or Jupyter installation is required.
+
+    .venv/bin/python tests/notebook_client.py [--empty-home]
 """
+import _harness  # noqa: I001 -- first: this checkout on sys.path, --empty-home (G28, G29)
+_harness.setup(__file__)
+
 import asyncio
 import os
 import tempfile

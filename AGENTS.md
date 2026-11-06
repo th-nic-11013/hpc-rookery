@@ -173,7 +173,8 @@ machine has config for its own clusters, so both the CI failure and the
 unconfigured-tool behaviour pass locally and fail in CI. Reproduce with:
 
 ```bash
-HOME=$(mktemp -d) .venv/bin/python tests/notebook_client.py
+.venv/bin/python tests/notebook_client.py --empty-home
+.venv/bin/python tests/conformance.py --empty-home
 ```
 
 ### P1
@@ -290,7 +291,7 @@ HOME=$(mktemp -d) .venv/bin/python tests/notebook_client.py
   that file for the Miyabi workdir assertion instead.
 
 After fixing these, rerun `tests/conformance.py`, `tests/notebook_client.py`
-(also under an empty `HOME`), all three generated-output checks,
+(also with `--empty-home`), all three generated-output checks,
 `git diff --check`, and the wheel-data check.
 
 ## Tool coverage
