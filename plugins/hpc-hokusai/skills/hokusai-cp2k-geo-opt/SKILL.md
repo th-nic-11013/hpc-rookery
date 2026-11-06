@@ -19,7 +19,8 @@ submitting.
   `launch_plan` (layout, job spec, cost), `fs_upload`,
   `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `fs_tail` / `fs_view`, `fs_download`
-  (final frame), `structure_check` (the yagura server).
+  (output and final frame), `cp2k_parse_output` (the hyogo server, reads
+  the output), `structure_check` (the yagura server).
 - **Preconditions:** the prerequisites below, and the user's approval of
   the input and the cost.
 - **Done when:** `GEOMETRY OPTIMIZATION COMPLETED`, and the final frame
@@ -79,7 +80,8 @@ Settings to confirm:
 
 Parse-check on the login node before submitting:
 `cp2k_check_input(facility="hokusai", input_path="<run dir>/geo_opt.inp")` (the default build;
-pass `build_id` for another). `ok: false` comes with the `errors`.
+pass `build_id` for another). `ok: false` comes with the `errors`;
+read `warnings` too: a missing restart wavefunction (`files`) leaves `ok` true.
 Both templates passed `--check` and ran to completion on CP2K 2026.2.
 
 **By hand, without the hyogo server:** copy `templates/geo_opt.inp` or
@@ -123,6 +125,23 @@ so ask with the upper end. Tell the user the worst case: nodes ×
 112 × duration in hours.
 
 ## 3. Check progress and the result
+
+`fs_download` the `.out` and call `cp2k_parse_output` on it (it reads a
+running job's output too). `opt` holds `converged`, `steps`,
+`max_iter_hit`, each criterion with its value, limit and YES/NO
+(`max_step`, `rms_step`, `max_gradient`, `rms_gradient`, and for
+cell_opt `pressure_dev_bar`), and `internal_pressure_bar`; `cell` is the
+last cell (a, b, c, angles, volume); `gap_ev` and `energy_ha` are the last
+step's. Its `warnings` say which case applies:
+
+- `opt.converged`: done. Report the final cell and energy from the result.
+- finished, not converged, `max_iter_hit` false: stopped at `WALLTIME`.
+  Restart (section 4).
+- `max_iter_hit`: not converged after `MAX_ITER`. Restart, or look at the
+  setup if the energy is not going down.
+- not `finished`: still running, or killed (`get_job_status`).
+
+By hand, if the hyogo server isn't available:
 
 | in the `.out` | meaning |
 |---|---|

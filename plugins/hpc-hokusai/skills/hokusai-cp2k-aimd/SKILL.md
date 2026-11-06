@@ -20,7 +20,8 @@ give the core-hour estimate before every submission.
   `launch_plan` (layout, job spec, cost), `fs_upload`,
   `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `cancel_job`, `fs_tail` / `fs_view`,
-  `fs_download`; for analysis, `trajectory_rdf`, `trajectory_msd` and
+  `fs_download`, `cp2k_parse_output` (the hyogo server: finished, SCF per
+  step, steps done, time per step); for analysis, `trajectory_rdf`, `trajectory_msd` and
   `trajectory_vdos` (yagura, on the downloaded files).
 - **Preconditions:** the prerequisites below, and the user's approval of
   the core-hour estimate for every segment.
@@ -108,7 +109,8 @@ velocities.
 
 Parse-check on the login node:
 `cp2k_check_input(facility="hokusai", input_path="<run dir>/aimd_nvt.inp")` (the default build;
-pass `build_id` for another). `ok: false` comes with the `errors`.
+pass `build_id` for another). `ok: false` comes with the `errors`;
+read `warnings` too: a missing restart wavefunction (`files`) leaves `ok` true.
 
 ## 3. Stage and submit
 
@@ -180,6 +182,11 @@ segment leaves the rest pending with `DependencyNeverSatisfied`. So either:
 `WALLTIME` makes CP2K exit 0 after a clean stop, so `afterok` fires.
 
 ## 5. Check the run
+
+`fs_download` the `.out` and call `cp2k_parse_output`: `finished`,
+`scf.not_converged` (any after the first step: stop the run, below),
+`md.steps` done and `md.s_per_step`, and `warnings`. A finished segment
+with fewer steps than asked stopped at `WALLTIME`: continue it (section 4).
 
 `<PROJECT>-1.ener` has one line per step:
 `Step  Time[fs]  Kin[a.u.]  Temp[K]  Pot[a.u.]  Cons Qty[a.u.]  UsedTime[s]`.

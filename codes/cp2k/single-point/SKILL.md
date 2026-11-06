@@ -17,7 +17,8 @@ submitting.
 - **Tools:** `cp2k_make_input` (the hyogo server, writes the input),
   `launch_plan` (layout, job spec, cost), `fs_upload`,
   `cp2k_check_input` (parse check),
-  `submit_job`, `get_job_status`, `fs_tail` / `fs_view`.
+  `submit_job`, `get_job_status`, `fs_download`, `cp2k_parse_output`
+  (the hyogo server, reads the output); `fs_tail` / `fs_view` while it runs.
 - **Preconditions:** the two prerequisites below, and the user's approval
   of the input and the cost.
 - **Done when:** the SCF converged and the energy (and forces) are
@@ -120,7 +121,10 @@ cp2k_check_input(facility="{{SLUG}}", input_path="<run dir>/single_point.inp")
 ```
 
 It uses the default build unless you pass `build_id`, and returns
-`ok`, the `errors` CP2K printed, and the output's tail.
+`ok`, the `errors` CP2K printed, and the output's tail. It also lists the
+restart and wavefunction `files` the input will read, with `exists`; a
+missing wavefunction leaves `ok` true but is in `warnings` (CP2K would start
+from the atomic guess), so read `warnings` before submitting.
 
 This proves the syntax, including the `@INCLUDE`, but not that the SCF
 converges.
@@ -196,7 +200,21 @@ run time.
 
 ## 3. Check the result
 
-`fs_tail` / `fs_view` on `single_point.out`:
+When `get_job_status` says completed (or failed), `fs_download` the
+`.out` and call `cp2k_parse_output` on it. It returns `finished`, the SCF
+per evaluation (`scf.steps`, `scf.not_converged`), `energy_ha`, `gap_ev`,
+`forces` (max, RMS, Ha/bohr), `stress_gpa` and `cost` (time, peak and
+HFX memory), and `warnings` to read to the user: an unfinished output,
+an unconverged SCF, and CP2K's own `*** WARNING` boxes in full.
+
+- `finished` false, or `scf.not_converged` > 0: **no usable energy.**
+  Report it; don't quote a number.
+- Quote energy, gap, forces and stress from the result, not from memory
+  of a grep.
+- `cost` is what a benchmark record needs (`{{SLUG}}-records`).
+
+By hand, if the hyogo server isn't available: `fs_tail` / `fs_view` on
+the `.out`:
 
 | look for | meaning |
 |---|---|
