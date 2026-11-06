@@ -3221,6 +3221,7 @@ def check_repo() -> None:
                 count = lambda: len(records.query("hokusai", "benchmarks", {}))
 
                 r = server.cp2k_record_from_run("hokusai", sp, 1, like=like["id"],
+                                                system={"cell_volume_A3": 9115},
                                                 method={"functional": "r2SCAN"}, job_id="9737100")
                 rec = r["record"]
                 assert r["appended"] and r["valid"] and not r["warnings"], r
@@ -3245,6 +3246,14 @@ def check_repo() -> None:
                 assert rec["extra"]["hfx_eri_mib"] == 18952 and rec["extra"]["core_hours"] == 552.9
                 assert rec["extra"]["first_step_s"] == 439.4 and len(opt["opt"]["step_times_s"]) == 22
                 assert "converged in 21 steps" in rec["notes"] and r["provenance"] is None
+                # G32: an optimisation's volume is its own final cell, not like's
+                assert rec["system"]["cell_volume_A3"] == round(opt["cell"]["volume"], 1) != 9115, rec
+                # G32: a single point prints no cell, so like's volume (maybe another
+                # geometry) is dropped with a warning instead of copied
+                r = server.cp2k_record_from_run("hokusai", sp, 1, like=like["id"], tag="g32",
+                                                dry_run=True)
+                assert "cell_volume_A3" not in r["record"]["system"], r["record"]["system"]
+                assert any("cell_volume_A3 not copied" in w for w in r["warnings"]), r["warnings"]
 
                 # an optimisation cut by the walltime: still a valid per-step time, warned
                 text = gzip.decompress((fx / "hse06-cellopt.out.gz").read_bytes()).decode()
@@ -3676,6 +3685,16 @@ def check_repo() -> None:
                 assert "MAX_MEMORY" in str(e), e
             else:
                 raise AssertionError("hfx_memory_mb=0 accepted")
+            # G33: a correction (supersedes) replaces the record it names
+            # (newer than g7-probe-3, so without the fix the superseded one is chosen)
+            for rid, more in (("g7-probe-4", {}), ("g7-probe-4-v2", {"supersedes": "g7-probe-4"})):
+                server.records_append("hokusai", "benchmarks", dict(
+                    base, id=rid, job_id="4", date="2026-11-06", nodes=2, ranks_per_node=16,
+                    threads_per_rank=7, method=m, metric={"name": "wall_s", "value": 600.0},
+                    extra={"hfx_eri_mib": 32000, "peak_mib_per_rank": 4000}, **more))
+            p = server.launch_plan("hokusai", "cp2k", "single_point", uio, method={"functional": "PBE0"})
+            assert p["memory"]["record_id"] == "g7-probe-4-v2", p["memory"]
+            assert "g7-probe-4" not in p["basis"]["record_ids"], p["basis"]
             # a GGA plan carries no memory block and no memory warning
             g = server.launch_plan("hokusai", "cp2k", "aimd_step", uio)
             assert g["memory"] is None and not any("memory" in w for w in g["warnings"]), g

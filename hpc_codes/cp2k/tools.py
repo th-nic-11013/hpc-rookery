@@ -618,8 +618,16 @@ def record_from_run(facility: str, parsed: dict, nodes: int, like: str | None = 
     sys_["atoms"] = parsed["natoms"]
     if parsed.get("electrons"):
         sys_["electrons"] = parsed["electrons"]
-    if not sys_.get("cell_volume_A3") and (parsed.get("cell") or {}).get("volume"):
+    warnings = []
+    if (parsed.get("cell") or {}).get("volume") and "cell_volume_A3" not in (system or {}):
         sys_["cell_volume_A3"] = round(parsed["cell"]["volume"], 1)
+    elif "cell_volume_A3" in sys_ and "cell_volume_A3" not in (system or {}):
+        # G32: the output prints no cell, so the volume would come from `like`,
+        # which may be another geometry (PBE0 on the HSE06 cell got the PBE one)
+        del sys_["cell_volume_A3"]
+        warnings.append(f"cell_volume_A3 not copied from {like} (it may be another geometry and "
+                        "the output prints no cell): pass system={\"cell_volume_A3\": ...} "
+                        "to record it")
 
     vals = pack_values(facility)
     cores = int(vals["CP2K_CORES_PER_NODE"])
@@ -630,7 +638,6 @@ def record_from_run(facility: str, parsed: dict, nodes: int, like: str | None = 
     else:
         build_fields = {k: base[k] for k in ("build_id", "build_external", "build_desc") if k in base}
         version = str(base["version"])
-    warnings = []
     printed = (parsed.get("version") or "").rsplit(" ", 1)[-1]
     if printed and printed != version:
         warnings.append(f"the output is CP2K {printed} but the build recorded is {version}")

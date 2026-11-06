@@ -130,8 +130,9 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
     build = packs.resolve_build(facility, code, build_id)
     warnings = []
 
+    replaced = records.superseded(facility, "benchmarks")   # G33: corrected records
     every = [r for r in records.query(facility, "benchmarks", {"code": code})
-             if r.get("valid") and r["ranks_per_node"] * r["threads_per_rank"] == cores
+             if r.get("valid") and r["id"] not in replaced and r["ranks_per_node"] * r["threads_per_rank"] == cores
              and (partition is None or r["partition"] == partition)]
     label = system.get("label")
     newest = lambda g: max(str(r["date"]) for r in g)

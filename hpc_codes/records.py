@@ -184,6 +184,12 @@ def query(facility: str, rtype: str, filters: dict | None = None,
     return hits
 
 
+def superseded(facility: str, rtype: str) -> set[str]:
+    """Ids that a later record of this type names in `supersedes` (append-only
+    corrections): readers that pick one record should skip these."""
+    return {r["supersedes"] for r in _read(facility, rtype) if r.get("supersedes")}
+
+
 def errors(facility: str, rtype: str, record: dict) -> list[str]:
     """Why append() would refuse this record; empty if it would accept it."""
     if not isinstance(record, dict):

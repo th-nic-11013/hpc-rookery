@@ -326,7 +326,10 @@ def cp2k_record_from_run(facility: str, parsed: dict, nodes: int, like: str | No
     hfx_eri_mib, peak_mib_per_rank, core_hours. From `like` (an existing
     benchmarks id of the same system and method): system, method, build,
     partition and node_type, so nothing is retyped; `system` / `method`
-    override single keys (e.g. method={"functional": "PBE0"}). A run that
+    override single keys (e.g. method={"functional": "PBE0"}). The cell
+    volume is never copied from `like`: it comes from the output's cell
+    (optimisations) or system={"cell_volume_A3": ...}, since a single point
+    may be at another geometry than `like`. A run that
     did not finish without completed steps, or whose SCF did not
     converge, is recorded with valid: false and a reason; an optimisation
     stopped before converging is still a valid per-step timing (warned).
