@@ -9,7 +9,7 @@ import gzip
 from pathlib import Path
 
 from hyogo.cp2k import input as cp2k_input, output as cp2k_output, subsys
-from hyogo.vasp import incar as vasp_incar, output as vasp_output
+from hyogo.vasp import incar as vasp_incar, litsearch_check, output as vasp_output
 from hyogo.mcp_server import MCPServer
 
 mcp = MCPServer("hyogo-mcp")
@@ -239,7 +239,8 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
                     magmom_sites: dict | None = None, nupdown: float | None = None,
                     parallel: dict | None = None, nbands: int | None = None,
                     nbands_from: str | None = None, pre: dict | None = None,
-                    out_path: str | None = None, overwrite: bool = False) -> dict:
+                    out_path: str | None = None, overwrite: bool = False,
+                    vasp_version: str | None = None) -> dict:
     """Write a VASP INCAR by editing a base INCAR (or from scratch), with
     the checks that matter for spin and parallel settings. The base file's
     layout and comments are kept; changed keys are replaced in place.
@@ -260,6 +261,9 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
     - NUPDOWN in a result fixes its total moment: right for a half-metal
       or a non-magnetic system, a bias for a metallic magnet. For those,
       pass pre to constrain, then release.
+    - Every tag and value against the VASP documentation, when lit-search
+      is set up (see vasp_check_incar): unknown tags, values that don't
+      fit, tags newer than vasp_version. Its findings join the warnings.
 
     pre (constrain-then-release) also writes INCAR.pre beside the INCAR:
     the same INCAR with NUPDOWN fixed, a loose EDIFF, its own NELM and
@@ -269,7 +273,8 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
     Returns {"out", "pre_out" (INCAR.pre path or null), "natoms",
     "species": [[element, count]], "magmom" (the value written),
     "total_magmom", "nbands", "band_groups", "changed": {KEY: [old, new]},
-    "pre": {"changed": ...} or null, "warnings"}. Read the warnings to the
+    "pre": {"changed": ...} or null, "incar_check" (vasp_check_incar's
+    result for each file written), "warnings"}. Read the warnings to the
     user.
 
     Args:
@@ -291,6 +296,8 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
             constrained pre-run.
         out_path: where to write; default INCAR beside the POSCAR.
         overwrite: replace out_path (and INCAR.pre) if they exist.
+        vasp_version: the VASP that will run it (e.g. "6.4.3"), so tags it
+            does not have yet are flagged.
     """
     psrc, praw = _read_local(poscar_path, "POSCAR")
     base = ""
@@ -312,7 +319,43 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
     dst.write_text(text)
     if pre_text is not None:
         pre_dst.write_text(pre_text)
-    return {"out": str(dst), "pre_out": str(pre_dst) if pre_text is not None else None, **info}
+    checks = {}
+    for f in (dst, pre_dst) if pre_text is not None else (dst,):
+        checks[f.name] = litsearch_check.check(f, vasp_version)
+        if checks[f.name]["ran"]:  # a missing lit-search is in incar_check, not a warning
+            info["warnings"] = [*info.get("warnings", []),
+                                *litsearch_check.as_warnings(checks[f.name], f.name)]
+    return {"out": str(dst), "pre_out": str(pre_dst) if pre_text is not None else None,
+            **info, "incar_check": checks}
+
+
+@mcp.tool()
+def vasp_check_incar(incar_path: str, vasp_version: str | None = None) -> dict:
+    """Check an INCAR on this machine against the VASP documentation:
+    every tag is a real INCAR tag (close matches suggested for a typo),
+    its value fits the tag's type or allowed words, no tag is newer than
+    vasp_version, no tag is set twice. Writes nothing.
+
+    The check is lit-search's (`lit-search reference check VASP`), run as
+    a separate program over the VASP wiki's INCAR tags kept as verified
+    records. Set HYOGO_LITSEARCH (the lit-search command) and
+    HYOGO_LITSEARCH_LIBRARY (the library holding the VASP reference) in
+    this server's env; without them it says it did not run.
+
+    Limits: tags the wiki types as [string] (ALGO) have no word list, so
+    a misspelt word there passes; a finding marked "unverified" comes from
+    a reference entry no person has reviewed yet.
+
+    Returns {"path", "ran", "why" (when it did not run), "findings":
+    [{line, tag, value, level ("error"|"warning"), message}], "errors"}.
+    Read the findings to the user.
+
+    Args:
+        incar_path: the INCAR on this machine; ~ is expanded.
+        vasp_version: the VASP that will run it, e.g. "6.4.3".
+    """
+    src, _ = _read_local(incar_path, "INCAR")
+    return {"path": str(src), **litsearch_check.check(src, vasp_version)}
 
 
 @mcp.tool()
