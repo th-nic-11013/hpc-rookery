@@ -2217,9 +2217,28 @@ def check_repo() -> None:
             else:
                 raise AssertionError("appended the same id twice")
 
+            # extra: the hybrid / optimisation fields are accepted with their
+            # types; a wrong type and an unknown key are still refused
+            extra = {"first_step_s": 12.5, "scf_steps": 23, "hfx_eri_mib": 18952,
+                     "peak_mib_per_rank": 3120, "forces_s": 410.2, "opt_steps": 21,
+                     "final_pressure_bar": 7.34}
+            for bad_extra in ({**extra, "opt_steps": "21"}, {**extra, "hfx_eri_mib": 1.5},
+                              {**extra, "forces_s": "fast"}, {**extra, "eri_mib": 18952}):
+                try:
+                    server.records_append("hokusai", "benchmarks",
+                                          dict(good, id="conformance-probe-extra", extra=bad_extra))
+                except RecordsError as e:
+                    assert "extra" in str(e), e
+                else:
+                    raise AssertionError(f"appended a bad extra: {bad_extra}")
+            server.records_append("hokusai", "benchmarks",
+                                  dict(good, id="conformance-probe-extra", extra=extra))
+            back = server.records_query("hokusai", "benchmarks", {"id": "conformance-probe-extra"})
+            assert len(back) == 1 and back[0]["extra"] == extra, back
+
             # the probe's build_id resolves nowhere and is not build_external
             report = server.records_check("hokusai")
-            assert report["counts"]["benchmarks"] == len(shared) + 1, report["counts"]
+            assert report["counts"]["benchmarks"] == len(shared) + 2, report["counts"]
             assert any("conformance-no-such-build" in e for e in report["errors"]), report
             for bad_type in ("benchmark", ""):
                 try:
@@ -2338,6 +2357,9 @@ def check_repo() -> None:
             (bin_dir / "cp2k.psmp").write_text(
                 '#!/bin/bash\n'
                 'if [ "$1" = --version ]; then echo " CP2K version 2026.2"; echo " cp2kflags: omp mkl"; exit 0; fi\n'
+                # what CP2K 2026.2 printed for the input (tests/fixtures/cp2k_echo)
+                'if [ "$1" = --echo ]; then [ -f "${3%.inp}.echo" ] && cat "${3%.inp}.echo"; exit 0; fi\n'
+                '[ -f "${3%.inp}.abort" ] && { cat "${3%.inp}.abort"; exit 1; }\n'
                 'grep -q BAD "$3" && { echo " *** [ABORT] unknown keyword BAD ***"; exit 1; }\n'
                 '[ -f sub.inc ] || { echo " *** [ABORT] @INCLUDE sub.inc not found ***"; exit 1; }\n'
                 'exit 0\n')
@@ -2369,8 +2391,85 @@ def check_repo() -> None:
             (run / "bad.inp").write_text("BAD\n")
             res = server.cp2k_check_input("hokusai", str(run / "good.inp"))
             assert res["ok"] and res["build_id"] == "cp2k-2026.2-fake", res
+            assert res["files"] == [] and res["warnings"] == [], res
             res = server.cp2k_check_input("hokusai", str(run / "bad.inp"))
             assert not res["ok"] and any("unknown keyword BAD" in e for e in res["errors"]), res
+
+            # the files the input reads at run time (G23), from CP2K's own
+            # --echo of cp2k_make_input-shaped inputs; existence is tested
+            # for real, from the input's folder
+            echo_src = root / "tests" / "fixtures" / "cp2k_echo"
+            wfn_run = tmp / "wfn run"
+            wfn_run.mkdir()
+            for f in echo_src.iterdir():
+                if f.suffix in (".inp", ".inc", ".echo"):
+                    shutil.copy(f, wfn_run / f.name)
+            (wfn_run / "sub.inc").write_text("")
+            check = lambda name: server.cp2k_check_input("hokusai", str(wfn_run / name))
+
+            res = check("atomic.inp")       # SCF_GUESS ATOMIC: nothing to read
+            assert res["ok"] and res["files"] == [] and res["warnings"] == [], res
+            assert not any(l.startswith("HPC_ECHO") for l in res["tail"]), res["tail"]
+
+            guess = "../pbe-guess/pbe-guess-RESTART.wfn"
+            res = check("guess_wfn.inp")    # RESTART 0: the @SET WFN guess, missing
+            assert res["ok"], res           # a missing wfn warns; it does not fail the parse
+            assert res["files"] == [{"keyword": "WFN_RESTART_FILE_NAME", "path": guess,
+                                     "exists": False}], res
+            assert len(res["warnings"]) == 1 and guess in res["warnings"][0] \
+                and "atomic guess" in res["warnings"][0], res
+            (tmp / "pbe-guess").mkdir()
+            (tmp / "pbe-guess" / "pbe-guess-RESTART.wfn").write_text("")
+            res = check("guess_wfn.inp")    # present: no warning
+            assert res["ok"] and res["warnings"] == [], res
+            assert res["files"] == [{"keyword": "WFN_RESTART_FILE_NAME", "path": guess,
+                                     "exists": True}], res
+
+            res = check("restart1.inp")     # RESTART 1: the @IF branch's own files
+            assert res["ok"], res
+            assert res["files"] == [
+                {"keyword": "EXT_RESTART/RESTART_FILE_NAME", "path": "hse06-geo-1.restart", "exists": True},
+                {"keyword": "WFN_RESTART_FILE_NAME", "path": "hse06-geo-RESTART.wfn", "exists": False}], res
+            assert len(res["warnings"]) == 1 and "hse06-geo-RESTART.wfn" in res["warnings"][0], res
+            (wfn_run / "hse06-geo-RESTART.wfn").write_text("")
+            res = check("restart1.inp")
+            assert res["ok"] and res["warnings"] == [] and res["files"][1]["exists"], res
+
+            res = check("restart_noguess.inp")   # no WFN keyword: CP2K's default name
+            assert res["ok"], res
+            assert [(f["path"], f["exists"]) for f in res["files"]] == [
+                ("pbe-geo-1.restart", True), ("pbe-geo-RESTART.wfn", False)], res
+            assert "default" in res["files"][1]["keyword"] and len(res["warnings"]) == 1, res
+
+            # the .restart itself missing: --check already stops on it
+            shutil.copy(wfn_run / "restart1.inp", wfn_run / "restart1_gone.inp")
+            shutil.copy(echo_src / "restart1.abort", wfn_run / "restart1_gone.abort")
+            res = check("restart1_gone.inp")
+            assert not res["ok"], res
+            assert res["errors"][0].startswith("[ABORT] The specified file <hse06-geo-1.restart>"), res
+            assert res["files"] == [{"keyword": "EXT_RESTART/RESTART_FILE_NAME",
+                                     "path": "hse06-geo-1.restart", "exists": False}], res
+            assert len(res["warnings"]) == 1 and "RESTART 0" in res["warnings"][0], res
+
+            # a long name is hard-wrapped over CP2K's box lines (2026.2 output)
+            stars = " " + "*" * 79
+            wrapped = [stars,
+                       " * [ABORT]                          The specified file                         *",
+                       " *  \\___/   <../a-rather-long-folder-name/and-a-long-project-name-for-wrapping *",
+                       " *    |       -tests-1.restart> cannot be opened with STATUS=OLD. It does not  *",
+                       " *  O/|           exist. Data directory path: /usr/local/share/cp2k/data       *",
+                       " * / \\                                                   common/cp_files.F:441 *",
+                       stars, "            2 handle_ext_restart"]
+            long_name = "../a-rather-long-folder-name/and-a-long-project-name-for-wrapping-tests-1.restart"
+            assert tools._abort_missing_file(wrapped) == long_name
+            assert tools._abort_missing_file(wrapped[:-1]) is None   # not the EXT_RESTART handler
+            info = [stars, " *                            RESTART INFORMATION                              *", stars,
+                    " *    RESTART FILE NAME: ../a-rather-long-folder-name/and-a-long-project-name- *",
+                    " *                       for-wrapping-tests-1.restart                          *",
+                    " *                                                                             *",
+                    " * RESTARTED QUANTITIES:                                                       *",
+                    " *                       CELL                                                  *", stars]
+            assert tools._ext_restart_read(info) == long_name
 
             # a removed default is never used; an unknown id lists what exists
             server.records_append("hokusai", "software_registry",
@@ -3190,6 +3289,75 @@ def check_repo() -> None:
                 else:
                     raise AssertionError(f"launch_plan did not refuse ({text})")
 
+    def launch_plan_falls_back_and_names_the_method():
+        """G17: an optimisation with no geo_opt/cell_opt record borrows the
+        same system's single_point time per step (rough, with a warning), and
+        a real cell_opt record wins once there is one. G20: a recorded label
+        that the method filter empties says so and lists the recorded
+        methods, with no estimate."""
+        from hpc_codes import server
+        from hpc_codes.cp2k import tools
+
+        def must_not_run(*_):
+            raise AssertionError("launch_plan reached run_command")
+        env = {k: v for k, v in os.environ.items() if k != "HOKUSAI_HOST"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.dict(os.environ, env, clear=True), no_user_config("hokusai"), \
+                patch.dict(os.environ, {"HPC_RECORDS_USER_DIR": tmp}), \
+                patch.object(tools, "run_command", must_not_run):
+            build = {"build_id": "cp2k-2026.2-psmp-cpu-gcc", "facility": "hokusai", "code": "cp2k",
+                     "version": "2026.2", "variant": {"exe": "psmp", "target": "cpu"},
+                     "toolchain": "gcc", "install_path": "software/cp2k",
+                     "env_script": "~/software/cp2k/cp2k_env.sh",
+                     "test_status": {"level": "none", "result": "pass"},
+                     "default": True, "date": "2026-11-04"}
+            server.records_append("hokusai", "software_registry", build)
+            uio = {"label": "UiO-66-conv", "atoms": 456}
+            sp = server.launch_plan("hokusai", "cp2k", "single_point", uio)
+            assert sp["basis"]["match"] == "exact" and sp["basis"]["run_type"] == "single_point", sp
+            assert not sp["estimate"]["rough"] and sp["estimate"]["metric"] == "wall_s", sp
+
+            # (1) only a single point: its time stands in for one step
+            opt = server.launch_plan("hokusai", "cp2k", "cell_opt", uio, steps=20)
+            assert opt["basis"]["match"] == "exact" and opt["basis"]["run_type"] == "single_point", opt
+            assert opt["basis"]["record_ids"] == sp["basis"]["record_ids"], opt
+            assert opt["layout"] == sp["layout"], opt
+            est = opt["estimate"]
+            assert est["metric"] == "s_per_step" and est["rough"], est
+            assert est["value"] == sp["estimate"]["value"], est
+            assert est["total_wall_s"] == round(est["value"] * 20, 1), est
+            assert any("no cell_opt timing for UiO-66-conv" in w and "single_point" in w
+                       for w in opt["warnings"]), opt
+            geo = server.launch_plan("hokusai", "cp2k", "geo_opt", uio)
+            assert geo["basis"]["run_type"] == "single_point" and geo["estimate"]["total_wall_s"] is None, geo
+            # an unrecorded label still gets no estimate
+            none = server.launch_plan("hokusai", "cp2k", "cell_opt", {"label": "X", "atoms": 50})
+            assert none["basis"]["match"] == "none" and none["estimate"] is None, none
+            assert "no recorded system like this" in none["basis"]["why"], none
+
+            # (2) a cell_opt record of the same system is preferred
+            base = next(r for r in server.records_query("hokusai", "benchmarks",
+                                                        {"run_type": "single_point"})
+                        if r["id"] == sp["basis"]["record_ids"][0])
+            cell = dict({k: v for k, v in base.items() if k != "_scope"},
+                        id="launch-plan-cellopt-probe", run_type="cell_opt", job_id="1",
+                        metric={"name": "s_per_step", "value": 41.0}, date="2026-11-05")
+            server.records_append("hokusai", "benchmarks", cell)
+            opt = server.launch_plan("hokusai", "cp2k", "cell_opt", uio, steps=20)
+            assert opt["basis"]["run_type"] == "cell_opt", opt
+            assert opt["basis"]["record_ids"] == ["launch-plan-cellopt-probe"], opt
+            assert opt["estimate"] == {**opt["estimate"], "metric": "s_per_step", "value": 41.0,
+                                       "rough": False, "total_wall_s": 820.0}, opt
+            assert not any("single_point" in w for w in opt["warnings"]), opt
+
+            # (3) the label is recorded, but not with this functional
+            for rt in ("single_point", "aimd_step", "geo_opt"):
+                other = server.launch_plan("hokusai", "cp2k", rt, uio, method={"functional": "r2SCAN"})
+                assert other["basis"]["match"] == "none" and other["estimate"] is None, other
+                why = other["basis"]["why"]
+                assert "UiO-66-conv is recorded, but not with functional=r2SCAN" in why, why
+                assert "functional: revPBE" in why and "no recorded system" not in why, why
+
     def yagura_trajectory_analysis_matches_analytic_cases():
         """trajectory_rdf, _msd and _vdos on generated trajectories with known
         answers: uniformly random points (g = 1), a wrapped random walk (known
@@ -3512,6 +3680,8 @@ print(json.dumps(res))
           hyogo_make_input_matches_the_templates_and_uio66)
     check("hyogo parse_output reads the HOKUSAI runs", hyogo_parse_output_reads_the_hokusai_runs)
     check("launch_plan picks from the shipped records", launch_plan_picks_from_the_shipped_records)
+    check("launch_plan falls back to single points and names the method",
+          launch_plan_falls_back_and_names_the_method)
     check("yagura structure_check flags and stays separate", yagura_structure_check_flags_and_stays_separate)
     check("yagura trajectory analysis matches analytic cases",
           yagura_trajectory_analysis_matches_analytic_cases)

@@ -98,7 +98,18 @@ def cp2k_check_input(facility: str, input_path: str, build_id: str | None = None
     so @INCLUDE files resolve. Proves the syntax, not that the SCF
     converges. Read-only, no permission step needed.
 
-    Returns {"ok", "build_id", "exit_code", "timed_out", "errors", "tail"}.
+    After a passing check it lists the restart files the input reads at
+    run time, as CP2K's own `--echo` resolves them (@SET values, the
+    taken @IF branch, @INCLUDEs): the &EXT_RESTART file, and the
+    wavefunction when SCF_GUESS is RESTART (WFN_RESTART_FILE_NAME, or
+    CP2K's default <PROJECT>-RESTART.wfn), each tested for existence
+    relative to the input's folder. A missing wavefunction does not fail
+    `ok` (CP2K runs, from the atomic guess) but is named in `warnings`:
+    read them before submitting a hybrid. A missing &EXT_RESTART file
+    already fails the check.
+
+    Returns {"ok", "build_id", "exit_code", "timed_out", "errors",
+    "files": [{"keyword", "path", "exists"}], "warnings", "tail"}.
 
     Args:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
@@ -311,9 +322,20 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
     when present). `basis.match` says how good the timing is: "exact"
     (this system was benchmarked), "similar" (a system within 30 % in
     size; the time is rough) or "none" (a common layout and no estimate;
-    benchmark first if the job is long).
+    benchmark first if the job is long). When the label is recorded but
+    not with the `method` asked for, `basis.why` says so and lists the
+    recorded values; no time is scaled across methods.
 
-    Returns {"build", "layout", "basis": {match, why, record_ids,
+    geo_opt / cell_opt with no optimisation record of this or a similar
+    system fall back to a single_point record of the same label and
+    method as the per-step time (one energy+forces evaluation): the
+    estimate is "s_per_step", rough, times `steps`, and a warning says
+    so. It is conservative: on HOKUSAI an HSE06 cell_opt step of 456-atom
+    UiO-66 averaged 423 s against 464 s for the single point with
+    forces and stress (0.91x). `basis.run_type` names the run type whose
+    timing was used. Optimisation records are always preferred.
+
+    Returns {"build", "layout", "basis": {match, run_type, why, record_ids,
     options: [per node count: layout, value, core_hours_per_unit,
     efficiency]}, "job_spec", "estimate" | null, "warnings"}.
 

@@ -90,26 +90,47 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
     every = [r for r in records.query(facility, "benchmarks", {"code": code})
              if r.get("valid") and r["ranks_per_node"] * r["threads_per_rank"] == cores
              and (partition is None or r["partition"] == partition)]
-    pool = [r for r in every if r["run_type"] == run_type
-            and all(_same(r["method"].get(k), v) for k, v in (method or {}).items())]
-    groups: dict[tuple, list[dict]] = {}
-    for r in pool:
-        groups.setdefault(_method_key(r), []).append(r)
+    label = system.get("label")
     newest = lambda g: max(str(r["date"]) for r in g)
 
-    label = system.get("label")
-    exact = [g for g in groups.values() if label and _same(g[0]["system"]["label"], label)]
+    def groups_of(rt: str) -> list[list[dict]]:
+        groups: dict[tuple, list[dict]] = {}
+        for r in every:
+            if r["run_type"] == rt and all(_same(r["method"].get(k), v) for k, v in (method or {}).items()):
+                groups.setdefault(_method_key(r), []).append(r)
+        return list(groups.values())
+
+    def exact_of(groups: list[list[dict]]) -> list[list[dict]]:
+        return [g for g in groups if label and _same(g[0]["system"]["label"], label)]
+
+    def distance(g):
+        s, key = g[0]["system"], ("electrons" if system.get("electrons") and g[0]["system"].get("electrons")
+                                  else "atoms")
+        return abs(math.log(s[key] / system[key]))
+
+    groups = groups_of(run_type)
+    exact = exact_of(groups)
+    timing_run_type = run_type
+    if not exact:
+        near = [g for g in groups if distance(g) <= math.log(1 + SIMILAR_ATOMS)]
+        if not near and run_type in ("geo_opt", "cell_opt"):
+            # An optimisation step is one energy+forces (+stress) evaluation
+            # restarting from the previous wavefunction, so a single point of
+            # the same system and method bounds it from above (HOKUSAI, HSE06
+            # UiO-66-conv: 423 s per cell_opt step vs 464 s single point).
+            exact = exact_of(groups_of("single_point"))
+            if exact:
+                timing_run_type = "single_point"
+                warnings.append(f"no {run_type} timing for {label}; the per-step time is its "
+                                "single_point time (one energy+forces evaluation), which is "
+                                "conservative: an optimisation step restarts from the previous "
+                                "wavefunction and was 0.91x the single point for HSE06 UiO-66")
     if exact:
         match, group = "exact", max(exact, key=newest)
         if len(exact) > 1:
             warnings.append(f"{len(exact)} method variants of {label} are recorded; used the newest. "
                             "Pass method (functional, cutoff_ry, ...) to choose.")
     else:
-        def distance(g):
-            s, key = g[0]["system"], ("electrons" if system.get("electrons") and g[0]["system"].get("electrons")
-                                      else "atoms")
-            return abs(math.log(s[key] / system[key]))
-        near = [g for g in groups.values() if distance(g) <= math.log(1 + SIMILAR_ATOMS)]
         # newest first, so min() breaks a distance tie towards the newest
         group = min(sorted(near, key=newest, reverse=True), key=distance) if near else None
         match = "similar" if group else "none"
@@ -134,11 +155,14 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
         R, T = chosen["ranks_per_node"], chosen["threads_per_rank"]
         nodes = nodes or n
         s = chosen["system"]
-        basis = {"match": match, "system": s["label"], "atoms": s["atoms"],
+        from_sp = timing_run_type != run_type
+        basis = {"match": match, "run_type": timing_run_type, "system": s["label"], "atoms": s["atoms"],
                  "method": chosen["method"], "record_ids": [chosen["id"]], "options": options,
                  "why": (f"fastest layout at {n} node(s) of the recorded {s['label']} "
                          f"({s['atoms']} atoms, {chosen['method']['functional']})"
-                         + ("" if match == "exact" else "; a similar system, so the time is rough"))}
+                         + ("" if match == "exact" else "; a similar system, so the time is rough")
+                         + (f"; no {run_type} record, so its single_point time stands in for one "
+                            "step (rough, conservative)" if from_sp else ""))}
         if chosen["build_id"] != build["build_id"]:
             warnings.append(f"timing measured with {chosen['build_id']}, plan uses {build['build_id']}"
                             + ("" if str(chosen["version"]) == str(build["version"]) else
@@ -148,7 +172,8 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
             v = chosen["metric"]["value"]
             unit_ch = v * n * cores / 3600
             total = v if run_type == "single_point" else (v * steps if steps else None)
-            estimate = {"metric": chosen["metric"]["name"], "value": v, "rough": match != "exact",
+            estimate = {"metric": "s_per_step" if from_sp else chosen["metric"]["name"], "value": v,
+                        "rough": match != "exact" or from_sp,
                         "core_hours_per_unit": round(unit_ch, 4),
                         "total_wall_s": round(total, 1) if total is not None else None,
                         "total_core_hours": round(total * n * cores / 3600, 2) if total is not None else None,
@@ -165,11 +190,25 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
             firsts[(f["ranks_per_node"], f["threads_per_rank"])] += 1
         (R, T), wins = firsts.most_common(1)[0]
         nodes = nodes or 1
-        basis = {"match": "none", "record_ids": [], "options": [],
-                 "why": f"no recorded system like this; {R}x{T} is the fastest layout in "
-                        f"{wins} of {sum(firsts.values())} recorded cases"}
-        warnings.append(f"no timing for a system like this; run {facility}-{code}-benchmark "
-                        "first if the job is long")
+        common = (f"{R}x{T} is the fastest layout in {wins} of {sum(firsts.values())} "
+                  "recorded cases")
+        rts = (run_type, "single_point") if run_type in ("geo_opt", "cell_opt") else (run_type,)
+        labelled = [r for r in every if label and r["run_type"] in rts
+                    and _same(r["system"]["label"], label)]
+        if labelled and method:
+            wanted = ", ".join(f"{k}={v}" for k, v in method.items())
+            recorded = "; ".join(
+                f"{k}: " + ", ".join(sorted({str(r["method"].get(k)) for r in labelled}))
+                for k in method)
+            why = (f"{label} is recorded, but not with {wanted}; recorded for {label}: "
+                   f"{recorded}. No timing is scaled across methods; {common}")
+            warnings.append(f"no timing for {label} with {wanted}; run {facility}-{code}-benchmark "
+                            "first if the job is long")
+        else:
+            why = f"no recorded system like this; {common}"
+            warnings.append(f"no timing for a system like this; run {facility}-{code}-benchmark "
+                            "first if the job is long")
+        basis = {"match": "none", "run_type": None, "record_ids": [], "options": [], "why": why}
         estimate = None
 
     subs = {k: v for k, v in vals.items() if not isinstance(v, (dict, list))}

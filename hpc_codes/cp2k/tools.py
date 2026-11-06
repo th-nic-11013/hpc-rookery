@@ -77,21 +77,170 @@ def _run_with_exit(facility: str, body: str) -> tuple[int, list[str]]:
     return code, lines[:-1]
 
 
+# After a passing --check, the same login-node command runs `cp2k.psmp --echo`:
+# CP2K's own preprocessor and parser print the input as CP2K will run it (@SET
+# expanded, only the taken @IF branch, @INCLUDEs read, &EXT_RESTART applied).
+# Each echoed line comes back prefixed; on the two lines that name a
+# wavefunction the shell also tests, from the input's folder, whether it
+# exists: WFN_RESTART_FILE_NAME, and PROJECT_NAME for CP2K's default name
+# <PROJECT>-RESTART.wfn when that keyword is unset.
+_ECHO = "HPC_ECHO"
+_ECHO_LOOP = (
+    'while IFS= read -r l; do case "$l" in '
+    '*" WFN_RESTART_FILE_NAME "*|*" PROJECT_NAME "*) '
+    'p=$(printf "%s" "$l" | sed -e "s/^ *[A-Z_]* //" -e "s/ *$//" -e "s/^\\"//" -e "s/\\"$//"); '
+    'case "$l" in *" PROJECT_NAME "*) p="$p-RESTART.wfn";; esac; '
+    f'if [ -n "$p" ] && [ -e "$p" ]; then echo "{_ECHO} 1 $l"; else echo "{_ECHO} 0 $l"; fi;; '
+    f'*) echo "{_ECHO} - $l";; esac; done')
+# SCF_GUESS values that read the wavefunction file
+_READS_WFN = ("RESTART", "HISTORY_RESTART")
+# the ASCII-art figure at the left of CP2K's [ABORT] / [WARNING] box
+_BOX_ART = re.compile(r"^\s*(?:\[ABORT\]|\[WARNING\]|___|/\s+\\|\\___/|O/\||/\| \||/ \\|\|)")
+
+
+def _box_text(lines: list[str]) -> list[str]:
+    """The text of CP2K's * boxes, one entry per line, border and figure removed."""
+    out = []
+    for l in lines:
+        m = re.fullmatch(r"\s*\*(.*)\*\s*", l)
+        text = _BOX_ART.sub("", m.group(1)).strip() if m else ""
+        if text.strip("*"):
+            out.append(text)
+    return out
+
+
+def _boxes(lines: list[str]) -> list[list[str]]:
+    """CP2K's boxes: the lines between two rules of stars."""
+    boxes, cur = [], None
+    for l in lines:
+        if re.fullmatch(r"\s*\*{20,}\s*", l):
+            if cur:
+                boxes.append(cur)
+            cur = []
+        elif cur is not None and re.fullmatch(r"\s*\*.*\*\s*", l):
+            cur.append(l)
+        else:
+            cur = None
+    return boxes
+
+
+def _abort_missing_file(lines: list[str]) -> str | None:
+    """The file CP2K's [ABORT] says does not exist, when the &EXT_RESTART
+    handler hit it; a long name is hard-wrapped over box lines."""
+    if not any("handle_ext_restart" in l for l in lines):
+        return None
+    text = " ".join(_box_text(lines))
+    m = re.search(r"specified file\s*<([^>]*)>\s*cannot be opened.*does not\s*exist", text)
+    return re.sub(r"\s+", "", m.group(1)) if m else None
+
+
+def _ext_restart_read(lines: list[str]) -> str | None:
+    """The file named in CP2K's RESTART INFORMATION box (it was read)."""
+    box = _box_text(lines)
+    for i, t in enumerate(box):
+        if t.startswith("RESTART FILE NAME:"):
+            name = t.split(":", 1)[1].strip()
+            for more in box[i + 1:]:          # continuation lines of a wrapped name
+                if ":" in more or " " in more:
+                    break
+                name += more
+            return name
+    return None
+
+
+def _wfn_files(echo: list[tuple[str, str]]) -> tuple[list[dict], list[str]]:
+    """Wavefunction files each &DFT reads, from the prefixed --echo lines."""
+    files, warnings, stack, project, dft = [], [], [], None, None
+    for flag, line in echo:
+        words = line.split()
+        if not words:
+            continue
+        head = words[0].upper()
+        if head == "&END":
+            if stack and stack[-1] == "DFT" and dft is not None:
+                guess = dft["guess"]
+                if dft["wfn"] is not None and guess in _READS_WFN:
+                    files.append({"keyword": "WFN_RESTART_FILE_NAME", "path": dft["wfn"][0],
+                                  "exists": dft["wfn"][1]})
+                elif guess in _READS_WFN and project is not None:
+                    files.append({"keyword": "WFN_RESTART_FILE_NAME (unset: CP2K's default name)",
+                                  "path": project[0], "exists": project[1]})
+                elif dft["wfn"] is not None:
+                    warnings.append(f"WFN_RESTART_FILE_NAME {dft['wfn'][0]} is set but SCF_GUESS is "
+                                    f"{guess}: CP2K will not read it")
+                dft = None
+            stack = stack[:-1]
+        elif head.startswith("&"):
+            stack.append(head[1:])
+            if stack[-1] == "DFT":
+                dft = {"wfn": None, "guess": "ATOMIC"}
+        elif head == "PROJECT_NAME" and stack == ["GLOBAL"]:
+            name = line.split(None, 1)[1].strip().strip('"') if len(words) > 1 else ""
+            project = (f"{name}-RESTART.wfn", flag == "1")
+        elif dft is not None and stack and stack[-1] == "DFT" and head == "WFN_RESTART_FILE_NAME":
+            path = line.split(None, 1)[1].strip().strip('"') if len(words) > 1 else ""
+            if path:
+                dft["wfn"] = (path, flag == "1")
+        elif dft is not None and stack[-2:] == ["DFT", "SCF"] and head == "SCF_GUESS" and len(words) > 1:
+            dft["guess"] = words[1].upper()
+    return files, warnings
+
+
 def check_input(facility: str, input_path: str, build_id: str | None = None) -> dict:
     pack_values(facility)
     config.require_facility_configuration(facility)
     build = resolve_build(facility, build_id)
     folder, name = (input_path.rsplit("/", 1) if "/" in input_path else (".", input_path))
+    run = "OMP_NUM_THREADS=1 timeout 60 cp2k.psmp"
     body = (f"cd {_home_path(folder or '/')} && source {_home_path(build['env_script'])} >/dev/null 2>&1 "
-            f"&& OMP_NUM_THREADS=1 timeout 60 cp2k.psmp --check -i {shlex.quote(name)}")
-    code, lines = _run_with_exit(facility, body)
+            f"&& {run} --check -i {shlex.quote(name)}; rc=$?; "
+            f"if [ $rc -eq 0 ]; then {{ {run} --echo -i {shlex.quote(name)} 2>&1; "
+            f"echo {_ECHO}_EXIT=$?; }} | {_ECHO_LOOP}; fi; exit $rc")
+    code, out = _run_with_exit(facility, body)
+    lines = [l for l in out if not l.startswith(_ECHO + " ")]
+    # (exists flag "1"/"0"/"-", echoed line)
+    echo = [((l.split(" ", 2) + [""])[1], (l.split(" ", 2) + [""])[2]) for l in out
+            if l.startswith(_ECHO + " ")]
     # CP2K reports a bad input inside a box of *** lines ([ABORT] and the
     # message); a missing env or binary shows up as a shell error line
     errors = [l.strip(" *") for l in lines
               if (l.lstrip().startswith("***") or "ERROR" in l or "command not found" in l
                   or "No such file" in l) and l.strip(" *")]
+    # a real [ABORT] box is " *"-bordered lines between star rules: its
+    # message, unwrapped, goes first
+    errors = [f"[ABORT] {' '.join(_box_text(box))}" for box in _boxes(lines)
+              if any("[ABORT]" in l for l in box)] + errors
+
+    # the files the input reads at run time, relative to its own folder
+    files, warnings = [], []
+    missing_restart = _abort_missing_file(lines) if code != 0 else None
+    if missing_restart:
+        files.append({"keyword": "EXT_RESTART/RESTART_FILE_NAME", "path": missing_restart,
+                      "exists": False})
+        warnings.append(f"EXT_RESTART RESTART_FILE_NAME {missing_restart} does not exist: CP2K "
+                        "stops before the run (set RESTART 0 for a fresh start, or point it at the "
+                        "run's -1.restart); the wavefunction file was not checked")
+    elif code == 0:
+        echo_exit = next((e[1].split("=", 1)[1] for e in echo
+                          if e[1].startswith(f"{_ECHO}_EXIT=")), None)
+        echoed = [e for e in echo if not e[1].startswith(f"{_ECHO}_EXIT=")]
+        if echo_exit != "0":
+            warnings.append(f"cp2k.psmp --echo failed (exit {echo_exit}): the restart and "
+                            "wavefunction files were not checked")
+        else:
+            restart = _ext_restart_read([e[1] for e in echoed])
+            if restart:
+                files.append({"keyword": "EXT_RESTART/RESTART_FILE_NAME", "path": restart,
+                              "exists": True})
+            wfn, notes = _wfn_files(echoed)
+            files += wfn
+            warnings += notes
+            warnings += [f"WFN_RESTART_FILE_NAME {f['path']} does not exist (from {folder}): CP2K "
+                         "would start from the atomic guess, and a hybrid run then costs far more"
+                         for f in wfn if not f["exists"]]
     return {"ok": code == 0, "build_id": build["build_id"], "exit_code": code,
-            "timed_out": code == 124, "errors": errors[:20], "tail": lines[-40:]}
+            "timed_out": code == 124, "errors": errors[:20], "files": files,
+            "warnings": warnings, "tail": lines[-40:]}
 
 
 def check_build(facility: str, build_id: str | None = None) -> dict:

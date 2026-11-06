@@ -1,0 +1,17 @@
+
+ *******************************************************************************
+ *   ___                                                                       *
+ *  /   \                                                                      *
+ * [ABORT]    The specified file <hse06-geo-1.restart> cannot be opened with   *
+ *  \___/           STATUS=OLD. It does not exist. Data directory path:        *
+ *    |                         /usr/local/share/cp2k/data                     *
+ *  O/|                                                                        *
+ * /| |                                                                        *
+ * / \                                                   common/cp_files.F:441 *
+ *******************************************************************************
+
+
+ ===== Routine Calling Stack =====
+
+            2 handle_ext_restart
+            1 check_cp2k_input

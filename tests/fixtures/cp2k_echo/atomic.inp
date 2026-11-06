@@ -1,0 +1,29 @@
+# sp from the atomic guess: no file is read at run time but subsys.inc
+@SET PROJECT    pbe-sp
+
+&GLOBAL
+  PROJECT     ${PROJECT}
+  RUN_TYPE    ENERGY
+  PRINT_LEVEL LOW
+&END GLOBAL
+
+&FORCE_EVAL
+  METHOD QS
+  &DFT
+    &SCF
+      SCF_GUESS ATOMIC
+      EPS_SCF   1.0E-6
+      &PRINT
+        &RESTART ON
+        &END RESTART
+      &END PRINT
+    &END SCF
+    &XC
+      &XC_FUNCTIONAL PBE
+      &END XC_FUNCTIONAL
+    &END XC
+  &END DFT
+  &SUBSYS
+    @INCLUDE subsys.inc
+  &END SUBSYS
+&END FORCE_EVAL
