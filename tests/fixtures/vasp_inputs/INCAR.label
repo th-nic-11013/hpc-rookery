@@ -1,0 +1,26 @@
+SYSTEM = Cr2CO2 f005 (step 60000)
+# electronic
+PREC   = Accurate
+ENCUT  = 415
+EDIFF  = 1E-6
+IALGO  = 38
+NELM   = 200
+NELMIN = 2
+LREAL  = AUTO
+LASPH  = .TRUE.
+ISMEAR = 0
+SIGMA  = 0.04
+GGA    = PE
+# ionic: static single point, geometry frozen at the MD frame
+IBRION = -1
+NSW    = 0
+# spin
+ISPIN  = 2
+MAGMOM = 12*0 24*3 216*0
+# parallelisation: 48 ranks/lane -> 12 band groups
+NCORE  = 4
+# output
+LORBIT = 11
+LWAVE  = .FALSE.
+LCHARG = .FALSE.
+NWRITE = 2

@@ -1,0 +1,25 @@
+SYSTEM = E0 isolated Cr atom, NUPDOWN=4
+# electronic: identical to the single-point labels
+PREC   = Accurate
+ENCUT  = 415
+EDIFF  = 1E-6
+IALGO  = 38
+NELM   = 300
+NELMIN = 4
+LREAL  = AUTO
+LASPH  = .TRUE.
+GGA    = PE
+ISMEAR = 0
+SIGMA  = 0.01
+# static
+IBRION = -1
+NSW    = 0
+# isolated atom: spin fixed, no symmetry
+ISPIN   = 2
+NUPDOWN = 4
+MAGMOM  = 4
+ISYM    = 0
+# parallelisation / output
+NCORE  = 4
+LWAVE  = .FALSE.
+LCHARG = .FALSE.
