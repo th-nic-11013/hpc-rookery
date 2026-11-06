@@ -51,17 +51,20 @@ def parse(text: str) -> dict:
         raise ValueError("not a CP2K output: no CP2K| or GLOBAL| header in the first 200 lines")
 
     r = {"version": None, "project": None, "run_type": None, "finished": False,
-         "natoms": None, "electrons": None}
+         "started": None, "ranks": None, "threads": None, "natoms": None, "electrons": None}
     scf_steps, scf_outer, scf_nc, inner_pending = [], [], 0, []
     energies, gaps = [], []
     forces, cur_forces, in_old_forces = None, [], False
     stress, cur_stress, third_trace = None, {}, None
     cell, cur_cell = None, {}
     opt_steps, opt_crit, opt_press, opt_e, opt_done, opt_maxiter = 0, {}, None, None, False, False
-    md_steps, md_times = 0, []
+    md_steps, md_times, opt_times = 0, [], []
     peak, timers, in_timing = 0, {}, False
     hfx = {}
     warns, warn_open = {}, None
+    # G27: file names the next run needs (relative to the run folder)
+    files = {"final_xyz": None, "final_cif": None, "basis": None, "potential": None}
+    final_next = None   # "final_xyz" / "final_cif" when the next line holds the name
 
     for line in lines:
         s = line.strip()
@@ -72,12 +75,33 @@ def parse(text: str) -> dict:
             r["project"] = _tail(line)
         elif line.startswith(" GLOBAL| Run type"):
             r["run_type"] = _tail(line)
+        elif line.startswith(" GLOBAL| Total number of message passing processes"):
+            r["ranks"] = int(_tail(line))
+        elif line.startswith(" GLOBAL| Number of threads for this process"):
+            r["threads"] = int(_tail(line))
+        elif r["started"] is None and "PROGRAM STARTED AT" in line:
+            m = re.search(r"(\d{4}-\d{2}-\d{2})", line)
+            r["started"] = m.group(1) if m else None
         elif r["natoms"] is None and re.match(r"^\s+- Atoms:\s+\d+", line):
             r["natoms"] = int(_tail(line))
         elif r["electrons"] is None and s.startswith("Number of electrons:"):
             r["electrons"] = int(_tail(line))
         elif "PROGRAM ENDED AT" in line:
             r["finished"] = True
+        elif line.startswith(" GLOBAL| Basis set file name"):
+            files["basis"] = _tail(line)     # CP2K prints only the first BASIS_SET_FILE_NAME
+        elif line.startswith(" GLOBAL| Potential file name"):
+            files["potential"] = _tail(line)
+
+        # --- final structure files, named on the line after write_final_structure's notice
+        if final_next is not None:
+            if s:
+                files[final_next] = s
+            final_next = None
+        elif line.startswith(" write_final_structure:") and "writing XYZ file" in line:
+            final_next = "final_xyz"
+        elif line.startswith(" write_final_structure:") and "writing CIF file" in line:
+            final_next = "final_cif"
 
         # --- SCF: one evaluation ends at an outer-loop line, or (no outer loop) at the inner one
         m = INNER_OK.search(line)
@@ -158,6 +182,8 @@ def parse(text: str) -> dict:
             opt_e = _f(_tail(line))
         elif line.startswith(" OPT| Internal pressure [bar]"):
             opt_press = _f(_tail(line))
+        elif line.startswith(" OPT| Used time [s]"):
+            opt_times.append(_f(_tail(line)))
         elif line.startswith(" OPT| "):
             body = line[6:].strip()
             for label, key in CRITERIA.items():
@@ -243,7 +269,10 @@ def parse(text: str) -> dict:
     if is_opt:
         r["opt"] = {"converged": opt_done, "steps": opt_steps, "max_iter_hit": opt_maxiter,
                     "criteria": opt_crit or None, "internal_pressure_bar": opt_press,
-                    "energy_ha": opt_e}
+                    "energy_ha": opt_e,
+                    # one per force evaluation, the first being step 0 (the
+                    # start geometry): still there when the run is killed
+                    "step_times_s": opt_times}
     r["md"] = ({"steps": md_steps,
                 "s_per_step": (sum(md_times[2:] or md_times) / len(md_times[2:] or md_times))
                 if md_times else None}
@@ -252,6 +281,12 @@ def parse(text: str) -> dict:
     r["cost"] = {"cp2k_s": timers.get("CP2K"), "peak_mib": peak or None,
                  "top_timers": [[k, v] for k, v in top if k != "CP2K"][:TOP_TIMERS],
                  "hfx": hfx or None}
+
+    project = r["project"]
+    files["wfn"] = f"{project}-RESTART.wfn" if project else None
+    files["restart"] = (f"{project}-1.restart"
+                        if project and r["run_type"] in ("GEO_OPT", "CELL_OPT", "MD") else None)
+    r["files"] = files
 
     w = []
     if not r["finished"]:

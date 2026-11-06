@@ -70,3 +70,9 @@ Changes to a live tool (not new rows): `aux_basis` per kind in
 cell); `opt` keys `max_force`, `rms_force`, `keep_angles`, `keep_symmetry`
 in `cp2k_make_input`; and a `@SET RESTART` / `&EXT_RESTART` block in every
 geo_opt, cell_opt and md_nvt input, so a run continues after a walltime stop.
+Done (G27, run chaining): `cp2k_parse_output` returns `files` (final xyz/cif
+as CP2K named them, `<project>-RESTART.wfn`, `<project>-1.restart`, the first
+basis file and the potential file); `cp2k_make_input` takes `guess_from` (a previous run's
+parse) and `guess_dir` (its folder relative to the new one), setting
+`guess_wfn` and refusing a wavefunction whose atoms, electrons or basis
+files differ from the new input.

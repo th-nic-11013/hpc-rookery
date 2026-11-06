@@ -139,6 +139,66 @@ def _motion(run_type: str, o: dict | None = None) -> list[str]:
     return out + ["  &END PRINT", "&END MOTION"]
 
 
+def _base(name: str) -> str:
+    return name.rstrip("/").rsplit("/", 1)[-1]
+
+
+def _guess_from(prev: dict, guess_dir: str | None, guess_wfn: str | None, subsys: dict,
+                files: dict, warnings: list) -> tuple[str, dict]:
+    """G27: the previous run's wavefunction as guess_wfn, refused unless it fits.
+
+    A wavefunction is coefficients over one basis on one set of atoms: it can
+    carry over a change of geometry or cell, or of functional, but not of
+    atoms, electrons or basis. CP2K's output names only the first basis file,
+    so the basis check is on that file and the potential file."""
+    if guess_wfn is not None:
+        raise ValueError("pass guess_wfn or guess_from, not both")
+    pf = prev.get("files") if isinstance(prev, dict) else None
+    if not isinstance(pf, dict) or not pf.get("wfn") or "natoms" not in prev:
+        raise ValueError("guess_from is the previous run's cp2k_parse_output result (unchanged); "
+                         "fs_download its .out and parse it first")
+    d = (guess_dir or ".").rstrip("/") or "."
+    if not re.fullmatch(r"[\w./~-]+", d):
+        raise ValueError(f"guess_dir is the previous run's folder relative to this one "
+                         f"(e.g. \"../hse06-cellopt\"), without spaces: {guess_dir!r}")
+    checked = []
+    if prev.get("natoms") is not None:
+        if prev["natoms"] != subsys.get("natoms"):
+            raise ValueError(f"the previous run has {prev['natoms']} atoms, this subsys "
+                             f"{subsys.get('natoms')}: its wavefunction can't be reused")
+        checked.append("natoms")
+    if prev.get("electrons") is not None:
+        if prev["electrons"] != subsys["electrons"]:
+            raise ValueError(f"the previous run has {prev['electrons']} electrons, this subsys "
+                             f"{subsys['electrons']} (charge or potentials differ): its "
+                             "wavefunction can't be reused")
+        checked.append("electrons")
+    if pf.get("basis"):
+        if _base(pf["basis"]) not in {_base(b) for b in files["basis"]}:
+            raise ValueError(f"the previous run used basis file {pf['basis']}, this input "
+                             f"{files['basis']}: a wavefunction can't move between bases; "
+                             "use the same cp2k_kinds family, or a guess run (purpose=\"guess\")")
+        checked.append("basis")
+    if pf.get("potential"):
+        if _base(pf["potential"]) != _base(files["potential"]):
+            raise ValueError(f"the previous run used potential file {pf['potential']}, this input "
+                             f"{files['potential']}: the wavefunction belongs to other potentials")
+        checked.append("potential")
+    if not prev.get("finished"):
+        warnings.append("guess_from: the previous run did not finish; its wavefunction is from "
+                        "its last written step")
+    if (prev.get("scf") or {}).get("not_converged"):
+        warnings.append("guess_from: the previous run had unconverged SCF steps; its "
+                        "wavefunction may be a poor start")
+    opt = prev.get("opt")
+    if opt and not opt.get("converged"):
+        warnings.append("guess_from: the previous optimisation did not converge; its final "
+                        "structure and wavefunction are not a minimum")
+    wfn = pf["wfn"] if d == "." else f"{d}/{pf['wfn']}"
+    return wfn, {"wfn": wfn, "from_project": prev.get("project"), "checked": checked,
+                 "final_xyz": pf.get("final_xyz")}
+
+
 def make_input(run_type: str, functional: str, subsys: dict, files: dict | None = None,
                project: str | None = None, cutoff: int | None = None, rel_cutoff: int = 60,
                d3: str | None = None, scf: str = "ot", multiplicity: int | None = None,
@@ -146,7 +206,8 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
                hfx: dict | None = None, print_gap: bool = False,
                save_wfn: bool = False, stress: bool = False,
                precision: dict | None = None, guess_wfn: str | None = None,
-               purpose: str = "result") -> tuple[str, dict]:
+               purpose: str = "result", guess_from: dict | None = None,
+               guess_dir: str | None = None) -> tuple[str, dict]:
     """The input text and a summary; `subsys` is cp2k_make_subsys' result.
 
     purpose="guess" writes a GGA single point whose only product is the
@@ -166,6 +227,9 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
         raise ValueError(f"subsys is cp2k_make_subsys' result (needs {list(need)})")
     stem, d3_ref, d3_default, bj_only, cutoff_default, hf = PRESETS[functional]
     warnings = []
+    guess_info = None
+    if guess_dir is not None and guess_from is None:
+        raise ValueError("guess_dir goes with guess_from (the previous run's cp2k_parse_output)")
 
     if purpose == "guess":
         if hf:
@@ -196,6 +260,8 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
         if missing or ADMM_FILE not in files["basis"]:
             raise ValueError(f"{functional} uses ADMM: call cp2k_kinds(..., aux_basis=\"admm-dzp\") "
                              f"and cp2k_make_subsys again (no AUX_FIT basis for {missing or 'the files'})")
+    if guess_from is not None:
+        guess_wfn, guess_info = _guess_from(guess_from, guess_dir, guess_wfn, subsys, files, warnings)
 
     d3 = d3 or d3_default
     if d3 not in ("zero", "bj"):
@@ -408,7 +474,7 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
             "restart": ({"set": "RESTART", "file": f"{project}-1.restart",
                          "wfn": f"{project}-RESTART.wfn"} if "RESTART" in sets else None),
             "settings": {k: v for k, v in sets.items() if k != "PROJECT"},
-            "opt": o,
+            "opt": o, "guess": guess_info,
             "files": files["basis"] + [files["potential"]] + (["t_c_g.dat"] if hf == "truncated" else []),
             "warnings": warnings}
     return "\n".join(lines) + "\n", info

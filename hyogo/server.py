@@ -73,6 +73,7 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
                     hfx: dict | None = None, print_gap: bool = False, save_wfn: bool = False,
                     stress: bool = False, precision: dict | None = None,
                     guess_wfn: str | None = None, purpose: str = "result",
+                    guess_from: dict | None = None, guess_dir: str | None = None,
                     overwrite: bool = False) -> dict:
     """Write a CP2K run input that includes subsys.inc: a single point,
     a geometry or cell optimisation, or NVT MD, with a functional preset
@@ -100,13 +101,23 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
     purpose="guess"), run it, then the hybrid with guess_wfn set to that
     result's `wfn`.
 
+    To start from a previous run (a follow-up on its relaxed cell, or a
+    hybrid from a GGA run in the same basis): pass that run's
+    cp2k_parse_output result as guess_from and its folder relative to the
+    new one as guess_dir (e.g. "../hse06-cellopt"). That sets guess_wfn to
+    its <project>-RESTART.wfn, and refuses when the wavefunction can't fit:
+    other atom or electron counts, or other basis or potential files. The
+    structure is separate: fs_download its files.final_xyz, then
+    structure_check and cp2k_make_subsys.
+
     geo_opt, cell_opt and md_nvt inputs start with @SET RESTART 0. After a
     walltime stop, set it to 1 and resubmit: the run continues from its
     <project>-1.restart and its own wavefunction.
 
     Returns {"out", "run_type", "functional", "d3", "scf", "purpose", "wfn"
     (the restart file a sp writes, or null), "restart" ({set, file, wfn}
-    for geo_opt/cell_opt/md_nvt, else null), "opt", "settings":
+    for geo_opt/cell_opt/md_nvt, else null), "opt", "guess" ({wfn,
+    from_project, checked, final_xyz} with guess_from, else null), "settings":
     {CUTOFF, HFX_RADIUS, WALLTIME, ...}, "files": data files the build
     needs, "warnings"}; read the warnings to the user (hybrid cost, HFX
     radius, open shell, assumed walltime).
@@ -151,6 +162,10 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
         purpose: "result" (default) or "guess": a GGA single point (RUN_TYPE
             ENERGY, wavefunction saved) in a hybrid's basis and potentials,
             labelled as not a result. Its only use is the hybrid's guess_wfn.
+        guess_from: a previous run's cp2k_parse_output result, unchanged;
+            sets guess_wfn from it (don't pass both).
+        guess_dir: that run's folder relative to this run's folder;
+            default "." (the same folder).
         overwrite: replace out_path if it exists.
     """
     if not isinstance(subsys, dict) or not subsys.get("out"):
@@ -160,7 +175,8 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
         raise ValueError("kinds is cp2k_kinds' full result (it carries `files`)")
     text, info = cp2k_input.make_input(run_type, functional, subsys, files, project, cutoff,
                                        rel_cutoff, d3, scf, multiplicity, duration, md, opt, hfx,
-                                       print_gap, save_wfn, stress, precision, guess_wfn, purpose)
+                                       print_gap, save_wfn, stress, precision, guess_wfn, purpose,
+                                       guess_from, guess_dir)
     name = (f"{project}.inp" if project else "guess.inp" if purpose == "guess"
             else cp2k_input.RUN_TYPES[run_type][3])
     dst = Path(out_path).expanduser() if out_path else Path(subsys["out"]).expanduser().with_name(name)
@@ -184,19 +200,26 @@ def cp2k_parse_output(out_path: str) -> dict:
     and an optimisation prints forces and stress only if asked to.
 
     Returns {"path", "version", "project", "run_type", "finished",
-    "natoms", "electrons", "scf": {evaluations, not_converged, steps,
-    outer}, "energy_ha", "gap_ev", "forces": {max, rms, max_atom} (Ha/bohr),
+    "started" (YYYY-MM-DD), "ranks", "threads" (per rank), "natoms",
+    "electrons", "scf": {evaluations, not_converged, steps, outer},
+    "energy_ha", "gap_ev", "forces": {max, rms, max_atom} (Ha/bohr),
     "stress_gpa": {tensor, third_trace}, "cell": {a, b, c, alpha, beta,
     gamma, volume} (A, degrees, A^3), "opt": {converged, steps,
     max_iter_hit, criteria: {max_step, rms_step, max_gradient,
     rms_gradient, pressure_dev_bar: {value, limit, converged}},
-    internal_pressure_bar, energy_ha}, "md": {steps, s_per_step}, "cost":
+    internal_pressure_bar, energy_ha, step_times_s (OPT| Used time per
+    evaluation, step 0 first)}, "md": {steps, s_per_step}, "cost":
     {cp2k_s, peak_mib, top_timers, hfx: {eri_ram_mib, eri_disk_mib,
-    on_the_fly, max_program_mib}}, "warnings"}. Read the warnings to the
+    on_the_fly, max_program_mib}}, "files": {final_xyz, final_cif (as
+    CP2K named them after a converged optimisation, else null), wfn
+    (<project>-RESTART.wfn), restart (<project>-1.restart for opt/md),
+    basis (the first basis file), potential}: names inside the run
+    folder, for chaining the next run (cp2k_make_input guess_from),
+    "warnings"}. Read the warnings to the
     user: an unfinished output, unconverged SCF, an optimisation stopped
     by WALLTIME (continue it with @SET RESTART 1) or MAX_ITER, and CP2K's
-    own warnings. For a benchmark record, pass `cost` and the timing to
-    records_append.
+    own warnings. For a benchmark record, pass the whole result to
+    rookery's cp2k_record_from_run.
 
     Args:
         out_path: the CP2K output on this machine; ~ is expanded.

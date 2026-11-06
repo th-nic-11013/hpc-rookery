@@ -1497,6 +1497,34 @@ def check_repo() -> None:
 
     check("tests import this checkout", tests_import_this_checkout)
 
+    def slurm_waiting_jobs_report_expected_start():
+        """G31: a waiting Slurm job carries squeue's %S estimate as
+        meta_data["expected_start"]; N/A / Unknown never read as a time."""
+        from hpc_agent_core.compute import slurm
+        from hpc_agent_core.models import JobState
+        sacct = ("11|a|mpc|PENDING|00:00:00|Unknown|Unknown|0:0|None assigned|/w\n"
+                 "12|b|mpc|PENDING|00:00:00|Unknown|Unknown|0:0|None assigned|/w\n"
+                 "13|c|mpc|RUNNING|00:01:00|2026-11-06T10:00:00|Unknown|0:0|mpc0001|/w\n")
+        squeue = "11|(Priority)|2026-11-07T03:12:00\n12|(Resources)|N/A\n"
+        backend = slurm.SlurmBackend("test-slurm", has_accounting=True)
+        with patch("hpc_agent_core.compute.slurm.run_command", side_effect=[sacct, squeue]):
+            jobs = {j.id: j for j in backend.get_statuses(["11", "12", "13"])}
+        assert jobs["11"].status.message == "(Priority)"
+        assert jobs["11"].status.meta_data["expected_start"] == "2026-11-07T03:12:00"
+        assert "expected_start" not in jobs["12"].status.meta_data, jobs["12"].status.meta_data
+        assert jobs["13"].status.state == JobState.ACTIVE
+        assert "expected_start" not in jobs["13"].status.meta_data
+        # no-accounting path: the estimate comes in the primary squeue query
+        live = slurm._parse_squeue("21|PENDING|(Priority)|mpc|/w|2026-11-07T03:12:00\n"
+                                   "22|PENDING|(Priority)|mpc|/w|Unknown\n"
+                                   "23|RUNNING|mpc0002|mpc|/w|2026-11-06T10:00:00\n"
+                                   "24|PENDING|(Priority)|mpc|/w\n")   # old 5-field format
+        meta = {j.id: j.status.meta_data for j in live}
+        assert meta["21"]["expected_start"] == "2026-11-07T03:12:00"
+        assert all("expected_start" not in meta[i] for i in ("22", "23", "24")), meta
+
+    check("Slurm waiting jobs report expected_start (G31)", slurm_waiting_jobs_report_expected_start)
+
     print("\n=== repo-wide ===")
 
     def facilities_exist():
@@ -2328,7 +2356,7 @@ def check_repo() -> None:
         assert out.returncode == 0, out.stderr[-2000:]
         assert out.stdout.strip() == ("['cp2k_bench_dryrun', 'cp2k_bench_input', 'cp2k_bench_parse', "
                                       "'cp2k_bench_records', 'cp2k_check_build', 'cp2k_check_input', "
-                                      "'cp2k_kinds', 'launch_plan', 'records_append', 'records_check', "
+                                      "'cp2k_kinds', 'cp2k_record_from_run', 'launch_plan', 'records_append', 'records_check', "
                                       "'records_query']"), out.stdout
 
     def local_run_command(facility, cmd):
@@ -3156,6 +3184,106 @@ def check_repo() -> None:
                 else:
                     raise AssertionError(f"cp2k_make_input accepted {args[:2]} {kw}")
 
+    def cp2k_record_from_run_records_a_parsed_run():
+        """G24: a cp2k_parse_output result plus `like` (a record of the same
+        system and method) becomes a benchmarks record with the id, timing
+        and extra fields the hand-written 2026-11-05 records had; refusals
+        append nothing."""
+        import gzip
+        from hyogo.cp2k import output
+        from hpc_codes import records, server
+        root = pathlib.Path(__file__).resolve().parent.parent
+        fx = root / "tests" / "fixtures" / "cp2k_outputs"
+        parse = lambda n: output.parse(gzip.decompress((fx / f"{n}.out.gz").read_bytes()).decode())
+        sp, opt = parse("r2scan-sp"), parse("hse06-cellopt")
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.dict(os.environ, {"HPC_RECORDS_USER_DIR": tmp}):
+            env = {k: v for k, v in os.environ.items() if k != "HPC_RECORDS_ROOT"}
+            with patch.dict(os.environ, env, clear=True):
+                server.records_append("hokusai", "software_registry", {
+                    "build_id": "cp2k-2026.2-fake", "facility": "hokusai", "code": "cp2k",
+                    "version": "2026.2", "variant": {"exe": "psmp", "target": "cpu"},
+                    "toolchain": "fake", "install_path": tmp, "env_script": tmp + "/env.sh",
+                    "test_status": {"level": "none", "result": "pass"}, "default": True,
+                    "date": "2026-11-04"})
+                like = {"id": "hokusai-cp2k-2026-11-04-uio66conv-singlepoint-pbe-1n-16x7",
+                        "facility": "hokusai", "partition": "mpc", "node_type": "MPC test",
+                        "code": "cp2k", "version": "2026.2", "build_id": "cp2k-2026.2-fake",
+                        "system": {"label": "UiO-66-conv", "atoms": 456,
+                                   "elements": {"Zr": 24, "O": 128, "C": 192, "H": 112},
+                                   "cell_volume_A3": 9115, "periodic": "xyz", "kpoints": "gamma"},
+                        "method": {"functional": "PBE", "dispersion": "D3(BJ)", "basis": "DZVP",
+                                   "cutoff_ry": 1000, "hybrid": False, "scf": "OT DIIS"},
+                        "run_type": "single_point", "nodes": 1, "ranks_per_node": 16,
+                        "threads_per_rank": 7, "metric": {"name": "wall_s", "value": 100.0},
+                        "date": "2026-11-04", "valid": True}
+                server.records_append("hokusai", "benchmarks", like)
+                count = lambda: len(records.query("hokusai", "benchmarks", {}))
+
+                r = server.cp2k_record_from_run("hokusai", sp, 1, like=like["id"],
+                                                method={"functional": "r2SCAN"}, job_id="9737100")
+                rec = r["record"]
+                assert r["appended"] and r["valid"] and not r["warnings"], r
+                assert r["id"] == "hokusai-cp2k-2026-11-05-uio66conv-singlepoint-r2scan-1n-16x7", r["id"]
+                assert rec["metric"] == {"name": "wall_s", "value": 279.886}, rec["metric"]
+                assert (rec["ranks_per_node"], rec["threads_per_rank"]) == (16, 7)
+                assert rec["method"]["functional"] == "r2SCAN" and rec["method"]["cutoff_ry"] == 1000
+                assert rec["system"]["electrons"] == 1936 and rec["system"]["cell_volume_A3"] == 9115
+                assert rec["extra"] == {"forces_s": 248.6, "scf_steps": 55,
+                                        "peak_mib_per_rank": 3276, "core_hours": 8.7}, rec["extra"]
+                assert rec["job_id"] is None and r["provenance"]["job_ids"] == ["9737100"]
+                assert records.query("hokusai", "benchmarks_provenance", {"id": r["id"]})
+
+                r = server.cp2k_record_from_run("hokusai", opt, 2, like=like["id"],
+                                                method={"functional": "HSE06", "hybrid": True},
+                                                dry_run=True)
+                rec = r["record"]
+                assert not r["appended"] and r["valid"], r
+                assert r["id"] == "hokusai-cp2k-2026-11-05-uio66conv-cellopt-hse06-2n-16x7", r["id"]
+                assert rec["metric"] == {"name": "s_per_step", "value": 423.159}, rec["metric"]
+                assert rec["extra"]["opt_steps"] == 21 and rec["extra"]["final_pressure_bar"] == 7.34
+                assert rec["extra"]["hfx_eri_mib"] == 18952 and rec["extra"]["core_hours"] == 552.9
+                assert rec["extra"]["first_step_s"] == 439.4 and len(opt["opt"]["step_times_s"]) == 22
+                assert "converged in 21 steps" in rec["notes"] and r["provenance"] is None
+
+                # an optimisation cut by the walltime: still a valid per-step time, warned
+                text = gzip.decompress((fx / "hse06-cellopt.out.gz").read_bytes()).decode()
+                cut = output.parse(text[: text.index(" OPTIMIZATION STEP:     12\n")])
+                r = server.cp2k_record_from_run("hokusai", cut, 2, like=like["id"], tag="cut",
+                                                dry_run=True)
+                rec = r["record"]
+                assert r["valid"] and rec["extra"]["opt_steps"] == 11, rec
+                times = cut["opt"]["step_times_s"]
+                assert len(times) == 12 and rec["extra"]["first_step_s"] == 439.4, times
+                assert abs(rec["metric"]["value"] - sum(times) / 11) < 1e-3, rec["metric"]
+                assert any("did not converge" in w for w in r["warnings"]), r["warnings"]
+                # unconverged SCF: recorded, but not as a usable timing
+                bad = {**sp, "scf": {**sp["scf"], "not_converged": 1}}
+                r = server.cp2k_record_from_run("hokusai", bad, 1, like=like["id"], tag="bad",
+                                                dry_run=True)
+                assert not r["valid"] and "SCF not converged" in r["record"]["reason"], r
+
+                before = count()
+                for args, kw, msg in (
+                        ((sp, 1), {"like": like["id"]}, "already exists"),   # the r2SCAN record above
+                        ((sp, 3), {"like": like["id"]}, "do not divide"),
+                        ((sp, 1), {"like": "no-such-record"}, "no benchmarks record"),
+                        ((sp, 1), {}, "pass like="),
+                        (({**sp, "natoms": 455}, 1), {"like": like["id"]}, "atoms"),
+                        (({k: v for k, v in sp.items() if k != "ranks"}, 1), {"like": like["id"]},
+                         "older cp2k_parse_output"),
+                        (({"energy": 1}, 1), {"like": like["id"]}, "cp2k_parse_output result")):
+                    try:
+                        server.cp2k_record_from_run("hokusai", *args,
+                                                    **({"method": {"functional": "r2SCAN"}}
+                                                       if msg == "already exists" else {}), **kw)
+                    except ValueError as e:
+                        assert msg in str(e), (msg, str(e))
+                    else:
+                        raise AssertionError(f"expected a refusal naming {msg!r}")
+                assert count() == before, "a refused call appended a record"
+                assert not server.records_check("hokusai")["errors"]
+
     def hyogo_parse_output_reads_the_hokusai_runs():
         """hyogo's cp2k_parse_output gives the values read by hand from four
         HOKUSAI UiO-66 outputs (tests/fixtures/cp2k_outputs/README.md),
@@ -3189,6 +3317,8 @@ def check_repo() -> None:
                 r = hsrv.cp2k_parse_output(str(out))
                 assert r["finished"] and r["run_type"] == w["run_type"], (name, r["run_type"])
                 assert r["natoms"] == 456 and r["electrons"] == 1936, name
+                assert r["started"] == "2026-11-05" and r["threads"] == 7, (name, r["started"])
+                assert r["ranks"] == (16 if name == "r2scan-sp" else 32), (name, r["ranks"])
                 assert close(r["energy_ha"], w["energy_ha"]) and close(r["gap_ev"], w["gap_ev"]), name
                 assert r["scf"]["not_converged"] == 0, name
                 if w["steps"] is not None:
@@ -3242,6 +3372,102 @@ def check_repo() -> None:
                     assert text in str(e), e
                 else:
                     raise AssertionError(f"cp2k_parse_output accepted {args}")
+
+    def hyogo_chains_one_run_into_the_next():
+        """G27: cp2k_parse_output names the files a follow-up run needs (the
+        final xyz/cif CP2K printed, the wfn and restart), and cp2k_make_input
+        turns a previous run's parse into guess_wfn (guess_from, guess_dir),
+        refusing a wavefunction from other atoms, electrons, basis or
+        potential files, and warning on an unfinished or unconverged run."""
+        import copy
+        import gzip
+        from hyogo import server as hsrv
+        root = pathlib.Path(__file__).resolve().parent.parent
+        fx = root / "tests" / "fixtures" / "cp2k_outputs"
+        q = {"H": 1, "C": 4, "O": 6, "Zr": 12}
+        kinds = {"files": {"basis": ["BASIS_MOLOPT_UZH_2026.2", "BASIS_ADMM_UZH"],
+                           "potential": "POTENTIAL_UZH_2026.2"},
+                 "kinds": {e: {"q": n, "basis": f"DZVP-MOLOPT-PBE0-GTH-q{n}",
+                               "potential": f"GTH-PBE0-q{n}", "aux_basis": f"admm-dzp-q{n}"}
+                           for e, n in q.items()},
+                 "errors": {}}
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            parsed = {}
+            for name in ("hse06-cellopt", "hse06-sp"):
+                out = d / f"{name}.out"
+                out.write_bytes(gzip.decompress((fx / f"{name}.out.gz").read_bytes()))
+                parsed[name] = hsrv.cp2k_parse_output(str(out))
+            f = parsed["hse06-cellopt"]["files"]
+            assert f == {"final_xyz": "hse06-cellopt-FINAL-1_21.xyz",
+                         "final_cif": "hse06-cellopt-FINAL-1_21.cif",
+                         "basis": "BASIS_MOLOPT_UZH_2026.2", "potential": "POTENTIAL_UZH_2026.2",
+                         "wfn": "hse06-cellopt-RESTART.wfn", "restart": "hse06-cellopt-1.restart"}, f
+            f = parsed["hse06-sp"]["files"]
+            assert f["final_xyz"] is None and f["final_cif"] is None and f["restart"] is None, f
+            assert f["wfn"] == "hse06-sp-RESTART.wfn", f
+
+            # a subsys standing in for the 456-atom cell: the primitive fixture,
+            # with the conventional cell's atom and electron counts
+            xyz = d / "uio66.xyz"
+            xyz.write_text((root / "tests" / "fixtures" / "cp2k_inputs" / "uio66"
+                            / "uio66_prim_114_ch108.xyz").read_text())
+            sub = hsrv.cp2k_make_subsys(str(xyz), kinds, str(d / "subsys.inc"))
+            sub = {**sub, "natoms": 456, "electrons": 1936}
+            prev = parsed["hse06-cellopt"]
+            r = hsrv.cp2k_make_input("sp", "pbe0", sub, kinds, out_path=str(d / "pbe0.inp"),
+                                     stress=True, guess_from=prev, guess_dir="../hse06-cellopt/")
+            wfn = "../hse06-cellopt/hse06-cellopt-RESTART.wfn"
+            text = (d / "pbe0.inp").read_text()
+            assert f"WFN_RESTART_FILE_NAME {wfn}" in text and "SCF_GUESS RESTART" in text, text
+            assert r["guess"] == {"wfn": wfn, "from_project": "hse06-cellopt",
+                                  "checked": ["natoms", "electrons", "basis", "potential"],
+                                  "final_xyz": "hse06-cellopt-FINAL-1_21.xyz"}, r["guess"]
+            assert not any("guess_from" in w for w in r["warnings"]), r["warnings"]
+            assert not any("atomic guess" in w for w in r["warnings"]), r["warnings"]
+            # same folder by default; an opt keeps the wfn as its @SET WFN
+            r = hsrv.cp2k_make_input("cell_opt", "hse06", sub, kinds, out_path=str(d / "co.inp"),
+                                     guess_from=parsed["hse06-sp"])
+            assert r["guess"]["wfn"] == "hse06-sp-RESTART.wfn", r["guess"]
+            assert r["settings"]["WFN"] == "hse06-sp-RESTART.wfn", r["settings"]
+            # warnings: unfinished, unconverged SCF, unconverged optimisation
+            bad = copy.deepcopy(prev)
+            bad["finished"] = False
+            bad["scf"]["not_converged"] = 2
+            bad["opt"]["converged"] = False
+            r = hsrv.cp2k_make_input("sp", "pbe0", sub, kinds, out_path=str(d / "w.inp"),
+                                     guess_from=bad, guess_dir="../x")
+            ws = [w for w in r["warnings"] if w.startswith("guess_from")]
+            assert len(ws) == 3, r["warnings"]
+
+            def other(**kv):
+                p = copy.deepcopy(prev)
+                for k, v in kv.items():
+                    if k in ("basis", "potential"):
+                        p["files"][k] = v
+                    else:
+                        p[k] = v
+                return p
+            other_kinds = copy.deepcopy(kinds)
+            refusals = (
+                (dict(guess_from=other(natoms=114)), "114 atoms"),
+                (dict(guess_from=other(electrons=1932)), "1932 electrons"),
+                (dict(guess_from=other(basis="BASIS_MOLOPT")), "can't move between bases"),
+                (dict(guess_from=other(potential="GTH_POTENTIALS")), "other potentials"),
+                (dict(guess_from=prev, guess_wfn="x.wfn"), "not both"),
+                (dict(guess_dir="../x"), "goes with guess_from"),
+                (dict(guess_from={"natoms": 456}), "cp2k_parse_output"),
+                (dict(guess_from=prev, guess_dir="../a b"), "without spaces"),
+            )
+            for i, (kw, msg) in enumerate(refusals):
+                dst = d / f"refused{i}.inp"
+                try:
+                    hsrv.cp2k_make_input("sp", "pbe0", sub, other_kinds, out_path=str(dst), **kw)
+                except ValueError as e:
+                    assert msg in str(e), (msg, e)
+                else:
+                    raise AssertionError(f"cp2k_make_input accepted {kw}")
+                assert not dst.exists(), dst
 
     def launch_plan_picks_from_the_shipped_records():
         """launch_plan against HOKUSAI's shipped benchmarks: the match ladder,
@@ -3702,6 +3928,9 @@ print(json.dumps(res))
     check("hyogo make_input matches the templates and UiO-66",
           hyogo_make_input_matches_the_templates_and_uio66)
     check("hyogo parse_output reads the HOKUSAI runs", hyogo_parse_output_reads_the_hokusai_runs)
+    check("hyogo chains one run into the next (G27)", hyogo_chains_one_run_into_the_next)
+    check("cp2k_record_from_run records a parsed production run (G24)",
+          cp2k_record_from_run_records_a_parsed_run)
     check("launch_plan picks from the shipped records", launch_plan_picks_from_the_shipped_records)
     check("launch_plan falls back to single points and names the method",
           launch_plan_falls_back_and_names_the_method)
