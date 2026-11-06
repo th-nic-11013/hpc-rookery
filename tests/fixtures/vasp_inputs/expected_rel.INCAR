@@ -1,0 +1,28 @@
+SYSTEM = Cr2CO2 f005 (step 60000) [magmom test2 rel]
+# electronic
+PREC   = Accurate
+ENCUT  = 415
+EDIFF  = 1E-6
+IALGO  = 38
+NELM   = 300
+NELMIN = 2
+LREAL  = AUTO
+LASPH  = .TRUE.
+ISMEAR = 0
+SIGMA  = 0.04
+GGA    = PE
+# ionic: static single point, geometry frozen at the MD frame
+IBRION = -1
+NSW    = 0
+# spin
+ISPIN  = 2
+MAGMOM = 1*0 2*3 7*0
+ISTART = 1  # read WAVECAR of the constrained pre-run
+# parallelisation: 48 ranks/lane, NCORE 12 -> 4 band groups
+NCORE  = 12
+NBANDS = 660
+# output
+LORBIT = 10
+LWAVE  = .FALSE.
+LCHARG = .FALSE.
+NWRITE = 2

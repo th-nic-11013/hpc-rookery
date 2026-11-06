@@ -25,3 +25,6 @@
 - **Plugin vs repo** — a repo is who owns and versions the code; a plugin is how a user installs its tools and skills. One repo can ship one plugin, and one marketplace can list plugins from many repos.
 - **Contract test** — a test in one repo that pins the names and arguments of the tools it calls in another, so a change on either side fails loudly instead of silently breaking a skill.
 - **Walltime restart** — a run stopped cleanly by CP2K's WALLTIME continues from its own `<project>-1.restart` (`&EXT_RESTART`); tool-written inputs switch this with one line, `@SET RESTART 1`.
+- **Band groups (VASP)** — the MPI ranks split into teams that each work on a share of the bands: ranks / (KPAR × NCORE). VASP silently rounds NBANDS up to a multiple of it, so a new NCORE can change the band count; `vasp_make_incar` checks it.
+- **Constrain-then-release** — a short VASP pre-run with the total moment fixed (NUPDOWN), whose wavefunction (WAVECAR) starts a second run with the moment free: it steers the SCF into a spin state without biasing the final result.
+- **NUL hole** — a run of zero bytes left in a file that was being written when the disk filled up; text tools may treat it as binary. `vasp_parse_output` strips and counts them, then checks every block is complete.
