@@ -363,7 +363,7 @@ def cp2k_record_from_run(facility: str, parsed: dict, nodes: int, like: str | No
 def launch_plan(facility: str, code: str, run_type: str, system: dict,
                 method: dict | None = None, build_id: str | None = None,
                 nodes: int | None = None, optimize: str = "cost",
-                steps: int | None = None) -> dict:
+                steps: int | None = None, hfx_memory_mb: int | None = None) -> dict:
     """How to launch a run of `code` on this facility: the build, the
     ranks x threads layout and node count, a job-spec fragment for
     submit_job, and a cost estimate, from the recorded builds and
@@ -387,9 +387,22 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
     forces and stress (0.91x). `basis.run_type` names the run type whose
     timing was used. Optimisation records are always preferred.
 
+    Hybrids: when the exact record carries its HFX memory (hfx_eri_mib,
+    peak_mib_per_rank, written by cp2k_record_from_run), `memory` gives
+    the exchange integrals per rank at the planned layout, the estimated
+    peak per rank against the rank's share of node memory, and
+    suggested_hfx_memory_mb for cp2k_make_input's hfx.memory_mb. A node
+    count whose ranks wouldn't fit is not chosen, and a fixed one gets a
+    warning; so does an hfx_memory_mb below the integrals per rank (CP2K
+    then computes the rest on the fly and the estimate is too low).
+    Rough: it assumes the integrals total about the same at any layout.
+
     Returns {"build", "layout", "basis": {match, run_type, why, record_ids,
     options: [per node count: layout, value, core_hours_per_unit,
-    efficiency]}, "job_spec", "estimate" | null, "warnings"}.
+    efficiency, memory (hybrids)]}, "job_spec", "estimate" | null,
+    "memory": {eri_total_mib, eri_per_rank_mib, est_peak_mib_per_rank,
+    limit_mib_per_rank, fits, suggested_hfx_memory_mb, record_id, rough}
+    | null, "warnings"}. Read the memory warnings to the user.
 
     Args:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
@@ -404,9 +417,12 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
         optimize: "cost" (fewest core-hours, the default) or "time"
             (fastest at >= 70 % parallel efficiency).
         steps: MD or optimisation steps, for the total estimate.
+        hfx_memory_mb: the HFX MAX_MEMORY per MPI rank the input will use
+            (cp2k_make_input's hfx.memory_mb, 3000 by default there), to
+            check the integrals fit in it.
     """
     return launch.plan(facility, code, run_type, system, method, build_id, nodes,
-                       optimize, steps)
+                       optimize, steps, hfx_memory_mb)
 
 
 def main():

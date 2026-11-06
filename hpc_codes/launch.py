@@ -13,11 +13,13 @@ or PJM facility, or another code, brings its own.
 import math
 from collections import Counter
 
+from hpc_agent_core import config
 from hpc_codes import packs, records
 
 RUN_TYPES = ("aimd_step", "single_point", "geo_opt", "cell_opt")
 SIMILAR_ATOMS = 0.30      # a "similar" system has atoms within +-30 %
 MIN_EFFICIENCY = 0.7      # optimize="time" won't buy speed below this
+MEM_HEADROOM = 0.9        # a rank may use this share of its slice of node memory
 
 
 def _method_key(r: dict) -> tuple:
@@ -66,9 +68,48 @@ def _options(best: dict[int, dict], cores: int) -> list[dict]:
     return out
 
 
+def _node_mib(facility: str, partition: str | None) -> float | None:
+    """Memory per node of the partition, from the facility's bundled facts."""
+    if not partition:
+        return None
+    try:
+        parts = config.load_facts(facility).get("partitions") or []
+    except (OSError, ValueError):
+        return None
+    for p in parts:
+        if isinstance(p, dict) and p.get("name") == partition and p.get("memory_per_node_gib"):
+            return float(p["memory_per_node_gib"]) * 1024
+    return None
+
+
+def _hfx_info(group: list[dict]) -> dict | None:
+    """The exact-exchange memory of a recorded hybrid: the ERIs kept in RAM
+    (a total over ranks, about the same at any layout) and what each rank
+    holds besides them (peak per rank minus its share of the ERIs). From the
+    newest record of the group that has both (cp2k_record_from_run writes
+    them; G16)."""
+    have = [r for r in group if (r.get("extra") or {}).get("hfx_eri_mib")
+            and (r.get("extra") or {}).get("peak_mib_per_rank")]
+    if not have:
+        return None
+    r = max(have, key=lambda r: str(r["date"]))
+    eri, peak = r["extra"]["hfx_eri_mib"], r["extra"]["peak_mib_per_rank"]
+    ranks = r["nodes"] * r["ranks_per_node"]
+    return {"record_id": r["id"], "eri_total_mib": eri, "base_mib_per_rank": max(peak - eri / ranks, 0.0)}
+
+
+def _memory_at(info: dict, nodes: int, rpn: int, node_mib: float | None) -> dict:
+    per_rank = info["eri_total_mib"] / (nodes * rpn)
+    peak = info["base_mib_per_rank"] + per_rank
+    limit = node_mib / rpn * MEM_HEADROOM if node_mib else None
+    return {"eri_per_rank_mib": round(per_rank), "est_peak_mib_per_rank": round(peak),
+            "limit_mib_per_rank": round(limit) if limit else None,
+            "fits": None if limit is None else peak <= limit}
+
+
 def plan(facility: str, code: str, run_type: str, system: dict, method: dict | None = None,
          build_id: str | None = None, nodes: int | None = None, optimize: str = "cost",
-         steps: int | None = None) -> dict:
+         steps: int | None = None, hfx_memory_mb: int | None = None) -> dict:
     if run_type not in RUN_TYPES:
         raise ValueError(f"run_type must be one of {', '.join(RUN_TYPES)}")
     if optimize not in ("cost", "time"):
@@ -77,6 +118,8 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
         raise ValueError('system needs at least {"atoms": <int>}; also give "label" when known')
     if nodes is not None and nodes < 1:
         raise ValueError("nodes must be at least 1")
+    if hfx_memory_mb is not None and hfx_memory_mb < 1:
+        raise ValueError("hfx_memory_mb is the input's HFX MAX_MEMORY per MPI rank, in MiB")
     vals = packs.pack_values(facility, code)
     prefix = code.upper().replace("-", "_")
     launch = vals.get(f"{prefix}_LAUNCH")
@@ -135,22 +178,40 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
         group = min(sorted(near, key=newest, reverse=True), key=distance) if near else None
         match = "similar" if group else "none"
 
+    memory = None
     if group:
         best = _per_node(group)
         options = _options(best, cores)
+        # G7: a hybrid's exchange integrals must fit in each rank's memory
+        hfx = _hfx_info(group) if match == "exact" else None
+        node_mib = _node_mib(facility, partition) if hfx else None
+        if hfx:
+            for o in options:
+                o["memory"] = _memory_at(hfx, o["nodes"], best[o["nodes"]]["ranks_per_node"], node_mib)
+            fit = [o for o in options if o["memory"]["fits"] is not False]
+            if nodes is None and fit and len(fit) < len(options):
+                skipped = [o["nodes"] for o in options if o["memory"]["fits"] is False]
+                warnings.append(f"memory: {skipped} node(s) would not hold this hybrid's exchange "
+                                f"integrals ({hfx['eri_total_mib']} MiB in all); chose among the rest")
+                options_for_choice = fit
+            else:
+                options_for_choice = options
+        else:
+            options_for_choice = options
         if nodes is not None:
             n = min(best, key=lambda k: (abs(k - nodes), k))
             if n != nodes:
                 warnings.append(f"no timing on {nodes} node(s); layout taken from {n} node(s), no estimate")
         elif optimize == "cost":
-            n = min(options, key=lambda o: (o["core_hours_per_unit"], o["nodes"]))["nodes"]
+            n = min(options_for_choice, key=lambda o: (o["core_hours_per_unit"], o["nodes"]))["nodes"]
         else:
             if 1 not in best:
                 warnings.append("no 1-node timing, so efficiency is unknown; chose by cost instead")
-                n = min(options, key=lambda o: (o["core_hours_per_unit"], o["nodes"]))["nodes"]
+                n = min(options_for_choice, key=lambda o: (o["core_hours_per_unit"], o["nodes"]))["nodes"]
             else:
-                ok = [o for o in options if o["efficiency"] >= MIN_EFFICIENCY]
-                n = min(ok, key=lambda o: o["value"])["nodes"]
+                ok = [o for o in options_for_choice
+                      if o["efficiency"] is not None and o["efficiency"] >= MIN_EFFICIENCY]
+                n = min(ok or options_for_choice, key=lambda o: o["value"])["nodes"]
         chosen = best[n]
         R, T = chosen["ranks_per_node"], chosen["threads_per_rank"]
         nodes = nodes or n
@@ -167,6 +228,36 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
             warnings.append(f"timing measured with {chosen['build_id']}, plan uses {build['build_id']}"
                             + ("" if str(chosen["version"]) == str(build["version"]) else
                                " (a different version: time may differ)"))
+        if hfx:
+            m = _memory_at(hfx, nodes, R, node_mib)
+            headroom = (m["limit_mib_per_rank"] - hfx["base_mib_per_rank"]
+                        if m["limit_mib_per_rank"] else None)
+            want = math.ceil(m["eri_per_rank_mib"] * 1.2 / 100) * 100
+            memory = {**m, "eri_total_mib": hfx["eri_total_mib"], "record_id": hfx["record_id"],
+                      "rough": True,
+                      # CP2K's HFX MAX_MEMORY per rank (cp2k_make_input hfx.memory_mb):
+                      # the ERIs plus 20 %, never past what the rank can spare
+                      "suggested_hfx_memory_mb": (int(min(want, headroom)) if headroom and headroom > 0
+                                                  else want)}
+            if m["fits"] is False:
+                warnings.append(f"memory: at {nodes} node(s) x {R} ranks each rank needs about "
+                                f"{m['est_peak_mib_per_rank']} MiB (exchange integrals "
+                                f"{m['eri_per_rank_mib']} MiB/rank) but can use about "
+                                f"{m['limit_mib_per_rank']} MiB: use more nodes, or expect an "
+                                "out-of-memory kill")
+            if hfx_memory_mb is not None and m["eri_per_rank_mib"] > hfx_memory_mb:
+                warnings.append(f"memory: the exchange integrals need about {m['eri_per_rank_mib']} "
+                                f"MiB per rank at this layout but HFX MAX_MEMORY is {hfx_memory_mb}: "
+                                "CP2K computes the rest on the fly, so each step costs more than "
+                                f"the estimate; set hfx memory_mb to {memory['suggested_hfx_memory_mb']} "
+                                "or use more nodes")
+            if node_mib is None:
+                warnings.append(f"memory: no memory_per_node_gib for partition {partition} in "
+                                f"{facility}'s facts, so only the HFX MAX_MEMORY check ran")
+        elif group and match == "exact" and chosen["method"].get("hybrid"):
+            warnings.append("memory: this hybrid timing has no recorded HFX memory "
+                            "(hfx_eri_mib, peak_mib_per_rank), so the memory check was skipped; "
+                            "record hybrid runs with cp2k_record_from_run")
         estimate = None
         if nodes == n:
             v = chosen["metric"]["value"]
@@ -218,4 +309,5 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
                 "attributes": {"queue_name": partition} if partition else {}}
     return {"build": {k: build.get(k) for k in ("build_id", "version", "env_script", "data_dir")},
             "layout": {"nodes": nodes, "ranks_per_node": R, "threads_per_rank": T},
-            "basis": basis, "job_spec": job_spec, "estimate": estimate, "warnings": warnings}
+            "basis": basis, "job_spec": job_spec, "estimate": estimate, "memory": memory,
+            "warnings": warnings}

@@ -102,8 +102,12 @@ For the hybrids (ADMM, 25 % exact exchange):
   price; a 456-atom HSE06 run on {{DISPLAY_NAME}} ran out of time that way.
   `screen_on_initial_p` follows: on with a restart, off from scratch;
 - expect 5–20× the GGA cost per step. Set `hfx={"memory_mb": ...}` (MiB
-  per MPI rank, default 3000) from the node's memory per rank; the output's
-  `HFX_MEM_INFO` lines show whether the integrals fit. Run a short test
+  per MPI rank, default 3000) from `launch_plan`'s
+  `memory.suggested_hfx_memory_mb` when the same system and functional
+  were recorded (call `launch_plan` with `method={"functional": ...}` before
+  writing the input); otherwise from the node's memory per rank. The output's
+  `HFX_MEM_INFO` lines (`cp2k_parse_output`'s `cost.hfx`) show whether the
+  integrals fit. Run a short test
   job first to measure both;
 - convergence tests vary one setting at a time inside one hybrid-matched
   family. The reference for the ADMM basis is a run **without** ADMM: an
@@ -170,6 +174,15 @@ what `basis` says:
 - `match: "similar"`: a system of about this size; the time is rough.
 - `match: "none"`: a common layout with no estimate. Suggest
   `{{SLUG}}-cp2k-benchmark` first if many single points will run.
+
+For a hybrid, pass `method={"functional": ...}` and
+`hfx_memory_mb=<the input's hfx.memory_mb>`. `memory` then shows the
+exchange integrals per rank and the estimated peak per rank against the
+rank's share of node memory. A node count that wouldn't fit is not chosen.
+Read any `memory:` warning to the user: an out-of-memory risk at a fixed
+node count, or a MAX_MEMORY too small, so CP2K recomputes integrals and the
+estimate is too low. A hybrid record without memory skips the check. Record
+hybrid runs with `cp2k_record_from_run`, which keeps their memory.
 
 Read `warnings` out too (e.g. the timing came from another build).
 `optimize="time"` buys wall time with more nodes, `nodes=<n>` fixes the
