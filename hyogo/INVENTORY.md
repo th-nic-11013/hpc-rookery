@@ -61,6 +61,7 @@ was agreed), `candidate` (seen, not yet planned).
 |---|---|---|---|---|---|---|---|
 | `cp2k_make_subsys` | any | input | cp2k | `hyogo/cp2k/subsys.py` | live | `codes/common/structure-making/cp2k/make_subsys.py` | split of `make_subsys.py`: kinds and data files → rookery `cp2k_kinds`, checks → yagura `structure_check`, `&SUBSYS` writing → here |
 | `cp2k_make_input` | any | input | cp2k | `hyogo/cp2k/input.py` | live | `codes/cp2k/*/templates/`, UiO-66 `make_inputs.sh` | templates and UiO-66 functional presets as one tool; includes the HFX radius check |
+| `cp2k_parse_output` | any | parse | cp2k | `hyogo/cp2k/output.py` | live | hand greps of HOKUSAI UiO-66 outputs (sp, cell_opt); patterns shared with `hpc_codes/cp2k/parse_bench.py` | G15: reads a local .out (fs_download first) into run-control facts (finished, SCF/opt convergence and criteria, walltime stop), printed results (energy, gap, forces, stress, final cell) and cost facts (timers, peak and HFX memory); writes nothing. Turning cost into a benchmark record stays rookery's |
 | `cp2k_restart_md` | md | restart | cp2k | `hyogo/cp2k/restart.py` | candidate | `codes/cp2k/aimd/SKILL.md` (24-hour restarts) | |
 
 Changes to a live tool (not new rows): `aux_basis` per kind in

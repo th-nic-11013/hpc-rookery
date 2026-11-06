@@ -17,6 +17,10 @@ RUN_TYPES = {  # run_type: (RUN_TYPE, default project, walltime margin in s, tem
     "md_nvt": ("MD", "md", 900, "aimd_nvt.inp"),
 }
 DEFAULT_DURATION = {"geo_opt": "12:00:00", "cell_opt": "12:00:00", "md_nvt": "24:00:00"}
+# Stress (and its Pulay error) needs a finer grid than the energy does, so a
+# cell_opt below this CUTOFF gets a warning. The user's production PBE, HSE06
+# and r2SCAN cell optimisations of UiO-66 run at CUTOFF 1000 / REL_CUTOFF 60 Ry.
+CELL_OPT_STRESS_CUTOFF = 800
 
 # &XC_FUNCTIONAL body per preset; ${HFX_RADIUS} is filled by @SET
 _XC = {
@@ -293,8 +297,10 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
         if _seconds(duration) <= margin:
             raise ValueError(f"duration {duration} leaves no time after the {margin} s margin")
         sets["WALLTIME"] = _seconds(duration) - margin
-    if run_type == "cell_opt":
-        warnings.append(f"stress converges slowly with CUTOFF ({cutoff} Ry): check it before "
+    if run_type == "cell_opt" and cutoff < CELL_OPT_STRESS_CUTOFF:
+        warnings.append(f"CUTOFF {cutoff} Ry is below {CELL_OPT_STRESS_CUTOFF} Ry: stress converges "
+                        "more slowly with CUTOFF than the energy (Pulay stress), so converge the "
+                        f"stress against CUTOFF or use >= {CELL_OPT_STRESS_CUTOFF} Ry before "
                         "trusting the cell")
     if stress and run_type != "sp":
         raise ValueError("stress is for sp; cell_opt computes it anyway")

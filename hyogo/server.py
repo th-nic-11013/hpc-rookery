@@ -7,7 +7,7 @@ rookery's fs_upload / fs_download.
 import argparse
 from pathlib import Path
 
-from hyogo.cp2k import input as cp2k_input, subsys
+from hyogo.cp2k import input as cp2k_input, output as cp2k_output, subsys
 from hyogo.mcp_server import MCPServer
 
 mcp = MCPServer("hyogo-mcp")
@@ -168,6 +168,44 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
         raise ValueError(f"{dst} exists; pass overwrite=true to replace it")
     dst.write_text(text)
     return {"out": str(dst), **info}
+
+
+@mcp.tool()
+def cp2k_parse_output(out_path: str) -> dict:
+    """Read a CP2K output (.out) on this machine: did the run finish and
+    converge, what did it print, and what did it cost. Writes nothing.
+    Use it instead of grepping an output.
+
+    Before it: get_job_status (completed, or to see a killed job), then
+    fs_download the .out from the run folder.
+
+    Values are the last ones printed (the final step of an optimisation),
+    null when the output doesn't print them: single points print no cell,
+    and an optimisation prints forces and stress only if asked to.
+
+    Returns {"path", "version", "project", "run_type", "finished",
+    "natoms", "electrons", "scf": {evaluations, not_converged, steps,
+    outer}, "energy_ha", "gap_ev", "forces": {max, rms, max_atom} (Ha/bohr),
+    "stress_gpa": {tensor, third_trace}, "cell": {a, b, c, alpha, beta,
+    gamma, volume} (A, degrees, A^3), "opt": {converged, steps,
+    max_iter_hit, criteria: {max_step, rms_step, max_gradient,
+    rms_gradient, pressure_dev_bar: {value, limit, converged}},
+    internal_pressure_bar, energy_ha}, "md": {steps, s_per_step}, "cost":
+    {cp2k_s, peak_mib, top_timers, hfx: {eri_ram_mib, eri_disk_mib,
+    on_the_fly, max_program_mib}}, "warnings"}. Read the warnings to the
+    user: an unfinished output, unconverged SCF, an optimisation stopped
+    by WALLTIME (continue it with @SET RESTART 1) or MAX_ITER, and CP2K's
+    own warnings. For a benchmark record, pass `cost` and the timing to
+    records_append.
+
+    Args:
+        out_path: the CP2K output on this machine; ~ is expanded.
+    """
+    src = Path(out_path).expanduser()
+    if not src.is_file():
+        raise ValueError(f"{src} is not a file on this machine. For an output on a "
+                         "cluster, download it first (fs_download).")
+    return {"path": str(src), **cp2k_output.parse(src.read_text(errors="replace"))}
 
 
 def main():
