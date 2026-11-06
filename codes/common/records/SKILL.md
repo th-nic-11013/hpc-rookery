@@ -17,8 +17,8 @@ behind the same tool names; skills will not change.
   (shipped with the server) and the user's own (on this computer).
 - **Writes:** append only. A record is never edited or removed; a correction
   is a new record whose `supersedes` names the old id.
-- **Tools:** `records_query`, `records_append`, `records_check` (server
-  `hpc-codes`), each with `facility="{{SLUG}}"`. They work on local files
+- **Tools:** `records_query`, `records_append`, `records_check`,
+  `cp2k_record_from_run` (server `hpc-codes`), each with `facility="{{SLUG}}"`. They work on local files
   and never contact the cluster.
 - **Preconditions:** the `hpc-codes` server is connected. If the tools are
   missing, say so; don't read or write the record files by hand.
@@ -73,8 +73,11 @@ records_append(facility="{{SLUG}}", record_type="benchmarks", record={...})
   on update.
 - Keep the scheduler job ID in the user's `benchmarks` record (`job_id`) or
   in `benchmarks_provenance`.
-- CP2K benchmark runs need no hand-written records: `cp2k_bench_records`
-  builds them (see the cp2k-benchmark skill).
+- CP2K runs need no hand-written records: `cp2k_bench_records` builds them
+  for benchmark jobs (see the cp2k-benchmark skill), and
+  `cp2k_record_from_run` for a production run (single point, optimisation,
+  MD segment) from a `cp2k_parse_output` result and `like` = a record of
+  the same system and method.
 - Use stable ids. For a benchmark:
   `<facility>-<code>-<date>-<system>-<run type>-<nodes>n-<R>x<T>`, e.g.
   `{{SLUG}}-cp2k-2026-10-22-uio66conv-aimdstep-2n-16x7`.

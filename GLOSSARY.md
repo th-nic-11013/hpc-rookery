@@ -28,3 +28,4 @@
 - **Band groups (VASP)** — the MPI ranks split into teams that each work on a share of the bands: ranks / (KPAR × NCORE). VASP silently rounds NBANDS up to a multiple of it, so a new NCORE can change the band count; `vasp_make_incar` checks it.
 - **Constrain-then-release** — a short VASP pre-run with the total moment fixed (NUPDOWN), whose wavefunction (WAVECAR) starts a second run with the moment free: it steers the SCF into a spin state without biasing the final result.
 - **NUL hole** — a run of zero bytes left in a file that was being written when the disk filled up; text tools may treat it as binary. `vasp_parse_output` strips and counts them, then checks every block is complete.
+- **Run chaining** — starting a CP2K run from a previous run's outputs (its final structure and its `-RESTART.wfn`); hyogo's `guess_from` does the wavefunction half and refuses one that can't fit.

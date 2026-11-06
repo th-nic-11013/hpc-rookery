@@ -326,7 +326,7 @@ class JobStatus(BaseModel):
     time: float | None = Field(None, description="Epoch seconds: end_time if finished, start_time if running")
     message: str | None = Field(None, description="Human-readable status (queue reason, error, etc.)")
     exit_code: int | None = None
-    meta_data: dict | None = Field(None, description="Scheduler-specific fields: native_state, partition, nodes, workdir, elapsed, etc.")
+    meta_data: dict | None = Field(None, description="Scheduler-specific fields: native_state, partition, nodes, workdir, elapsed, expected_start (Slurm: estimated start of a waiting job, when the scheduler has one), etc.")
 
 
 class Job(BaseModel):

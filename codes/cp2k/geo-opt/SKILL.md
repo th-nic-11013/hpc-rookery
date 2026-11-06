@@ -13,14 +13,17 @@ submitting.
 
 - **Reads:** `benchmarks` (layout and step time) and `software_registry`,
   through `launch_plan`.
-- **Writes:** no records. It writes the optimised geometry
+- **Writes:** one `benchmarks` record per run (`cp2k_record_from_run`).
+  It writes the optimised geometry
   (`-FINAL-1_<step>.xyz` / `.cif`) and the restart files.
-- **Tools:** `cp2k_make_input` (the hyogo server, writes the input),
+- **Tools:** `cp2k_make_input` (the hyogo server, writes the input;
+  `guess_from` chains the next run),
   `launch_plan` (layout, job spec, cost), `fs_upload`,
   `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `fs_tail` / `fs_view`, `fs_download`
   (output and final frame), `cp2k_parse_output` (the hyogo server, reads
-  the output), `structure_check` (the yagura server).
+  the output), `cp2k_record_from_run` (the timing record),
+  `structure_check` (the yagura server).
 - **Preconditions:** the prerequisites below, and the user's approval of
   the input and the cost.
 - **Done when:** `GEOMETRY OPTIMIZATION COMPLETED`, and the final frame
@@ -141,6 +144,8 @@ step's. Its `warnings` say which case applies:
   setup if the energy is not going down.
 - not `finished`: still running, or killed (`get_job_status`).
 
+Record the timing (it is what `launch_plan` sizes the next run from): `cp2k_record_from_run` with the whole parse result as `parsed`, `nodes`, `job_id`, and `like` = a `benchmarks` id of the same system and method (`records_query`), overriding what differs with `method={...}` (e.g. `{"functional": "PBE0"}`). Use `dry_run: true` first to show the user the record. Don't type a record by hand ({{SLUG}}-records). A run stopped by the walltime is still a valid per-step time; record each segment.
+
 By hand, if the hyogo server isn't available:
 
 | in the `.out` | meaning |
@@ -166,6 +171,26 @@ Energy rising for several steps in a row, or a gradient that oscillates,
 usually means a noisy SCF: tighten `EPS_SCF` to `1.0E-7`, or switch to
 `CG`. Before handing the optimised structure to AIMD, download the final
 frame and run `structure_check` on it (`{{SLUG}}-structure-making`).
+
+### Use the result in the next run
+
+A follow-up (a single point or another functional on the relaxed cell, or
+AIMD) takes the structure and the wavefunction from this run. Don't type
+either file name:
+
+1. `cp2k_parse_output` on this run's output gives `files`. These are names
+   inside the run folder: `final_xyz` (as CP2K named it; extended xyz with
+   the cell), `wfn` and `restart`.
+2. `fs_download <run folder>/<files.final_xyz>`, then `structure_check`.
+   Then `cp2k_kinds` and `cp2k_make_subsys` for the new run, in a new
+   folder beside this one.
+3. `cp2k_make_input(..., guess_from=<the parse result>,
+   guess_dir="../<this run's folder>")`. It refuses a wavefunction from
+   other atoms, electrons, basis or potential files: a different basis
+   family needs a guess run instead (`purpose="guess"`, single-point
+   skill). It warns if this run didn't finish or converge.
+4. `fs_upload`, then `cp2k_check_input`: its `files` confirm the
+   wavefunction exists on the cluster.
 
 ## 4. Restart
 
