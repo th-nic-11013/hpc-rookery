@@ -3434,6 +3434,201 @@ def check_repo() -> None:
                 else:
                     raise AssertionError(f"cp2k_parse_output accepted {args}")
 
+    def hyogo_vasp_tools_match_the_campaign_scripts():
+        """hyogo's vasp_make_incar writes the settings the MXene campaign's
+        make_magmom_test2.py wrote (tests/fixtures/vasp_inputs/README.md) and
+        refuses the mistakes that cost runs (MAGMOM count, ISPIN 1, NBANDS
+        vs band groups); vasp_parse_output reads two real VASP 6.4.3 runs
+        (tests/fixtures/vasp_outputs/README.md) with the values read by
+        hand, flags the NELM one as not converged, and survives NUL holes
+        and a cut file."""
+        import gzip
+        import shutil
+        from hyogo import server as hsrv
+        from hyogo.vasp.incar import parse as incar_parse
+        root = pathlib.Path(__file__).resolve().parent.parent
+        fi = root / "tests" / "fixtures" / "vasp_inputs"
+        fo = root / "tests" / "fixtures" / "vasp_outputs"
+        settings_of = lambda p: {k: v for k, v in incar_parse(pathlib.Path(p).read_text()).items()
+                                 if k != "SYSTEM"}
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            shutil.copy(fi / "POSCAR", d / "POSCAR")
+            base, poscar = str(fi / "INCAR.label"), str(d / "POSCAR")
+            lay = {"ranks": 48, "ncore": 12}
+            # --- the three cases of the campaign script, setting for setting
+            (d / "rel").mkdir()
+            r = hsrv.vasp_make_incar(poscar, base, settings={"NELM": 300, "LORBIT": 10},
+                                     magmom={"Cr": 3.0}, parallel=lay, nbands=660,
+                                     pre={"nupdown": 64}, out_path=str(d / "rel" / "INCAR"))
+            assert settings_of(r["out"]) == settings_of(fi / "expected_rel.INCAR"), r["changed"]
+            assert settings_of(r["pre_out"]) == settings_of(fi / "expected_rel.INCAR.pre"), r["pre"]
+            assert r["magmom"] == "1*0 2*3 7*0" and r["total_magmom"] == 6 and r["band_groups"] == 4, r
+            assert any("ISTART 1" in w for w in r["warnings"]), r["warnings"]
+            r = hsrv.vasp_make_incar(poscar, base, settings={"NELM": 300, "LORBIT": 10},
+                                     magmom={"Cr": 2.5}, nupdown=60, parallel=lay, nbands=660,
+                                     out_path=str(d / "nup.INCAR"))
+            assert settings_of(r["out"]) == settings_of(fi / "expected_nup.INCAR"), r["changed"]
+            assert any("fixes the total moment" in w for w in r["warnings"]), r["warnings"]
+            damped = {"AMIX": 0.2, "BMIX": 1.0, "AMIN": 0.01, "AMIX_MAG": 0.4, "BMIX_MAG": 1.0}
+            r = hsrv.vasp_make_incar(poscar, base, settings={"NELM": 300, "LORBIT": 10, **damped},
+                                     magmom={"Cr": 1.5}, parallel=lay, nbands=660,
+                                     out_path=str(d / "damp.INCAR"))
+            assert settings_of(r["out"]) == settings_of(fi / "expected_damp.INCAR"), r["changed"]
+            assert not r["warnings"], r["warnings"]
+            # a flipped site, a removed key, NBANDS from an OUTCAR, unpinned NBANDS
+            r = hsrv.vasp_make_incar(poscar, base, magmom={"Cr": 3}, magmom_sites={"3": -3},
+                                     settings={"LORBIT": None}, nbands_from=str(fo / "cr-nup6" / "OUTCAR.gz"),
+                                     parallel={"ranks": 48, "ncore": 4}, out_path=str(d / "flip.INCAR"))
+            assert r["magmom"] == "1*0 1*3 1*-3 7*0" and r["nbands"] == 24, r
+            assert "LORBIT" not in settings_of(r["out"]), r["changed"]
+            assert any("LORBIT < 10" in w for w in r["warnings"]), r["warnings"]
+            r = hsrv.vasp_make_incar(poscar, base, magmom={"Cr": 3}, parallel=lay,
+                                     out_path=str(d / "free.INCAR"))
+            assert any("NBANDS is not pinned" in w for w in r["warnings"]), r["warnings"]
+            # --- refusals
+            for kw, text in (
+                    ({}, "MAGMOM has 252 values, the POSCAR 10 atoms"),     # the label's own MAGMOM
+                    ({"magmom": {"Fe": 2}}, "not in the POSCAR species"),
+                    ({"magmom": {"Cr": 3}, "settings": {"ISPIN": 1}}, "ISPIN 1"),
+                    ({"magmom": {"Cr": 3}, "parallel": lay, "nbands": 661}, "silently run 664"),
+                    ({"magmom": {"Cr": 3}, "parallel": {"ranks": 48, "ncore": 5}}, "don't divide"),
+                    ({"magmom": {"Cr": 3}, "settings": {"NBANDS": 600}}, "own argument"),
+                    ({"magmom": {"Cr": 3}, "nupdown": 6, "pre": {"nupdown": 6}}, "don't also fix"),
+                    ({"magmom": {"Cr": 3}, "pre": {"ediff": 1e-4}}, "pre needs nupdown"),
+                    ({"magmom": {"Cr": 3}, "magmom_sites": {"11": 1}}, "outside 1..10"),
+                    ({"magmom": {"Cr": 3}, "out_path": str(d / "nup.INCAR")}, "exists")):
+                kw = {"out_path": str(d / "x.INCAR"), **kw}
+                try:
+                    hsrv.vasp_make_incar(poscar, base, **kw)
+                except ValueError as e:
+                    assert text in str(e), (text, e)
+                else:
+                    raise AssertionError(f"vasp_make_incar accepted {kw}")
+            assert not (d / "x.INCAR").exists()
+
+            # --- parser: values read by hand from the two OUTCARs (2026-11-06)
+            want = {"cr-nup6": dict(conv=True, steps=[24], toten=-5.44335354, ef=-41.7336,
+                                    kb=[-0.04116, -0.0413, -0.04201, -0.0, -0.0, 0.0],
+                                    f=(-0.000016, -0.000003, -0.000002), el=49.694,
+                                    mem=419168, nbands=24, mag=6.0, nup=6.0),
+                    "cr-nup4": dict(conv=False, steps=[300], toten=-4.20528085, ef=-3.6758,
+                                    kb=[-0.42993, -0.84994, -1.59425, -0.33317, 0.02587, 0.05318],
+                                    f=(0.000211, -0.000127, -0.000053), el=548.791,
+                                    mem=479184, nbands=12, mag=4.0, nup=4.0)}
+            for name, w in want.items():
+                r = hsrv.vasp_parse_output(str(fo / name / "OUTCAR.gz"))
+                assert r["oszicar_path"] and r["poscar_path"], r
+                assert r["version"] == "6.4.3" and r["flavour"] == "gamma-only", r["version"]
+                assert r["finished"] and r["converged"] is w["conv"], (name, r["converged"])
+                assert r["natoms"] == 1 and r["species"] == [["Cr", 1]], r["species"]
+                assert r["scf"]["steps"] == w["steps"] and r["scf"]["nelm"] == 300, r["scf"]
+                assert r["scf"]["nelm_hit"] == (0 if w["conv"] else 1), r["scf"]
+                assert r["energy"]["toten"] == w["toten"] and r["e_fermi"] == w["ef"], r["energy"]
+                assert r["stress_kb"]["xx_yy_zz_xy_yz_zx"] == w["kb"], r["stress_kb"]
+                fmax = sum(x * x for x in w["f"]) ** 0.5
+                assert abs(r["forces"]["max"] - fmax) < 1e-12 and r["forces"]["complete"], r["forces"]
+                assert r["cost"]["elapsed_s"] == w["el"] and r["cost"]["max_memory_mb"] == w["mem"] / 1024
+                assert r["params"]["NBANDS"] == w["nbands"] and r["params"]["NUPDOWN"] == w["nup"], r["params"]
+                assert r["layout"] == {"ranks": 48, "nodes": 1, "threads": 1, "kpar": 1, "ncore": 4,
+                                       "band_groups": 12}, r["layout"]
+                assert r["magnetization"]["total"] == w["mag"] and r["magnetization"]["source"] == "OSZICAR"
+                assert r["oszicar"]["F"] == round(w["toten"], 6) or abs(r["oszicar"]["F"] - w["toten"]) < 1e-6
+                assert any("LORBIT >= 10" in x for x in r["warnings"]), r["warnings"]
+                assert [m["kind"] for m in r["messages"]] == (["advice"] if w["conv"] else ["advice", "warning"])
+                nelm_warn = [x for x in r["warnings"] if "NELM" in x]
+                assert len(nelm_warn) == (0 if w["conv"] else 1), r["warnings"]
+            # damaged copies of the converged run
+            text = gzip.decompress((fo / "cr-nup6" / "OUTCAR.gz").read_bytes())
+            lines = text.split(b"\n")
+            i = next(k for k, l in enumerate(lines) if b"TOTAL-FORCE" in l)
+            (d / "cut").mkdir()
+            (d / "cut" / "OUTCAR").write_bytes(b"\n".join(lines[:i + 2]) + b"\n")
+            p = hsrv.vasp_parse_output(str(d / "cut" / "OUTCAR"))
+            assert not p["finished"] and not p["converged"] and p["forces"] is None, p["forces"]
+            assert any("General timing" in x for x in p["warnings"]), p["warnings"]
+            # a NUL hole over the header (atoms, species), POSCAR beside it
+            (d / "nul").mkdir()
+            j = next(k for k, l in enumerate(lines) if b"ions per type" in l)
+            holed = b"\n".join(lines[:j - 30]) + b"\x00" * 4096 + b"\n".join(lines[j + 5:])
+            holed = holed.replace(b"NIONS =", b"\x00" * 7)
+            (d / "nul" / "OUTCAR").write_bytes(holed)
+            shutil.copy(fo / "cr-nup6" / "POSCAR", d / "nul" / "POSCAR")
+            p = hsrv.vasp_parse_output(str(d / "nul" / "OUTCAR"))
+            assert p["nul_bytes"] >= 4096 and p["natoms"] == 1 and p["converged"], (p["natoms"], p["warnings"])
+            assert any("NUL bytes stripped" in x for x in p["warnings"]), p["warnings"]
+            assert any("taken from the POSCAR" in x for x in p["warnings"]), p["warnings"]
+            # an OSZICAR from another run
+            shutil.copy(fo / "cr-nup4" / "OSZICAR", d / "cut" / "OSZICAR")
+            shutil.copy(fo / "cr-nup6" / "OUTCAR.gz", d / "cut" / "OUTCAR.gz")
+            p = hsrv.vasp_parse_output(str(d / "cut" / "OUTCAR.gz"))
+            assert any("different runs" in x for x in p["warnings"]), p["warnings"]
+            for args, text in (((str(d / "missing" / "OUTCAR"),), "fs_download"),
+                               ((str(fi / "INCAR.label"),), "not a VASP OUTCAR")):
+                try:
+                    hsrv.vasp_parse_output(*args)
+                except ValueError as e:
+                    assert text in str(e), e
+                else:
+                    raise AssertionError(f"vasp_parse_output accepted {args}")
+
+    def hyogo_checks_incars_through_lit_search():
+        """vasp_make_incar and vasp_check_incar hand the INCAR to lit-search
+        (`reference check VASP FILE --json`) as a separate program, pass
+        --library and --vasp-version through, turn its findings into
+        warnings, and say so, without failing, when lit-search is absent or
+        not set up. A stand-in lit-search keeps this test independent of it."""
+        import os
+        import shutil
+        from hyogo import server as hsrv
+        root = pathlib.Path(__file__).resolve().parent.parent
+        fi = root / "tests" / "fixtures" / "vasp_inputs"
+        keep = {k: os.environ.get(k) for k in ("HYOGO_LITSEARCH", "HYOGO_LITSEARCH_LIBRARY", "PATH")}
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            shutil.copy(fi / "POSCAR", d / "POSCAR")
+            stub = d / "lit-search"
+            stub.write_text(f"#!{sys.executable}\n" + """import json, sys
+a = sys.argv[1:]
+open(sys.argv[0] + ".args", "a").write(" ".join(a) + "\\n")
+if "--library" in a and a[a.index("--library") + 1].endswith("unset"):
+    print("no VASP reference: run `lit-search reference set VASP ...`"); sys.exit(2)
+bad = [{"line": n, "tag": l.split("=")[0].strip(), "value": l.split("=")[1].strip(),
+        "level": "error", "message": "not an INCAR tag in the reference"}
+       for n, l in enumerate(open(a[a.index("VASP") + 1]), 1) if l.startswith("ENCUTT")]
+print(json.dumps(bad)); sys.exit(1 if bad else 0)
+""")
+            stub.chmod(0o755)
+            try:
+                os.environ["PATH"] = str(d / "empty")       # no lit-search on PATH
+                os.environ.pop("HYOGO_LITSEARCH", None)
+                os.environ.pop("HYOGO_LITSEARCH_LIBRARY", None)
+                r = hsrv.vasp_check_incar(str(fi / "expected_rel.INCAR"))
+                assert not r["ran"] and "HYOGO_LITSEARCH" in r["why"], r
+                os.environ["HYOGO_LITSEARCH"] = str(stub)
+                os.environ["HYOGO_LITSEARCH_LIBRARY"] = str(d / "lib")
+                r = hsrv.vasp_make_incar(str(d / "POSCAR"), str(fi / "INCAR.label"),
+                                         settings={"ENCUTT": 400}, magmom={"Cr": 3.0},
+                                         pre={"nupdown": 6}, vasp_version="6.4.3",
+                                         out_path=str(d / "INCAR"))
+                assert set(r["incar_check"]) == {"INCAR", "INCAR.pre"}, r["incar_check"]
+                assert all(c["ran"] and c["errors"] == 1 for c in r["incar_check"].values()), r
+                assert any(w.startswith("INCAR:") and "ENCUTT = 400" in w for w in r["warnings"]), r["warnings"]
+                calls = (d / "lit-search.args").read_text().splitlines()
+                assert calls[-1].startswith(f"--library {d / 'lib'} reference check VASP "), calls
+                assert calls[-1].endswith("--json --vasp-version 6.4.3"), calls
+                r = hsrv.vasp_check_incar(str(fi / "expected_rel.INCAR"), "6.4.3")
+                assert r["ran"] and r["findings"] == [] and r["errors"] == 0, r
+                os.environ["HYOGO_LITSEARCH_LIBRARY"] = str(d / "unset")
+                r = hsrv.vasp_check_incar(str(fi / "expected_rel.INCAR"))
+                assert not r["ran"] and "no VASP reference" in r["why"], r
+                r = hsrv.vasp_make_incar(str(d / "POSCAR"), str(fi / "INCAR.label"),
+                                         magmom={"Cr": 3.0}, out_path=str(d / "x.INCAR"))
+                assert not any("not checked" in w for w in r["warnings"]), r["warnings"]
+            finally:
+                for k, v in keep.items():
+                    os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
     def hyogo_chains_one_run_into_the_next():
         """G27: cp2k_parse_output names the files a follow-up run needs (the
         final xyz/cif CP2K printed, the wfn and restart), and cp2k_make_input
@@ -4326,6 +4521,8 @@ print(json.dumps(res))
     check("hyogo make_input matches the templates and UiO-66",
           hyogo_make_input_matches_the_templates_and_uio66)
     check("hyogo parse_output reads the HOKUSAI runs", hyogo_parse_output_reads_the_hokusai_runs)
+    check("hyogo VASP tools match the campaign scripts", hyogo_vasp_tools_match_the_campaign_scripts)
+    check("hyogo checks INCARs through lit-search", hyogo_checks_incars_through_lit_search)
     check("hyogo chains one run into the next (G27)", hyogo_chains_one_run_into_the_next)
     check("launch_plan checks hybrid memory (G7)", launch_plan_checks_hybrid_memory)
     check("cp2k_record_from_run records a parsed production run (G24)",
