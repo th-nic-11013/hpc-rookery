@@ -1,0 +1,36 @@
+# Activate MOLINFO functionalities
+MOLINFO STRUCTURE=diala.pdb
+# Definitions of the phi and psi CVs (residue 2 = ALA)
+phi: TORSION ATOMS=@phi-2
+psi: TORSION ATOMS=@psi-2
+# Activate well-tempered metadynamics in phi
+metad: METAD ARG=phi ...
+   # Deposit a Gaussian every 10000000 time steps (never!), with initial height equal to 0.0 kJ/mol
+   PACE=10000000 HEIGHT=0.0
+   # Same bias factor as in the production run
+   BIASFACTOR=8
+   # Same Gaussian width as in the production run
+   SIGMA=0.35
+   # Gaussians will be written to file and also stored on grid
+   FILE=HILLS GRID_MIN=-pi GRID_MAX=pi
+   # Say that METAD should be restarting (= reading an existing HILLS file)
+   RESTART=YES
+   # plumed driver has no thermostat, so well-tempered METAD needs the temperature here
+   TEMP=300
+...
+# Print out the values of phi, psi and the metadynamics bias potential
+# at every frame of the trajectory
+PRINT ARG=phi,psi,metad.bias FILE=COLVAR_REWEIGHT STRIDE=1
+
+# Use the metadynamics bias as argument
+as: REWEIGHT_BIAS ARG=metad.bias TEMP=300
+# Calculate histograms of phi and psi dihedrals every 50 steps
+# using the weights obtained from the metadynamics bias potentials (umbrella-sampling-like reweighting)
+hhphi: HISTOGRAM ARG=phi STRIDE=50 GRID_MIN=-pi GRID_MAX=pi GRID_BIN=50 BANDWIDTH=0.05 LOGWEIGHTS=as
+hhpsi: HISTOGRAM ARG=psi STRIDE=50 GRID_MIN=-pi GRID_MAX=pi GRID_BIN=50 BANDWIDTH=0.05 LOGWEIGHTS=as
+# Convert histograms h(s) to free energies F(s) = -kBT * log(h(s))
+ffphi: CONVERT_TO_FES GRID=hhphi TEMP=300
+ffpsi: CONVERT_TO_FES GRID=hhpsi TEMP=300
+# Print out the free energies F(s) to file once the entire trajectory is processed
+DUMPGRID GRID=ffphi FILE=ffphi.dat
+DUMPGRID GRID=ffpsi FILE=ffpsi.dat

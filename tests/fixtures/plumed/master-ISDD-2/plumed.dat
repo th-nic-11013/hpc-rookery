@@ -1,0 +1,21 @@
+# Activate MOLINFO functionalities
+MOLINFO STRUCTURE=diala.pdb
+# Compute the backbone dihedral angle phi, defined by atoms C-N-CA-C
+# (residue 2 = ALA: atoms 5-7-9-15)
+phi: TORSION ATOMS=@phi-2
+# Compute the backbone dihedral angle psi, defined by atoms N-CA-C-N
+# (residue 2 = ALA: atoms 7-9-15-17)
+psi: TORSION ATOMS=@psi-2
+# Activate well-tempered metadynamics in phi
+metad: METAD ARG=phi ...
+   # Deposit a Gaussian every 500 time steps, with initial height equal to 1.2 kJ/mol
+   PACE=500 HEIGHT=1.2
+   # The bias factor should be wisely chosen
+   BIASFACTOR=8
+   # Gaussian width (sigma) should be chosen based on CV fluctuation in unbiased run
+   SIGMA=0.35
+   # Gaussians will be written to file and also stored on grid
+   FILE=HILLS GRID_MIN=-pi GRID_MAX=pi
+...
+# Print both collective variables on COLVAR file every 10 steps
+PRINT ARG=phi,psi FILE=COLVAR STRIDE=10

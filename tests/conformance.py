@@ -3751,6 +3751,259 @@ def check_repo() -> None:
             g = server.launch_plan("hokusai", "cp2k", "aimd_step", uio)
             assert g["memory"] is None and not any("memory" in w for w in g["warnings"]), g
 
+    def hyogo_lammps_and_plumed_match_the_runs():
+        """lammps_make_input writes HOKUSAI's MLMD benchmark inputs (valid,
+        time) after expanding includes and variables; lammps_parse_log gives
+        parse_mlmd.py's numbers on two benchmark logs and reads the PLUMED
+        logs; plumed_make_input writes the smoke-test and masterclass PLUMED
+        inputs (differences named below); each refusal fires."""
+        import importlib.util
+        import re
+        from hyogo import server as hsrv
+        root = pathlib.Path(__file__).resolve().parent.parent
+        fx = root / "tests" / "fixtures"
+        bench = fx / "lammps" / "hokusai_bench"
+
+        def lnorm(path, var):
+            out = []
+            for line in pathlib.Path(path).read_text().splitlines():
+                s = line.split("#", 1)[0].strip()
+                if not s:
+                    continue
+                w = re.sub(r"\$\{(\w+)\}", lambda m: var[m.group(1)], s).split()
+                out += lnorm(w[1], var) if w[0] == "include" else [" ".join(w)]
+            return out
+
+        far = "/lustre/home/thnic123/software/mlip/2026.10/bench"
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            (d / "h2o-64.data").write_text("")
+            data = {"data": str(d / "h2o-64.data"), "elements": ["H", "O"],
+                    "atomic_numbers": [1, 8], "natoms": 192}
+            var = {"inputs": str(bench / "inputs"), "data": f"{far}/structures/h2o-64.data",
+                   "types": str(bench / "structures" / "h2o-64.types.in"),
+                   "model": f"{far}/models/mace-mp-0-medium-f32.pt", "seed": "4928459",
+                   "nnvt": "196", "nnve": "588", "nwarm": "10", "nsteps": "36"}
+            for mode, steps in (("valid", {"nvt": 196, "nve": 588}), ("time", {"warm": 10, "timed": 36})):
+                r = hsrv.lammps_make_input(data, var["model"], mode, steps, data_name=var["data"])
+                assert r["out"] == str(d / f"in.{mode}.lmp"), r
+                got, want = lnorm(r["out"], {}), lnorm(bench / "inputs" / f"md_{mode}.in", var)
+                assert got == want, (mode, [l for l in got if l not in want], [l for l in want if l not in got])
+            r = hsrv.lammps_make_input(data, var["model"], "nvt", {"run": 400000}, dump_every=50,
+                                       restart_every=20000, plumed_file="plumed.dat")
+            text = pathlib.Path(r["out"]).read_text()
+            for line in ("fix             plumed all plumed plumedfile plumed.dat outfile plumed.out",
+                         "dump_modify     traj element H O sort id", "write_restart   md.restart.final"):
+                assert line in text, line
+            assert r["simulated_ps"] == 200.0 and r["files"][-1] == "plumed.dat", r
+            r = hsrv.lammps_make_input(data, var["model"], "nvt", {"run": 10}, restart_from="md.restart.final",
+                                       out_path=str(d / "cont.lmp"))
+            text = pathlib.Path(r["out"]).read_text()
+            assert "read_restart    md.restart.final" in text and "velocity" not in text and "run             0" not in text
+            for kw, msg in ((dict(mode="nvt", steps={"run": 10}, timestep_fs=1.5), "hydrogen"),
+                            (dict(mode="valid", steps={"run": 10}), "steps for mode 'valid'"),
+                            (dict(mode="time", steps={"warm": 1, "timed": 2}, dump_every=5), "benchmark run"),
+                            (dict(mode="nvt", steps={"run": 10}, model="m.model"), ".pt"),
+                            (dict(mode="nvt", steps={"run": 10}, data={"data": "x"}), "structure_to_lammps_data"),
+                            (dict(mode="nvt", steps={"run": 10}), "exists"),
+                            (dict(mode="md", steps={"run": 10}), "mode is one of")):
+                args = {"data": data, "model": var["model"], **kw}
+                try:
+                    hsrv.lammps_make_input(**args)
+                except ValueError as e:
+                    assert msg in str(e), (msg, e)
+                else:
+                    raise AssertionError(f"lammps_make_input accepted {kw}")
+
+        spec = importlib.util.spec_from_file_location("parse_mlmd", bench / "parse_mlmd.py")
+        pm = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pm)
+        stage = bench / "runs" / "9619420" / "stage3"
+        for run in ("h2o-64_f32_1x56_valid_r1", "h2o-64_f32_1x56_time_r1"):
+            ref = pm.run_info(stage / run)
+            r = hsrv.lammps_parse_log(str(stage / run / "log.lammps"))
+            assert r["finished"] and r["natoms"] == ref["atoms"] == 192 and r["threads"] == 56, r
+            assert r["pe0"] == ref["pe0"] and abs(r["s_per_step"] - ref["t_step"]) < 1e-12, (r, ref)
+            assert abs(r["ns_per_day"] - ref["ns_day"]) < 1e-12, (r, ref)
+            if "valid" in run:
+                assert abs(r["T_tail_mean"] - ref["T_nvt"]) < 1e-9 and r["T_range"] == list(ref["T_range"])
+                assert abs(r["nve"]["nve_drift_meV_atom_ps"] - ref["drift"]) < 1e-12, (r["nve"], ref)
+                assert abs(r["nve"]["nve_fluct_meV_atom"] - ref["e_std"]) < 1e-12
+                assert abs(r["nve"]["nve_ps"] - ref["nve_ps"]) < 1e-12
+                assert [x["ensemble"] for x in r["runs"]] == ["none", "nvt", "nve"], r["runs"]
+            else:
+                assert r["nve"] is None and [x["ensemble"] for x in r["runs"]] == ["none", "nvt", "nvt"]
+        r = hsrv.lammps_parse_log(str(fx / "lammps" / "lugano-6a" / "log.lammps"))
+        assert r["finished"] and r["natoms"] == 1000 and r["ns_per_day"] is None, r  # lj units: no time
+        assert [(x["ensemble"], x["fixes"], x["target_T"]) for x in r["runs"]] == [("nvt", ["nvt", "plumed"], 1.0)]
+        r = hsrv.lammps_parse_log(str(fx / "lammps" / "hokusai_smoke" / "log.melt_plumed"))
+        assert r["finished"] and r["runs"][0]["fixes"] == ["nve", "plumed"], r
+        with tempfile.TemporaryDirectory() as d:
+            cut = pathlib.Path(d) / "log.lammps"
+            cut.write_text("".join((stage / "h2o-64_f32_1x56_valid_r1" / "log.lammps")
+                                   .read_text().splitlines(True)[:150]) + "ERROR: Lost atoms: original 192 current 190\n")
+            r = hsrv.lammps_parse_log(str(cut))
+            assert not r["finished"] and r["error"].startswith("ERROR: Lost atoms"), r
+            assert any("did not finish" in w for w in r["warnings"]), r["warnings"]
+
+        def pnorm(path):
+            """(label, action) and the set of KEY=VALUE per action, comments dropped,
+            '...' continuations joined, numbers compared as numbers."""
+            out, buf = [], None
+            for line in pathlib.Path(path).read_text().splitlines():
+                s = line.split("#", 1)[0].strip()
+                if not s:
+                    continue
+                if buf is not None:
+                    if s == "...":
+                        out.append(buf)
+                        buf = None
+                    else:
+                        buf += " " + s
+                elif s.endswith("..."):
+                    buf = s[:-3].strip()
+                else:
+                    out.append(s)
+
+            def tok(t):
+                k, _, v = t.partition("=")
+                try:
+                    return f"{k}={float(v)!r}"
+                except ValueError:
+                    return t
+            res = []
+            for s in out:
+                w = s.split()
+                head = (w.pop(0),) if w[0].endswith(":") else ()
+                res.append((head + (w.pop(0),), frozenset(tok(t) for t in w)))
+            return res
+
+        ca = [int(x) for x in re.search(r"GYRATION ATOMS=(\S+)", (fx / "plumed" / "master-ISDD-1" / "plumed.dat")
+                                        .read_text()).group(1).split(",")]
+        tors = [{"label": "phi", "type": "TORSION", "atoms": "@phi-2"},
+                {"label": "psi", "type": "TORSION", "atoms": "@psi-2"}]
+        metad = [{"label": "metad", "type": "METAD", "arg": "phi", "pace": 500, "height": 1.2,
+                  "biasfactor": 8, "sigma": 0.35, "grid_min": "-pi", "grid_max": "pi"}]
+        temp_added = (("metad:", "METAD"), "TEMP=300.0")
+        cases = (
+            (fx / "lammps" / "hokusai_smoke" / "plumed.dat",
+             dict(cvs=[{"label": "d", "type": "DISTANCE", "atoms": [1, 2]}],
+                  bias=[{"label": "r", "type": "RESTRAINT", "arg": "d", "at": 1.0, "kappa": 1.0}]), None, 0),
+            (fx / "plumed" / "master-ISDD-1" / "plumed.dat",
+             dict(cvs=[{"label": "r", "type": "GYRATION", "atoms": ca},
+                       {"label": "co", "type": "COORDINATION", "groupa": ca, "r_0": 0.80}], print_stride=1), None, 0),
+            # the masterclass ran GROMACS, which passes the temperature to PLUMED;
+            # LAMMPS does not, so the tool writes TEMP
+            (fx / "plumed" / "master-ISDD-2" / "plumed.dat",
+             dict(cvs=tors, bias=metad, molinfo="diala.pdb", temperature=300, print_args=["phi", "psi"]),
+             temp_added, 0),
+            # the reweighting input also histograms and writes F(s) in PLUMED (7 lines:
+            # REWEIGHT_BIAS, HISTOGRAM x2, CONVERT_TO_FES x2, DUMPGRID x2); here that
+            # step is yagura's colvar_fes, which adds block errors
+            (fx / "plumed" / "master-ISDD-2" / "plumed_reweight.dat",
+             dict(cvs=tors, bias=metad, molinfo="diala.pdb", temperature=300, mode="reweight"), None, 7))
+        with tempfile.TemporaryDirectory() as d:
+            for i, (ref, kw, added, dropped) in enumerate(cases):
+                r = hsrv.plumed_make_input(out_path=str(pathlib.Path(d) / f"p{i}.dat"), **kw)
+                got, want = pnorm(r["out"]), pnorm(ref)
+                if added:
+                    got = [(h, t - {added[1]}) if h == added[0] else (h, t) for h, t in got]
+                missing = [x for x in want if x not in got]
+                assert [x for x in got if x not in want] == [] and len(missing) == dropped, (ref, got, missing)
+            assert r["print"] == {"file": "COLVAR_REWEIGHT", "stride": 1, "args": ["phi", "psi", "metad.bias"]}
+            mr = {"label": "m", "type": "MOVINGRESTRAINT", "arg": "d", "step": [0, 50000, 100000],
+                  "at": [2.3, 4.5, 2.3], "kappa": [100, 100, 100]}
+            r = hsrv.plumed_make_input([{"label": "d", "type": "DISTANCE", "atoms": [1, 2]}],
+                                       str(pathlib.Path(d) / "mr.dat"), bias=[mr], units={"length": "A"})
+            assert "m: MOVINGRESTRAINT ARG=d AT0=2.3 KAPPA0=100 STEP0=0 AT1=4.5 KAPPA1=100 STEP1=50000" \
+                in pathlib.Path(r["out"]).read_text() and r["warnings"] == [], r
+            d1 = {"label": "d", "type": "DISTANCE", "atoms": [1, 2]}
+            for args, kw, msg in (
+                    (([{"label": "d", "type": "RMSD"}],), {}, "type is one of"),
+                    (([d1, d1],), {}, "used twice"),
+                    (([{"label": "d.x", "type": "DISTANCE", "atoms": [1, 2]}],), {}, "must start"),
+                    (([{"label": "d", "type": "DISTANCE", "atoms": [0, 2]}],), {}, "1-based"),
+                    (([{"label": "d", "type": "DISTANCE", "atoms": [1, 2, 3]}],), {}, "takes 2 atoms"),
+                    (([{"label": "d", "type": "DISTANCE", "atoms": [1, 9]}],), {"natoms": 4}, "beyond"),
+                    (([d1],), {"bias": [{"label": "b", "type": "RESTRAINT", "arg": "e", "at": 1, "kappa": 1}]}, "not a label"),
+                    (([d1],), {"bias": [{"label": "b", "type": "RESTRAINT", "arg": "d.x", "at": 1, "kappa": 1}]}, "no component"),
+                    (([d1],), {"bias": [{"label": "b", "type": "METAD", "arg": "d", "sigma": 0.1}]}, "missing"),
+                    (([d1],), {"bias": [{**metad[0], "arg": "d", "biasfactor": 1}]}, "biasfactor > 1"),
+                    (([d1],), {"bias": [{**metad[0], "arg": "d"}]}, "needs temperature"),
+                    (([d1],), {"mode": "reweight", "temperature": 300}, "exactly one METAD"),
+                    (([{"label": "t", "type": "TORSION", "atoms": "@phi-2"}],), {}, "needs molinfo")):
+                try:
+                    hsrv.plumed_make_input(*args, str(pathlib.Path(d) / "bad.dat"), **kw)
+                except ValueError as e:
+                    assert msg in str(e), (msg, e)
+                else:
+                    raise AssertionError(f"plumed_make_input accepted {args} {kw}")
+
+    def yagura_lammps_data_and_fes_match_the_scripts():
+        """structure_to_lammps_data writes, byte for byte, the .data, .types.in
+        and read-back .xyz that HOKUSAI's prep_structures.py wrote for the
+        UiO-66 primitive cell (needs ASE); colvar_fes writes what
+        do_block_fes.py writes, 1D unweighted and 2D bias-weighted."""
+        import numpy as np
+        from yagura import server as ysrv
+        root = pathlib.Path(__file__).resolve().parent.parent
+        st = root / "tests" / "fixtures" / "lammps" / "hokusai_bench" / "structures"
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            r = ysrv.structure_to_lammps_data(str(st / "uio66_prim_114.xyz"), str(d / "uio66-prim.data"))
+            for mine, theirs in (("uio66-prim.data", "uio66-prim.data"), ("uio66-prim.types.in", "uio66-prim.types.in"),
+                                 ("uio66-prim.lammps.xyz", "uio66-prim.xyz")):
+                assert (d / mine).read_bytes() == (st / theirs).read_bytes(), mine
+            assert r["elements"] == ["H", "C", "O", "Zr"] and r["pair_coeff"] == "pair_coeff * * 1 6 8 40", r
+            assert r["rotated"] and r["cell"]["triclinic"] and r["natoms"] == 114, r
+            r = ysrv.structure_to_lammps_data(str(st / "uio66_prim_114.xyz"), str(d / "s.data"),
+                                              specorder=["H", "C", "N", "O", "Zr"])
+            assert "pair_coeff * * 1 6 7 8 40" in (d / "s.types.in").read_text() and r["warnings"][0].startswith("specorder has ['N']")
+            for kw, msg in ((dict(out_path=str(d / "uio66-prim.data")), "exists"),
+                            (dict(out_path=str(d / "x.lmp")), "ends in .data"),
+                            (dict(out_path=str(d / "y.data"), specorder=["H", "C", "O"]), "lacks ['Zr']")):
+                try:
+                    ysrv.structure_to_lammps_data(str(st / "uio66_prim_114.xyz"), **kw)
+                except ValueError as e:
+                    assert msg in str(e), (msg, e)
+                else:
+                    raise AssertionError(f"structure_to_lammps_data accepted {kw}")
+
+            rng = np.random.default_rng(0)
+            n = 5000
+            phi = np.round(np.clip(rng.normal(-1.2, 0.5, n), -3.14, 3.14), 6)
+            psi = np.round(np.clip(rng.normal(2.0, 0.6, n), -3.14, 3.14), 6)
+            bias = np.round(rng.normal(5, 2, n), 6)
+            kbt = 0.0083144626 * 300
+            (d / "COLVAR").write_text("#! FIELDS time phi psi metad.bias\n" + "".join(
+                f"{i} {a:.6f} {b:.6f} {c:.6f}\n" for i, (a, b, c) in enumerate(zip(phi, psi, bias))))
+            w = np.exp(bias / kbt - np.max(bias / kbt))
+            (d / "one.dat").write_text("".join(f"{a:.6f}\n" for a in phi))
+            (d / "two.dat").write_text("".join(f"{a:.6f} {b:.6f} {float(c)!r}\n" for a, b, c in zip(phi, psi, w)))
+            script = root / "tests" / "fixtures" / "plumed" / "master-ISDD-2" / "do_block_fes.py"
+            g = ["-3.141593", "3.141593", "50"]
+            grid = [-3.141593, 3.141593, 50]
+            for name, argv, cvs, b in (("one", ["1", *g], ["phi"], None),
+                                       ("two", ["2", *g, *g], ["phi", "psi"], ["metad.bias"])):
+                subprocess.run([sys.executable, "-I", str(script), f"{name}.dat", *argv, repr(kbt), "500"],
+                               cwd=d, check=True, capture_output=True, timeout=120)
+                (d / "fes.500.dat").rename(d / f"ref-{name}.dat")
+                r = ysrv.colvar_fes(str(d / "COLVAR"), cvs, [grid] * len(cvs), 300, 500, bias=b,
+                                    out_path=str(d / f"mine-{name}.dat"))
+                assert (d / f"mine-{name}.dat").read_text() == (d / f"ref-{name}.dat").read_text(), name
+                assert r["nblocks"] == 10 and r["weights"] == ("bias" if b else "uniform"), r
+            for kw, msg in ((dict(cvs=["chi"], grid=[grid]), "not in the COLVAR"),
+                            (dict(cvs=["phi"], grid=[[-1, 1, 50]]), "outside the grid"),
+                            (dict(cvs=["phi"], grid=[grid], block_size=4000), "need at"),
+                            (dict(cvs=["phi"], grid=[grid], units="hartree"), "units is one of")):
+                try:
+                    ysrv.colvar_fes(str(d / "COLVAR"), **{"temperature": 300, "block_size": 500,
+                                                          "out_path": str(d / "bad.dat"), **kw})
+                except ValueError as e:
+                    assert msg in str(e), (msg, e)
+                else:
+                    raise AssertionError(f"colvar_fes accepted {kw}")
+
     def yagura_trajectory_analysis_matches_analytic_cases():
         """trajectory_rdf, _msd and _vdos on generated trajectories with known
         answers: uniformly random points (g = 1), a wrapped random walk (known
@@ -3901,9 +4154,10 @@ def check_repo() -> None:
                                  env={**os.environ, "HOME": home},
                                  capture_output=True, text=True, timeout=120)
         assert out.returncode == 0, out.stderr[-2000:]
-        assert out.stdout.strip() == ("['cif_inspect', 'structure_check', 'structure_stretch_xh', "
-                                      "'structure_to_extxyz', 'trajectory_msd', 'trajectory_rdf', "
-                                      "'trajectory_vdos']"), out.stdout
+        assert out.stdout.strip() == ("['cif_inspect', 'colvar_fes', 'structure_check', "
+                                      "'structure_stretch_xh', 'structure_to_extxyz', "
+                                      "'structure_to_lammps_data', 'trajectory_msd', "
+                                      "'trajectory_rdf', 'trajectory_vdos']"), out.stdout
 
         # without ASE: the server still starts with every tool, the numpy
         # tools (checks and trajectory analysis) work, and the CIF tools say
@@ -3933,7 +4187,7 @@ def check_repo() -> None:
         out = subprocess.run([sys.executable, "-c", no_ase], cwd=root, capture_output=True,
                              text=True, timeout=120)
         shutil.rmtree(walk.parent)
-        assert out.stdout.split() == ["7", "True", "10", "4", "4", "True"], (out.stdout, out.stderr[-2000:])
+        assert out.stdout.split() == ["9", "True", "10", "4", "4", "True"], (out.stdout, out.stderr[-2000:])
 
         def imports(folder):
             for f in (root / folder).rglob("*.py"):
@@ -4082,6 +4336,8 @@ print(json.dumps(res))
     check("yagura structure_check flags and stays separate", yagura_structure_check_flags_and_stays_separate)
     check("yagura trajectory analysis matches analytic cases",
           yagura_trajectory_analysis_matches_analytic_cases)
+    check("hyogo lammps and plumed tools match the runs", hyogo_lammps_and_plumed_match_the_runs)
+    check("yagura lammps data and fes match the scripts", yagura_lammps_data_and_fes_match_the_scripts)
     check("records tools follow the adapter contract",
           records_tools_follow_the_adapter_contract)
     check("HPC_RECORDS_ROOT moves the user scope", records_root_moves_the_user_scope)

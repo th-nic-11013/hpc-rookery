@@ -1,0 +1,8 @@
+# Timing run: NVT at 300 K. nwarm untimed steps (TorchScript optimises the model on
+# its first calls), then nsteps timed steps: the last "Loop time" line is the timing.
+include         ${inputs}/common.in
+fix             thermostat all nvt temp 300.0 300.0 0.05
+thermo          ${nwarm}
+run             ${nwarm}
+thermo          ${nsteps}
+run             ${nsteps}

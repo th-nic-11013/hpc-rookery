@@ -1,0 +1,10 @@
+# Validation run: nnvt steps NVT at 300 K (stability), then nnve steps NVE
+# (energy conservation). Thermo every 10 steps for the drift fit.
+include         ${inputs}/common.in
+fix             thermostat all nvt temp 300.0 300.0 0.05
+thermo          10
+run             ${nnvt}
+unfix           thermostat
+fix             integrate all nve
+reset_timestep  0
+run             ${nnve}

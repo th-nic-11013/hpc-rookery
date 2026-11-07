@@ -1,0 +1,5 @@
+# Smoke test of the LAMMPS-PLUMED coupling (LJ units): one CV, a weak restraint
+# so PLUMED also sends forces back, and a COLVAR file.
+d: DISTANCE ATOMS=1,2
+r: RESTRAINT ARG=d AT=1.0 KAPPA=1.0
+PRINT ARG=d,r.bias FILE=COLVAR STRIDE=10

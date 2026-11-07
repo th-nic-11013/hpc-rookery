@@ -1,0 +1,2 @@
+# verbatim copies of run outputs and scripts: keep their whitespace (tests compare byte for byte)
+* -whitespace

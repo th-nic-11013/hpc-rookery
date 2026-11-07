@@ -1,0 +1,2 @@
+# LAMMPS types 1..4 = H C O Zr
+pair_coeff * * 1 6 8 40

@@ -1,0 +1,2 @@
+# LAMMPS types 1..2 = H O
+pair_coeff * * 1 8

@@ -8,6 +8,8 @@ import argparse
 from pathlib import Path
 
 from hyogo.cp2k import input as cp2k_input, output as cp2k_output, subsys
+from hyogo.lammps import input as lammps_input, log as lammps_log
+from hyogo.plumed import input as plumed_input
 from hyogo.mcp_server import MCPServer
 
 mcp = MCPServer("hyogo-mcp")
@@ -230,6 +232,172 @@ def cp2k_parse_output(out_path: str) -> dict:
         raise ValueError(f"{src} is not a file on this machine. For an output on a "
                          "cluster, download it first (fs_download).")
     return {"path": str(src), **cp2k_output.parse(src.read_text(errors="replace"))}
+
+
+@mcp.tool()
+def lammps_make_input(data: dict, model: str, mode: str, steps: dict,
+                      temperature: float = 300.0, timestep_fs: float = 0.5,
+                      tdamp_fs: float | None = None, seed: int = 4928459, device: str = "cpu",
+                      pressure_bar: float = 1.0, barostat: str = "iso",
+                      pdamp_fs: float | None = None, thermo_every: int | None = None,
+                      dump_every: int = 0, restart_every: int = 0,
+                      restart_from: str | None = None, plumed_file: str | None = None,
+                      data_name: str | None = None, out_path: str | None = None,
+                      overwrite: bool = False) -> dict:
+    """Write a LAMMPS input for MD with a machine-learned potential
+    through pair_style metatomic (MACE and other metatomic exports), metal
+    units, as HOKUSAI's MLMD benchmark ran it. Local only; fs_upload it,
+    the .data file and (with plumed_file) the PLUMED input to one run
+    folder. The model path is on the cluster.
+
+    Modes: "valid" (NVT then NVE: is the model stable, and does it conserve
+    energy?), "time" (untimed warm-up, then timed NVT), "nvt", "npt" and
+    "nve" (production; may dump traj.xyz, write restart files, and couple
+    PLUMED). Every fresh start prints the step-0 energy (`run 0`) before
+    velocities are drawn, so it can be checked against an ASE reference.
+
+    Before it: yagura structure_to_lammps_data (pass its whole result as
+    data); for a bias, plumed_make_input. After the run: fs_download
+    log.lammps and lammps_parse_log.
+
+    Refuses: a timestep above 1 fs with hydrogen (0.5 fs is benchmarked),
+    a model that isn't a .pt export, steps that don't match the mode,
+    dumps/restarts/PLUMED in the benchmark modes.
+
+    Returns {"out", "mode", "steps", "total_steps", "simulated_ps",
+    "timestep_fs", "temperature", "elements", "files" (what the run folder
+    needs), "outputs" ({log, traj, restart, plumed}), "warnings"}; read the
+    warnings to the user.
+
+    Args:
+        data: yagura structure_to_lammps_data's result (data, elements,
+            atomic_numbers, cell).
+        model: the metatomic model (.pt) on the cluster, absolute path
+            (HOKUSAI: ~/software/mlip/2026.10/models/mace-mp-0-medium-f32.pt).
+        mode: "valid", "time", "nvt", "npt" or "nve".
+        steps: valid {"nvt": n, "nve": n}; time {"warm": n, "timed": n};
+            otherwise {"run": n}.
+        temperature: K, for the thermostat and the initial velocities.
+        timestep_fs: fs; 0.5 is what the benchmark validated.
+        tdamp_fs: thermostat damping; default 100 timesteps.
+        seed: velocity seed (the benchmark's 4928459 by default).
+        device: "cpu" or "cuda" (a GPU build of LAMMPS-metatomic).
+        pressure_bar, barostat ("iso", "aniso", "tri", "z"), pdamp_fs
+            (default 1000 timesteps): npt only.
+        thermo_every: thermo stride; default 10 (valid) or 100.
+        dump_every: write traj.xyz every n steps (0: none); xyz has no cell.
+        restart_every: write md.restart.a/.b every n steps, and
+            md.restart.final at the end.
+        restart_from: continue from this restart file (no new velocities,
+            no step-0 check).
+        plumed_file: PLUMED input name in the run folder, coupled with fix plumed.
+        data_name: the data file's name in the run folder; default its basename.
+        out_path: default in.<mode>.lmp beside the data file.
+        overwrite: replace out_path if it exists.
+    """
+    text, info = lammps_input.make_input(data, model, mode, steps, temperature, timestep_fs,
+                                         tdamp_fs, seed, device, pressure_bar, barostat,
+                                         pdamp_fs, thermo_every, dump_every, restart_every,
+                                         restart_from, plumed_file, data_name)
+    dst = (Path(out_path).expanduser() if out_path
+           else Path(data["data"]).expanduser().with_name(f"in.{mode}.lmp"))
+    if dst.exists() and not overwrite:
+        raise ValueError(f"{dst} exists; pass overwrite=true to replace it")
+    dst.write_text(text)
+    return {"out": str(dst), **info}
+
+
+@mcp.tool()
+def lammps_parse_log(log_path: str) -> dict:
+    """Read a LAMMPS log (log.lammps) on this machine: did it finish, what
+    ran, how fast, and is the dynamics sane. Writes nothing. Use it instead
+    of grepping a log. Each `run` is labelled by the fixes LAMMPS echoed
+    before it, so an NVT-then-NVE validation gives a thermostat tail
+    temperature and an NVE energy drift.
+
+    Before it: get_job_status, then fs_download log.lammps.
+
+    Returns {"path", "finished", "error", "version", "ranks", "threads"
+    (per rank), "natoms", "pe0" (first PotEng: the step-0 energy),
+    "s_per_step", "ns_per_day" (of the last run with steps), "T_tail_mean"
+    (mean of the second half of the last thermostatted run), "T_range"
+    (over runs with steps), "nve": {nve_drift_meV_atom_ps,
+    nve_fluct_meV_atom, nve_ps} (the last NVE run, metal units; per-atom
+    energy x1000 otherwise), "runs": [{index, fixes, ensemble, steps, rows,
+    first, last (thermo rows as dicts), s_per_step, ns_per_day, target_T,
+    T_tail_mean, T_range, ...}], "warnings"}. Read the warnings to the
+    user: an unfinished log, a LAMMPS error, non-finite thermo, dangerous
+    neighbour builds, a temperature far above target. Judging the drift
+    (e.g. against the 0.005 meV/atom/ps of MACE-MP-0 on water at 0.5 fs)
+    is yours to explain.
+
+    Args:
+        log_path: the log on this machine; ~ is expanded.
+    """
+    src = Path(log_path).expanduser()
+    if not src.is_file():
+        raise ValueError(f"{src} is not a file on this machine. For a log on a cluster, "
+                         "download it first (fs_download).")
+    return {"path": str(src), **lammps_log.parse(src.read_text(errors="replace"))}
+
+
+@mcp.tool()
+def plumed_make_input(cvs: list[dict], out_path: str, bias: list[dict] | None = None,
+                      print_stride: int = 10, print_file: str = "COLVAR",
+                      print_args: list[str] | None = None, units: dict | str | None = None,
+                      temperature: float | None = None, mode: str = "run",
+                      molinfo: str | None = None, natoms: int | None = None,
+                      overwrite: bool = False) -> dict:
+    """Write a PLUMED input (plumed.dat): collective variables, an
+    optional bias, and a PRINT of the CVs and bias to COLVAR. Local only;
+    fs_upload it to the run folder and pass its name to lammps_make_input
+    (plumed_file), or CP2K's &FREE_ENERGY &METADYN PLUMED.
+
+    Choosing the CVs, the restraint strength or the hill height and width
+    is judgment: explain it to the user. Hill width (sigma) is usually
+    about the CV's fluctuation in a short unbiased run (this tool with no
+    bias, then the COLVAR).
+
+    mode "reweight": the same CVs and METAD with PACE never reached,
+    HEIGHT 0 and RESTART=YES, printing every frame with the bias, for
+    `plumed driver` over the finished trajectory (the `driver` key says
+    how); then yagura colvar_fes weights the frames with the final bias.
+
+    Refuses: an unknown CV or bias type or keyword, a label used twice or
+    with a dot, an ARG that isn't a label above (or a component it lacks),
+    atom indices below 1 or beyond natoms, METAD without sigma/height/pace,
+    a biasfactor <= 1, well-tempered METAD or reweight without temperature.
+
+    Returns {"out", "labels", "print": {file, stride, args}, "mode",
+    "length_unit", "outputs", "driver" (reweight only), "warnings"}.
+
+    Args:
+        cvs: [{label, type, ...}]: DISTANCE {atoms: [i, j], components},
+            ANGLE {atoms: 3}, TORSION {atoms: 4 or "@phi-2" with molinfo},
+            GYRATION {atoms, kind}, COORDINATION {groupa, groupb, r_0, d_0,
+            nn, mm}. Atom indices are 1-based (LAMMPS ids).
+        out_path: where to write, e.g. ~/runs/x/plumed.dat.
+        bias: [{label, type, arg, ...}]: RESTRAINT {at, kappa, slope};
+            MOVINGRESTRAINT {step: [...], at: [...], kappa: [...]}; METAD
+            {sigma, height, pace, biasfactor, grid_min, grid_max, file}.
+            Energies in kJ/mol unless units say otherwise.
+        print_stride: PRINT every n steps.
+        print_file: COLVAR file name.
+        print_args: what PRINT writes; default every CV and every bias's .bias.
+        units: "natural" (LJ) or {"length": "A", "energy": "eV", "time": "fs"}.
+        temperature: K; written as METAD's TEMP.
+        mode: "run" or "reweight".
+        molinfo: a PDB name in the run folder, for @phi-2 style shortcuts.
+        natoms: the system's atom count, to check indices.
+        overwrite: replace out_path if it exists.
+    """
+    dst = Path(out_path).expanduser()
+    if dst.exists() and not overwrite:
+        raise ValueError(f"{dst} exists; pass overwrite=true to replace it")
+    text, info = plumed_input.make_input(cvs, bias, print_stride, print_file, print_args,
+                                         units, temperature, mode, molinfo, natoms)
+    dst.write_text(text)
+    return {"out": str(dst), **info}
 
 
 def main():

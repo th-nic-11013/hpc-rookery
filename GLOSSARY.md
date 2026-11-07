@@ -28,3 +28,12 @@
 - **Run chaining** — starting a CP2K run from a previous run's outputs (its final structure and its `-RESTART.wfn`); hyogo's `guess_from` does the wavefunction half and refuses one that can't fit.
 - **Job dependency (afterok)** — `sbatch --dependency=afterok:<id>` holds a job until job `<id>` ends with exit 0; a clean CP2K WALLTIME stop also counts, so the job script must check the earlier run converged.
 - **r²SCANh** — r²SCAN hybrid with 10 % exact exchange (r²SCAN0 has 25 %); hyogo preset `r2scanh`.
+- **Query by committee (QbC)** — active learning that trains several models (differing only in seed) and sends to DFT the frames where their predictions disagree most.
+- **MLMD** — molecular dynamics driven by a machine-learned interatomic potential (e.g. MACE) instead of DFT forces.
+- **Collective variable (CV)** — one number that summarises a configuration (a distance, a torsion angle, a coordination number), chosen so it tells apart the states you care about.
+- **Metadynamics** — enhanced sampling that adds small energy "hills" where the CV has already been, so the system is pushed over barriers it would rarely cross on its own; well-tempered metadynamics shrinks the hills over time.
+- **Reweighting** — recovering unbiased averages from a biased run by giving each frame the weight exp(V/kT) of the bias it felt.
+- **Block averaging** — splitting a run into consecutive blocks and using the spread between block results as the error, so correlated frames aren't counted as independent.
+- **metatomic** — the model format and LAMMPS `pair_style` that let LAMMPS (and PLUMED) call an exported ML potential such as MACE.
+- **NVE energy drift** — how fast the total energy creeps in a run with no thermostat; near zero means the potential and timestep integrate cleanly.
+- **hybrid/overlay** — LAMMPS pair style that adds several potentials on the same atoms, e.g. MACE plus a D3 dispersion correction.

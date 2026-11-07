@@ -1,0 +1,182 @@
+LAMMPS (4 Jul 2026)
+  using 56 OpenMP thread(s) per MPI task
+# Timing run: NVT at 300 K. nwarm untimed steps (TorchScript optimises the model on
+# its first calls), then nsteps timed steps: the last "Loop time" line is the timing.
+include         ${inputs}/common.in
+include         /lustre/home/thnic123/software/mlip/2026.10/bench/inputs/common.in
+# Shared start of every MLMD benchmark run (included by md_time.in and md_valid.in).
+# Command-line variables: data (LAMMPS data file), types (pair_coeff include),
+# model (metatomic .pt), seed (velocity seed).
+units           metal
+atom_style      atomic
+boundary        p p p
+read_data       ${data}
+read_data       /lustre/home/thnic123/software/mlip/2026.10/bench/structures/h2o-64.data
+Reading data file ...
+  orthogonal box = (0 0 0) to (12.4138 12.4138 12.4138)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  192 atoms
+  read_data CPU = 0.008 seconds
+
+# MACE-MP-0 medium through metatomic; interaction range 12 A (2 layers x 6 A).
+# newton pair on (the default) is required by pair_style metatomic.
+pair_style      metatomic ${model} device cpu uncertainty_threshold off
+pair_style      metatomic /lustre/home/thnic123/software/mlip/2026.10/bench/models/mace-mp-0-medium-f32.pt device cpu uncertainty_threshold off
+
+This is an unamed model
+=======================
+
+Model references
+----------------
+
+Please cite the following references when using this model:
+- about the architecture of this model:
+  * https://arxiv.org/abs/2205.06643
+  * https://openreview.net/forum?id=YPpSngE-ZU
+
+Running simulation on cpu device with float32 data
+include         ${types}
+include         /lustre/home/thnic123/software/mlip/2026.10/bench/structures/h2o-64.types.in
+# LAMMPS types 1..2 = H O
+pair_coeff * * 1 8
+
+neighbor        1.0 bin
+neigh_modify    every 1 delay 0 check yes
+timestep        0.0005                  # 0.5 fs, as the CP2K AIMD benchmark
+
+thermo_style    custom step temp pe ke etotal press
+thermo_modify   norm no flush yes format float %.10f
+
+# step 0 energy at the input geometry (checked against the ASE reference)
+run             0
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Your simulation uses code contributions which should be cited:
+
+- https://arxiv.org/abs/2205.06643
+- https://openreview.net/forum?id=YPpSngE-ZU
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+WARNING: No fixes with time integration, atoms won't move
+For more information see https://docs.lammps.org/err0028 (src/lammps-metatomic/src/verlet.cpp:60)
+Neighbor list info ...
+  update: every = 1 steps, delay = 0 steps, check = yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 13
+  ghost atom cutoff = 13
+  binsize = 6.5, bins = 2 2 2
+  1 neighbor lists, perpetual/occasional/extra = 1 0 0
+  (1) pair metatomic, perpetual
+      attributes: full, newton on, ghost
+      pair build: full/bin/ghost
+      stencil: full/ghost/bin/3d
+      bin: standard
+Per MPI rank memory allocation (min/avg/max) = 65.08 | 65.08 | 65.08 Mbytes
+   Step          Temp          PotEng         KinEng         TotEng         Press     
+         0  0.0000000000 -931.6201782227 0.0000000000 -931.6201782227 50440.6676836534
+Loop time of 2.18e-06 on 56 procs for 0 steps with 192 atoms
+
+137.6% CPU use with 1 MPI tasks x 56 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0          | 0          | 0          |   0.0 |  0.00
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 0          | 0          | 0          |   0.0 |  0.00
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0          | 0          | 0          |   0.0 |  0.00
+Other   |            | 2.18e-06   |            |       |100.00
+
+Nlocal:            192 ave         192 max         192 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           5559 ave        5559 max        5559 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:              0 ave           0 max           0 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+FullNghs:       177670 ave      177670 max      177670 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 177670
+Ave neighs/atom = 925.36458
+Neighbor list builds = 0
+Dangerous builds = 0
+velocity        all create 300.0 ${seed} mom yes rot no dist gaussian
+velocity        all create 300.0 4928459 mom yes rot no dist gaussian
+fix             thermostat all nvt temp 300.0 300.0 0.05
+thermo          ${nwarm}
+thermo          10
+run             ${nwarm}
+run             10
+Per MPI rank memory allocation (min/avg/max) = 65.08 | 65.08 | 65.08 Mbytes
+   Step          Temp          PotEng         KinEng         TotEng         Press     
+         0  300.0000000000 -931.6201782227 7.4066063085 -924.2135719142 54576.1337558528
+        10  267.2896574491 -930.7954101562 6.5990308769 -924.1963792794 -41944.0961914864
+Loop time of 2.10502 on 56 procs for 10 steps with 192 atoms
+
+Performance: 0.205 ns/day, 116.946 hours/ns, 4.751 timesteps/s, 912.105 atom-step/s
+4265.2% CPU use with 1 MPI tasks x 56 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 2.1041     | 2.1041     | 2.1041     |   0.0 | 99.96
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 0.00051244 | 0.00051244 | 0.00051244 |   0.0 |  0.02
+Output  | 7.1989e-05 | 7.1989e-05 | 7.1989e-05 |   0.0 |  0.00
+Modify  | 0.000233   | 0.000233   | 0.000233   |   0.0 |  0.01
+Other   |            | 9.603e-05  |            |       |  0.00
+
+Nlocal:            192 ave         192 max         192 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           5559 ave        5559 max        5559 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:              0 ave           0 max           0 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+FullNghs:       177670 ave      177670 max      177670 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 177670
+Ave neighs/atom = 925.36458
+Neighbor list builds = 0
+Dangerous builds = 0
+thermo          ${nsteps}
+thermo          36
+run             ${nsteps}
+run             36
+Per MPI rank memory allocation (min/avg/max) = 65.08 | 65.08 | 65.08 Mbytes
+   Step          Temp          PotEng         KinEng         TotEng         Press     
+        10  267.2896574491 -930.7954101562 6.5990308769 -924.1963792794 -41944.1132309112
+        36  389.5441307813 -933.9705810547 9.6173333883 -924.3532476664 10318.9276338828
+        46  353.1593700885 -933.1761474609 8.7190413947 -924.4571060663 -5314.0523815981
+Loop time of 7.34281 on 56 procs for 36 steps with 192 atoms
+
+Performance: 0.212 ns/day, 113.315 hours/ns, 4.903 timesteps/s, 941.329 atom-step/s
+4613.1% CPU use with 1 MPI tasks x 56 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 7.2273     | 7.2273     | 7.2273     |   0.0 | 98.43
+Neigh   | 0.1125     | 0.1125     | 0.1125     |   0.0 |  1.53
+Comm    | 0.0017663  | 0.0017663  | 0.0017663  |   0.0 |  0.02
+Output  | 0.0002506  | 0.0002506  | 0.0002506  |   0.0 |  0.00
+Modify  | 0.00058343 | 0.00058343 | 0.00058343 |   0.0 |  0.01
+Other   |            | 0.0003736  |            |       |  0.01
+
+Nlocal:            192 ave         192 max         192 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           5496 ave        5496 max        5496 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:              0 ave           0 max           0 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+FullNghs:       177680 ave      177680 max      177680 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 177680
+Ave neighs/atom = 925.41667
+Neighbor list builds = 1
+Dangerous builds = 0
+Total wall time: 0:00:13

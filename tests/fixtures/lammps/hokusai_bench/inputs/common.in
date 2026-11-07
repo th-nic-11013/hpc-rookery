@@ -1,0 +1,23 @@
+# Shared start of every MLMD benchmark run (included by md_time.in and md_valid.in).
+# Command-line variables: data (LAMMPS data file), types (pair_coeff include),
+# model (metatomic .pt), seed (velocity seed).
+units           metal
+atom_style      atomic
+boundary        p p p
+read_data       ${data}
+
+# MACE-MP-0 medium through metatomic; interaction range 12 A (2 layers x 6 A).
+# newton pair on (the default) is required by pair_style metatomic.
+pair_style      metatomic ${model} device cpu uncertainty_threshold off
+include         ${types}
+
+neighbor        1.0 bin
+neigh_modify    every 1 delay 0 check yes
+timestep        0.0005                  # 0.5 fs, as the CP2K AIMD benchmark
+
+thermo_style    custom step temp pe ke etotal press
+thermo_modify   norm no flush yes format float %.10f
+
+# step 0 energy at the input geometry (checked against the ASE reference)
+run             0
+velocity        all create 300.0 ${seed} mom yes rot no dist gaussian

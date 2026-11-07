@@ -12,7 +12,7 @@ import importlib
 from pathlib import Path
 
 from yagura import geomcheck, stretch
-from yagura.analysis import trajectory
+from yagura.analysis import fes as fes_mod, trajectory
 from yagura.mcp_server import MCPServer
 
 mcp = MCPServer("yagura-mcp")
@@ -251,6 +251,102 @@ def trajectory_vdos(path: str, dt_fs: float, elements: list[str] | None = None,
     """
     return trajectory.vdos(_local_file(path), dt_fs, elements, cell, frames, max_wavenumber,
                            points, n_peaks)
+
+
+@mcp.tool()
+def structure_to_lammps_data(source_path: str, out_path: str | None = None,
+                             specorder: list[str] | None = None, index: str = "-1",
+                             overwrite: bool = False) -> dict:
+    """Write a structure as a LAMMPS data file for a machine-learned
+    potential (atom_style atomic, metal units, masses), one type per
+    element, in order of atomic number unless specorder says otherwise.
+    Also writes, beside it, <stem>.types.in (a comment naming the types and
+    the `pair_coeff * * Z...` line that pair_style metatomic reads) and
+    <stem>.lammps.xyz (the atoms read back from the data file: a triclinic
+    cell is rotated to LAMMPS' lower-triangular form, so ASE references
+    must use this file, not the source). Same as HOKUSAI's MLMD benchmark
+    prep_structures.py. Local only; fs_upload the .data and .types.in to the
+    run folder. Needs ASE.
+
+    Before it: structure_check the structure. After it: hyogo's
+    lammps_make_input with this result's `elements`.
+
+    Returns {"data", "types_in", "xyz", "natoms", "formula", "elements"
+    (type 1, 2, ...), "atomic_numbers", "masses", "pair_coeff", "cell":
+    {lengths, angles, triclinic}, "rotated", "warnings"}.
+
+    Args:
+        source_path: any structure ASE reads (extended xyz, CIF, POSCAR, ...)
+            with a full cell, on this machine.
+        out_path: the .data file to write; default <stem>.data beside the source.
+        specorder: element for type 1, 2, ...; give it to share one input
+            between systems (e.g. ["H", "C", "O", "Zr"] for UiO-66 with and
+            without guests).
+        index: frame of a multi-frame file ("-1" = last).
+        overwrite: replace the three files if they exist.
+    """
+    src = _local_file(source_path)
+    data = Path(out_path).expanduser() if out_path else src.with_suffix(".data")
+    types = data.with_suffix(".types.in")
+    xyz = data.with_suffix(".lammps.xyz")
+    if data.suffix != ".data":
+        raise ValueError(f"out_path ends in .data (got {data.name})")
+    if src.resolve() in (data.resolve(), xyz.resolve()):
+        raise ValueError("out_path would overwrite the source; choose another name")
+    for f in (data, types, xyz):
+        if f.exists() and not overwrite:
+            raise ValueError(f"{f} exists; pass overwrite=true to replace it")
+    return _ase("to_lammps_data").convert(str(src), str(data), str(types), str(xyz),
+                                         specorder, index)
+
+
+@mcp.tool()
+def colvar_fes(path: str, cvs: list[str], grid: list[list[float]], temperature: float,
+               block_size: int, units: str = "kj/mol", bias: list[str] | None = None,
+               frames: str = ":", out_path: str | None = None, overwrite: bool = False) -> dict:
+    """Free energy F(s) = -kT ln p(s) along one to three collective
+    variables from a PLUMED COLVAR file, with an error from block
+    averaging (Bonomi's do_block_fes.py, same output format). Unbiased or
+    restrained runs: no bias. Metadynamics: pass the bias column(s) (e.g.
+    ["metad.bias"]) so each frame is weighted by exp(V/kT): use the
+    COLVAR of a reweighting pass (plumed driver with the final bias, see
+    hyogo's plumed_make_input mode "reweight"), not the one written during
+    the run, where the bias was still growing. Writes fes.<block_size>.dat
+    beside the COLVAR. Local only; numpy only.
+
+    Choose block_size by trying several (e.g. 100, 500, 1000, 2000 frames)
+    and taking the one where mean_error stops growing: shorter blocks are
+    correlated and underestimate the error.
+
+    Returns {"out", "cvs", "frames_used", "nblocks", "block_size", "kbt",
+    "units", "weights", "effective_blocks", "minimum": {at, error},
+    "max_error", "mean_error", "empty_bins", "warnings"}. F is not shifted:
+    subtract the minimum to plot.
+
+    Args:
+        path: the COLVAR file on this machine.
+        cvs: CV names from its "#! FIELDS" line, e.g. ["phi"] or ["phi", "psi"].
+        grid: [min, max, nbins] per CV; grid points are min + k*(max-min)/(nbins-1).
+            Every frame must fall within half a spacing of the grid.
+        temperature: K, for kT.
+        block_size: frames per block.
+        units: the run's energy unit: "kj/mol" (PLUMED's default), "kcal/mol", "ev".
+        bias: bias columns to reweight with, summed; default none (uniform weights).
+        frames: START:STOP[:STEP] of the COLVAR rows, e.g. "1000:" to drop equilibration.
+        out_path: default fes.<block_size>.dat beside the COLVAR.
+        overwrite: replace out_path if it exists.
+    """
+    src = _local_file(path)
+    dst = Path(out_path).expanduser() if out_path else src.with_name(f"fes.{block_size}.dat")
+    if dst.resolve() == src.resolve():
+        raise ValueError("out_path must differ from path")
+    if dst.exists() and not overwrite:
+        raise ValueError(f"{dst} exists; pass overwrite=true to replace it")
+    if block_size < 1:
+        raise ValueError("block_size is a positive number of frames")
+    text, info = fes_mod.fes(src, cvs, grid, temperature, block_size, units, bias, frames)
+    dst.write_text(text)
+    return {"out": str(dst), **info}
 
 
 def main():
