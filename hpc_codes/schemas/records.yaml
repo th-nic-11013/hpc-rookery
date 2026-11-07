@@ -11,6 +11,8 @@
 # Field spec: {type, required, doc}. Types: str, int, float, bool, date
 # (YYYY-MM-DD), list[<type>], enum[<a>|<b>|...], map, or a nested `fields:`
 # block. `null` is allowed for any field that is not required.
+# `required_unless: <sibling>` makes a field required only when that sibling
+# field is absent (benchmarks.method: the DFT fields, unless `model` is set).
 
 schema_version: 1
 status: provisional
@@ -94,18 +96,22 @@ record_types:
           electrons: {type: int, required: false, doc: "valence electrons with the pseudopotentials used"}
           cell_volume_A3: {type: float, required: false}
           periodic: {type: "enum[xyz|xy|z|none]", required: true}
-          kpoints:  {type: str, required: true, doc: "'gamma' or a mesh such as '2x2x2'"}
+          kpoints:  {type: str, required: true, doc: "'gamma' or a mesh such as '2x2x2'; 'none' for a method without k-points (an ML or classical potential)"}
       method:
         required: true
         fields:
-          functional: {type: str, required: true, doc: "e.g. revPBE, PADE (LDA)"}
+          functional: {type: str, required_unless: model, doc: "DFT: e.g. revPBE, PADE (LDA)"}
           dispersion: {type: str, required: false, doc: "e.g. D3, or null"}
-          basis:      {type: str, required: true}
-          cutoff_ry:  {type: float, required: true}
+          basis:      {type: str, required_unless: model}
+          cutoff_ry:  {type: float, required_unless: model}
           rel_cutoff_ry: {type: float, required: false}
-          hybrid:     {type: bool, required: true}
-          scf:        {type: str, required: true, doc: "e.g. 'OT DIIS + FULL_ALL, ENERGY_GAP 0.05'"}
-      run_type:     {type: "enum[aimd_step|single_point|geo_opt|cell_opt]", required: true}
+          hybrid:     {type: bool, required_unless: model}
+          scf:        {type: str, required_unless: model, doc: "e.g. 'OT DIIS + FULL_ALL, ENERGY_GAP 0.05'"}
+          model:      {type: str, required: false, doc: "ML potential, e.g. 'MACE-MP-0 medium' or a fine-tuned model's name. Set for MLIP runs; then the DFT fields above are not required and should be absent"}
+          precision:  {type: "enum[f32|f64]", required: false, doc: "MLIP: floating-point precision of the model as run"}
+          interface:  {type: str, required: false, doc: "MLIP: how the model is called, e.g. 'LAMMPS pair_style metatomic', 'ASE metatomic-ase'"}
+          device:     {type: "enum[cpu|gpu]", required: false, doc: "MLIP: where the model ran (cpu if absent)"}
+      run_type:     {type: "enum[aimd_step|md_step|single_point|geo_opt|cell_opt]", required: true, doc: "aimd_step: DFT MD; md_step: MD with an ML or classical potential"}
       nodes:        {type: int, required: true}
       ranks_per_node: {type: int, required: true}
       threads_per_rank: {type: int, required: true}
@@ -127,6 +133,9 @@ record_types:
           forces_s:            {type: float, required: false, doc: "single points: time in the force evaluation, CP2K timer qs_forces, TOTAL TIME, MAXIMUM over ranks"}
           opt_steps:           {type: int, required: false, doc: "geo_opt / cell_opt: optimisation steps to convergence"}
           final_pressure_bar:  {type: float, required: false, doc: "cell_opt: final internal pressure, bar"}
+          ns_per_day:          {type: float, required: false, doc: "MD: simulated ns per wall-clock day of this one run"}
+          nve_drift_meV_atom_ps: {type: float, required: false, doc: "MD validation: linear drift of the NVE total energy"}
+          concurrent_runs:     {type: int, required: false, doc: "throughput: this many copies ran side by side on the node; metric is per copy"}
       job_id:       {type: str, required: false, doc: "null in committed, shared records. Kept per user in benchmarks_provenance"}
       date:         {type: date, required: true}
       valid:        {type: bool, required: true, doc: "false: not a usable timing (e.g. SCF did not converge)"}

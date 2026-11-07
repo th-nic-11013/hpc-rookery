@@ -24,6 +24,9 @@ MEM_HEADROOM = 0.9        # a rank may use this share of its slice of node memor
 
 def _method_key(r: dict) -> tuple:
     m = r["method"]
+    if m.get("model") is not None:   # an MLIP record (G37): no DFT fields
+        return (r["system"]["label"], m["model"], m.get("precision"), m.get("interface"),
+                m.get("device"), r["version"])
     return (r["system"]["label"], m["functional"], m["basis"], m["cutoff_ry"],
             m.get("rel_cutoff_ry"), m["hybrid"], r["version"])
 
@@ -221,7 +224,7 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
         basis = {"match": match, "run_type": timing_run_type, "system": s["label"], "atoms": s["atoms"],
                  "method": chosen["method"], "record_ids": [chosen["id"]], "options": options,
                  "why": (f"fastest layout at {n} node(s) of the recorded {s['label']} "
-                         f"({s['atoms']} atoms, {chosen['method']['functional']})"
+                         f"({s['atoms']} atoms, {chosen['method'].get('functional') or chosen['method'].get('model')})"
                          + ("" if match == "exact" else "; a similar system, so the time is rough")
                          + (f"; no {run_type} record, so its single_point time stands in for one "
                             "step (rough, conservative)" if from_sp else ""))}

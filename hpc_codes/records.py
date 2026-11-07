@@ -138,6 +138,8 @@ def _field_errors(spec: dict, rec: dict, where: str) -> list[str]:
         if v is None:
             if f.get("required"):
                 errs.append(f"{where}: missing required {name}")
+            elif f.get("required_unless") and rec.get(f["required_unless"]) is None:
+                errs.append(f"{where}: missing required {name} (or set {f['required_unless']})")
         elif "fields" in f:
             errs += (_field_errors(f["fields"], v, f"{where}.{name}") if isinstance(v, dict)
                      else [f"{where}.{name}: not a mapping"])
@@ -158,6 +160,12 @@ def _record_errors(facility: str, rtype: str, rec: dict, scope: str) -> list[str
             errs.append(f"benchmarks[{rid}]: build_external needs build_desc")
         if scope == "facility" and rec.get("job_id") is not None:
             errs.append(f"benchmarks[{rid}]: shared records keep job_id null")
+        m = rec.get("method") if isinstance(rec.get("method"), dict) else {}
+        dft = [k for k, f in _type(rtype)["fields"]["method"]["fields"].items()
+               if f.get("required_unless") == "model" and m.get(k) is not None]
+        if m.get("model") is not None and dft:
+            errs.append(f"benchmarks[{rid}]: method has a model and DFT fields {dft}: "
+                        "an MLIP run records the model, a DFT run the functional")
     return errs
 
 

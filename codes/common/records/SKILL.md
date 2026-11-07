@@ -81,6 +81,12 @@ records_append(facility="{{SLUG}}", record_type="benchmarks", record={...})
 - Use stable ids. For a benchmark:
   `<facility>-<code>-<date>-<system>-<run type>-<nodes>n-<R>x<T>`, e.g.
   `{{SLUG}}-cp2k-2026-10-22-uio66conv-aimdstep-2n-16x7`.
+- A benchmark of an ML potential (MACE in LAMMPS or ASE) records
+  `method.model`, `precision` (f32/f64), `interface` and `device` instead
+  of the DFT fields (functional, basis, cutoff_ry, hybrid, scf, which it
+  must not carry), with `run_type: md_step` and `system.kpoints: none`.
+  `extra` can hold `ns_per_day`, `nve_drift_meV_atom_ps` and
+  `concurrent_runs` (copies run side by side; the metric is per copy).
 - A benchmark that failed or did not converge is still recorded, with
   `valid: false` and a `reason`, so it is not repeated.
 - Changing an existing record (moving `default` to another build, setting
