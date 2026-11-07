@@ -3017,6 +3017,19 @@ def check_repo() -> None:
                 assert r["settings"].get("HFX_RADIUS") == (5.9 if aux else None), r
                 if f == "hse06":  # erfc(0.11 r)/r = 1e-6 at 14.3 A, capped below half of 11.97 A
                     assert any("reaches 14.3 A" in w for w in r["warnings"]), r
+            # r2SCANh: the r2SCAN0 input with 10 % exact exchange and its own D3(BJ) key
+            k = uzh("SCAN", "GTH-SCAN", True)
+            sub = hsrv.cp2k_make_subsys(str(xyz), k, str(d / "r2scanh.inc"))
+            r = hsrv.cp2k_make_input("sp", "r2scanh", sub, k, project="sp-r2scanh", cutoff=600,
+                                     print_gap=True, save_wfn=True, hfx={"memory_mb": 2000})
+            got = [l for l in norm(pathlib.Path(r["out"]).read_text())
+                   if not l.startswith(("CHARGE ", "MULTIPLICITY ", "UKS "))]
+            want = [{"SCALE 0.75": "SCALE 0.9", "FRACTION 0.25": "FRACTION 0.10",
+                     "REFERENCE_FUNCTIONAL R2SCAN0": "REFERENCE_FUNCTIONAL R2SCANH",
+                     "PROJECT SP-R2SCAN0": "PROJECT SP-R2SCANH"}.get(l, l)
+                    for l in norm((fx / "sp_r2scan0.inp").read_text())]
+            assert got == want, ([l for l in got if l not in want], [l for l in want if l not in got])
+            assert any("10% exact exchange" in w for w in r["warnings"]), r
 
             legacy = {e: {"q": n, "basis": "DZVP-MOLOPT-SR-GTH", "potential": f"GTH-PBE-q{n}"}
                       for e, n in q.items()}

@@ -3,7 +3,7 @@
 The DFT block of the four templates in codes/cp2k/*/templates/ (revPBE-D3,
 OT DIIS + FULL_ALL, the settings benchmarked on HOKUSAI) plus the functional
 presets of the UiO-66 functional comparison: PBE,
-r2SCAN, PBE0, HSE06 and r2SCAN0 with D3(BJ) and ADMM. Facts come in as
+r2SCAN, PBE0, HSE06, r2SCAN0 and r2SCANh with D3(BJ) and ADMM. Facts come in as
 arguments: the structure's widths, charge and electrons from
 cp2k_make_subsys, the data file names from rookery's cp2k_kinds.
 """
@@ -33,6 +33,9 @@ _XC = {
               "&PBE\n  SCALE_X 0.0\n  SCALE_C 1.0\n&END PBE"),
     "r2scan0": ("&MGGA_X_R2SCAN\n  SCALE 0.75\n&END MGGA_X_R2SCAN\n"
                 "&MGGA_C_R2SCAN\n&END MGGA_C_R2SCAN"),
+    # r2SCANh: 10 % exact exchange (Bursch et al., JCP 156, 134105 (2022))
+    "r2scanh": ("&MGGA_X_R2SCAN\n  SCALE 0.9\n&END MGGA_X_R2SCAN\n"
+                "&MGGA_C_R2SCAN\n&END MGGA_C_R2SCAN"),
 }
 # preset: potential stem, D3 reference, default damping, BJ only, default cutoff, HF interaction
 PRESETS = {
@@ -42,7 +45,10 @@ PRESETS = {
     "pbe0": ("GTH-PBE0", "PBE0", "bj", False, 600, "truncated"),
     "hse06": ("GTH-PBE0", "HSE06", "bj", False, 600, "shortrange"),
     "r2scan0": ("GTH-SCAN", "R2SCAN0", "bj", True, 600, "truncated"),
+    "r2scanh": ("GTH-SCAN", "R2SCANH", "bj", True, 600, "truncated"),
 }
+# exact-exchange fraction per hybrid preset (&HF FRACTION; the &XC_FUNCTIONAL scales match)
+HF_FRACTION = {"pbe0": 0.25, "hse06": 0.25, "r2scan0": 0.25, "r2scanh": 0.10}
 FAMILY_FOR_STEM = {"GTH-PBE": '"molopt" or "uzh-pbe"', "GTH-SCAN": '"uzh-scan"',
                    "GTH-PBE0": '"uzh-pbe0"'}
 MOLOPT_FILES = {"basis": ["BASIS_MOLOPT"], "potential": "GTH_POTENTIALS"}
@@ -91,12 +97,12 @@ def erfc_range(eps: float, omega: float = HSE_OMEGA) -> float:
     return lo * BOHR
 
 
-def _hf(interaction: str, screen_p: bool) -> list[str]:
+def _hf(interaction: str, screen_p: bool, fraction: float = 0.25) -> list[str]:
     pot = (["POTENTIAL_TYPE TRUNCATED", "CUTOFF_RADIUS  ${HFX_RADIUS}", "T_C_G_DATA     t_c_g.dat"]
            if interaction == "truncated" else
            ["POTENTIAL_TYPE SHORTRANGE", f"OMEGA          {HSE_OMEGA}", "CUTOFF_RADIUS  ${HFX_RADIUS}"])
     # EPS_SCHWARZ_FORCES defaults to 100x EPS_SCHWARZ; CP2K says it should be similar to EPS_SCF
-    return (["&HF", "  FRACTION 0.25", "  &SCREENING", "    EPS_SCHWARZ          ${HFX_EPS_SCHWARZ}",
+    return (["&HF", f"  FRACTION {fraction:.2f}", "  &SCREENING", "    EPS_SCHWARZ          ${HFX_EPS_SCHWARZ}",
              "    EPS_SCHWARZ_FORCES   ${HFX_EPS_SCHWARZ}",
              f"    SCREEN_ON_INITIAL_P  {'TRUE' if screen_p else 'FALSE'}", "  &END SCREENING",
              "  &INTERACTION_POTENTIAL"]
@@ -310,9 +316,10 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
         if hf == "truncated":
             warnings.append(f"truncated exact exchange at {radius} A: converge the result against "
                             "the radius, and the build's data folder must hold t_c_g.dat")
-            if functional == "r2scan0":
-                warnings.append("r2SCAN0 has no long-range correction: the 25 % exact exchange "
-                                "beyond the radius is simply missing")
+            if functional in ("r2scan0", "r2scanh"):
+                warnings.append(f"{functional} has no long-range correction: the "
+                                f"{HF_FRACTION[functional]:.0%} exact exchange beyond the radius "
+                                "is simply missing")
         sets["HFX_MEMORY"] = h["memory_mb"]
         screen_p = h["screen_on_initial_p"]
         if screen_p is None:
@@ -462,7 +469,7 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
                   "        WRITE_CUBE FALSE", "      &END MO_CUBES", "    &END PRINT"]
     lines += ["    &XC", "      &XC_FUNCTIONAL"] + _indent(_XC[functional], 8) + ["      &END XC_FUNCTIONAL"]
     if hf:
-        lines += _indent("\n".join(_hf(hf, screen_p)), 6)
+        lines += _indent("\n".join(_hf(hf, screen_p, HF_FRACTION[functional])), 6)
     lines += ["      &VDW_POTENTIAL", "        POTENTIAL_TYPE PAIR_POTENTIAL", "        &PAIR_POTENTIAL",
               f"          TYPE                 {'DFTD3(BJ)' if d3 == 'bj' else 'DFTD3'}",
               "          PARAMETER_FILE_NAME  dftd3.dat", f"          REFERENCE_FUNCTIONAL {d3_ref}",

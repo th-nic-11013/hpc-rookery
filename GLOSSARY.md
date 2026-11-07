@@ -26,3 +26,5 @@
 - **Contract test** — a test in one repo that pins the names and arguments of the tools it calls in another, so a change on either side fails loudly instead of silently breaking a skill.
 - **Walltime restart** — a run stopped cleanly by CP2K's WALLTIME continues from its own `<project>-1.restart` (`&EXT_RESTART`); tool-written inputs switch this with one line, `@SET RESTART 1`.
 - **Run chaining** — starting a CP2K run from a previous run's outputs (its final structure and its `-RESTART.wfn`); hyogo's `guess_from` does the wavefunction half and refuses one that can't fit.
+- **Job dependency (afterok)** — `sbatch --dependency=afterok:<id>` holds a job until job `<id>` ends with exit 0; a clean CP2K WALLTIME stop also counts, so the job script must check the earlier run converged.
+- **r²SCANh** — r²SCAN hybrid with 10 % exact exchange (r²SCAN0 has 25 %); hyogo preset `r2scanh`.

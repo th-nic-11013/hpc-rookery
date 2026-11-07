@@ -81,7 +81,7 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
     Local only; fs_upload it next to subsys.inc, then cp2k_check_input.
 
     Before it: cp2k_kinds(facility, elements, family=...) for the
-    functional ("molopt" for revpbe/pbe, "uzh-scan" for r2scan/r2scan0,
+    functional ("molopt" for revpbe/pbe, "uzh-scan" for r2scan/r2scan0/r2scanh,
     "uzh-pbe0" for pbe0/hse06; hybrids also aux_basis="admm-dzp"), then
     cp2k_make_subsys with that result. Pass both results here. For
     duration, use launch_plan's estimate.suggested_duration.
@@ -125,7 +125,8 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
     Args:
         run_type: "sp", "geo_opt", "cell_opt" or "md_nvt".
         functional: "revpbe" (the benchmarked default), "pbe", "r2scan",
-            "pbe0", "hse06" or "r2scan0".
+            "pbe0", "hse06", "r2scan0" (25 % exact exchange) or
+            "r2scanh" (10 %).
         subsys: cp2k_make_subsys' result (widths, electrons, charge, kinds).
         kinds: cp2k_kinds' result, for the data file names; may be
             omitted only for revpbe/pbe on BASIS_MOLOPT.
@@ -147,7 +148,7 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
             keep_symmetry needs cp2k_make_subsys' symmetry.
         hfx: for hybrids, {radius, memory_mb (3000, MiB per MPI rank),
             eps_schwarz (1e-6), screen_on_initial_p}. radius defaults to
-            just below half the narrowest width (pbe0, r2scan0), or for
+            just below half the narrowest width (pbe0, r2scan0, r2scanh), or for
             hse06 to the range where erfc(0.11 r)/r reaches eps_schwarz,
             capped below half the width. screen_on_initial_p defaults to
             true only with guess_wfn.
