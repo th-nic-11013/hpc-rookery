@@ -64,6 +64,7 @@ Ask the user about anything that changes the physics:
 | SCF | OT DIIS + FULL_ALL | metals and small-gap systems: `scf="smear"` (diagonalisation, Fermi-Dirac 300 K, Broyden) |
 | isolated molecule | periodic | follows `subsys.inc`: made with `periodic="NONE"`, the input gets `&POISSON` |
 | gap, wavefunction | off | `print_gap=True` (HOMO-LUMO), `save_wfn=True` (`<PROJECT>-RESTART.wfn`) |
+| projected DOS | off | `pdos={"nlumo": 20}` (one `<PROJECT>-k<n>-1.pdos` per kind; `"components": true` splits px/py/pz, d-2...); single points only |
 
 The input has **no `IGNORE_CONVERGENCE_FAILURE`**. An unconverged SCF
 must stop the run, not produce an energy that looks valid.
@@ -233,6 +234,19 @@ an unconverged SCF, and CP2K's own `*** WARNING` boxes in full.
   Report it; don't quote a number.
 - Quote energy, gap, forces and stress from the result, not from memory
   of a grep.
+- To judge a gap against experiment or another calculation, call yagura's
+  `gap_compare` with `gap_ev` and the functional, and the reference gaps
+  (from lit-search or the paper) each with its kind (`optical`,
+  `fundamental`, `calculated` + functional). It knows that semilocal
+  gaps sit below experiment and scores only hybrids; read its `caveats`
+  (KS vs optical gap, Gamma-only) to the user with the verdicts. Don't
+  judge a gap by hand.
+- For which atoms the band edges sit on (e.g. linker vs metal-oxo
+  cluster), `fs_download` every `<PROJECT>-k<n>-1.pdos` of a `pdos` run
+  and call yagura's `pdos_read` on all of them. It returns HOMO, LUMO,
+  gap and each kind's and channel's share of the edge states, and writes
+  a broadened DOS to plot. Read its warnings: a missing kind file, or no
+  LUMO (rerun with `pdos`).
 - Record the timing (it is what `launch_plan` sizes the next run from): `cp2k_record_from_run` with the whole parse result as `parsed`, `nodes`, `job_id`, and `like` = a `benchmarks` id of the same system and method (`records_query`), overriding what differs with `method={...}` (e.g. `{"functional": "PBE0"}`). Use `dry_run: true` first to show the user the record. Don't type a record by hand (hokusai-records). An unconverged run is recorded with `valid: false`.
 
 By hand, if the hyogo server isn't available: `fs_tail` / `fs_view` on

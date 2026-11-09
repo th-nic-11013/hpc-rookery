@@ -135,7 +135,8 @@ running job's output too). `opt` holds `converged`, `steps`,
 (`max_step`, `rms_step`, `max_gradient`, `rms_gradient`, and for
 cell_opt `pressure_dev_bar`), and `internal_pressure_bar`; `cell` is the
 last cell (a, b, c, angles, volume); `gap_ev` and `energy_ha` are the last
-step's. Its `warnings` say which case applies:
+step's (judge the gap with yagura's `gap_compare`, as in
+single-point). Its `warnings` say which case applies:
 
 - `opt.converged`: done. Report the final cell and energy from the result.
 - finished, not converged, `max_iter_hit` false: stopped at `WALLTIME`.

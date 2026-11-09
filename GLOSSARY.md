@@ -40,3 +40,5 @@
 - **metatomic** — the model format and LAMMPS `pair_style` that let LAMMPS (and PLUMED) call an exported ML potential such as MACE.
 - **NVE energy drift** — how fast the total energy creeps in a run with no thermostat; near zero means the potential and timestep integrate cleanly.
 - **hybrid/overlay** — LAMMPS pair style that adds several potentials on the same atoms, e.g. MACE plus a D3 dispersion correction.
+- **PDOS (projected density of states)** — the density of states split by element or atom kind, showing which atoms the band edges sit on.
+- **KS gap vs optical gap** — the Kohn–Sham HOMO–LUMO gap is an orbital-energy difference; the optical gap is a measured absorption edge, and exciton effects lower it, so the two are not strictly the same quantity.

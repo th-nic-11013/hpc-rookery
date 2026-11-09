@@ -36,6 +36,8 @@ Isolated molecules get a box too.
 | `structure_stretch_xh` tool (X-H bond lengths; yagura) | nothing | the user's machine |
 | `cp2k/make_subsys.py` (all of the CP2K step, by hand) | numpy and the CP2K data folder | the login node, next to the CP2K build |
 | `trajectory_rdf`, `trajectory_msd`, `trajectory_vdos` tools (MD analysis; yagura) | nothing | the user's machine, on a downloaded trajectory |
+| `gap_compare` tool (a computed band gap against experiment or another functional; yagura) | nothing | the user's machine, on `cp2k_parse_output`'s `gap_ev` |
+| `pdos_read` tool (band edges and their character from CP2K .pdos files; yagura) | nothing | the user's machine, on the downloaded .pdos files |
 | `scripts/trajectory.py` (the same analysis, by hand) | numpy | anywhere: in a job next to a long trajectory, rather than downloading it |
 
 On the login node, run these text tools with `{{FRONT_END_PYTHON}} -I`.

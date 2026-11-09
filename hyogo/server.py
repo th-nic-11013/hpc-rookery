@@ -78,7 +78,7 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
                     stress: bool = False, precision: dict | None = None,
                     guess_wfn: str | None = None, purpose: str = "result",
                     guess_from: dict | None = None, guess_dir: str | None = None,
-                    overwrite: bool = False) -> dict:
+                    pdos: dict | None = None, overwrite: bool = False) -> dict:
     """Write a CP2K run input that includes subsys.inc: a single point,
     a geometry or cell optimisation, or NVT MD, with a functional preset
     (XC, exact exchange, ADMM, D3). Tunables are @SET lines at the top.
@@ -157,6 +157,11 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
             capped below half the width. screen_on_initial_p defaults to
             true only with guess_wfn.
         print_gap: print the HOMO-LUMO gap.
+        pdos: projected DOS per atomic kind (single point only):
+            {"nlumo": 20 (unoccupied MOs to include; -1 all), "components":
+            false (s p d f; true splits px py pz, d-2 ...)}. Writes
+            <PROJECT>-k<n>-1.pdos per kind; read them with yagura pdos_read
+            for the band-edge character.
         save_wfn: write the SCF wavefunction restart (sp), e.g. to start a
             hybrid from a GGA run.
         stress: analytical stress tensor in a single point (GPa).
@@ -181,7 +186,7 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
     text, info = cp2k_input.make_input(run_type, functional, subsys, files, project, cutoff,
                                        rel_cutoff, d3, scf, multiplicity, duration, md, opt, hfx,
                                        print_gap, save_wfn, stress, precision, guess_wfn, purpose,
-                                       guess_from, guess_dir)
+                                       guess_from, guess_dir, pdos)
     name = (f"{project}.inp" if project else "guess.inp" if purpose == "guess"
             else cp2k_input.RUN_TYPES[run_type][3])
     dst = Path(out_path).expanduser() if out_path else Path(subsys["out"]).expanduser().with_name(name)

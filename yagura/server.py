@@ -9,10 +9,11 @@ trajectory analysis) work without it.
 """
 import argparse
 import importlib
+import re
 from pathlib import Path
 
 from yagura import geomcheck, stretch
-from yagura.analysis import fes as fes_mod, trajectory
+from yagura.analysis import fes as fes_mod, gap as gap_mod, pdos as pdos_mod, trajectory
 from yagura.mcp_server import MCPServer
 
 mcp = MCPServer("yagura-mcp")
@@ -345,6 +346,89 @@ def colvar_fes(path: str, cvs: list[str], grid: list[list[float]], temperature: 
     if block_size < 1:
         raise ValueError("block_size is a positive number of frames")
     text, info = fes_mod.fes(src, cvs, grid, temperature, block_size, units, bias, frames)
+    dst.write_text(text)
+    return {"out": str(dst), **info}
+
+
+@mcp.tool()
+def gap_compare(gaps: list[dict], references: list[dict], kpoints: str = "gamma",
+                computed_gap: str = "ks") -> dict:
+    """Judge computed band gaps against reference gaps by functional
+    class: semilocal gaps (PBE, r2SCAN, ...) below experiment are the
+    expected bias, reported but not scored; hybrid gaps (PBE0, B3LYP,
+    r2SCAN0, r2SCANh, HSE06, ...) are scored against experiment (agree
+    <= 0.10 eV, marginal <= 0.30 eV); against another calculation the
+    same functional is scored and a different one is information, with
+    the expected direction (more exact exchange opens the gap) checked.
+    Use it after cp2k_parse_output (its gap_ev), with the references from
+    lit-search or the paper. No files, no cluster; standard library only.
+
+    Returns {"gaps": [{label, functional, class, exact_exchange, screened,
+    gap_ev, "rows": [{reference, kind, value, delta, delta_pct, verdict,
+    reason}]}], "closest": {experimental reference: [hybrid labels, closest
+    first]}, "caveats": [...], "tolerance_ev"}. Read the caveats to the
+    user with the verdicts: KS vs optical gap, Gamma-only.
+
+    Args:
+        gaps: [{"functional": "HSE06-D3(BJ)", "gap_ev": 4.04, "label": optional}].
+            Dispersion suffixes are ignored. An unlisted functional needs
+            "exact_exchange" (fraction, 0 for semilocal) and "screened".
+        references: [{"value": 4.07, "kind": "optical" | "fundamental" |
+            "calculated", "source": e.g. "valenzano2011:h-drs-gap",
+            "functional": required for "calculated"}]. "optical" is an
+            absorption edge (UV-vis, DRS, Tauc); "fundamental" is
+            photoemission + inverse photoemission or a quasiparticle value.
+        kpoints: "gamma" (Gamma-only, adds a caveat) or "mesh".
+        computed_gap: "ks" (Kohn-Sham HOMO-LUMO, cp2k_parse_output's gap_ev)
+            or "quasiparticle" (GW).
+    """
+    return gap_mod.compare(gaps, references, kpoints, computed_gap)
+
+
+@mcp.tool()
+def pdos_read(paths: list[str], window_ev: float = 0.5, sigma_ev: float = 0.1,
+              emin_ev: float = -6.0, emax_ev: float = 8.0, out_path: str | None = None,
+              overwrite: bool = False) -> dict:
+    """Read the CP2K projected DOS files of one run (one .pdos per atomic
+    kind: <PROJECT>-k<n>-1.pdos, or -ALPHA_k<n>- / -BETA_k<n>- with spin)
+    and say where the band edges sit: HOMO, LUMO and the gap between them,
+    and the share of each kind and channel ("Zr d", "C p", ...) in the
+    states within window_ev of each edge. Writes a Gaussian-broadened DOS
+    (total and per kind, E - E(HOMO) in eV) to plot. Local only; numpy only.
+
+    Pass every -k<n>- file of the run: the projections sum to ~1 per MO,
+    and a missing kind is reported. Files without unoccupied MOs (no &PDOS
+    NLUMO) give no LUMO; write the input with hyogo cp2k_make_input
+    pdos={"nlumo": 20}. The gap here is the same Kohn-Sham gap as
+    cp2k_parse_output's gap_ev; judge it with gap_compare.
+
+    Returns {"out", "files", "spins": {"none" | "alpha" | "beta": {kinds,
+    n_mo, n_occupied, e_fermi_ev, homo_ev, lumo_ev, gap_ev, "valence":
+    {states, kinds: {kind: share}, channels: {"El l": share}},
+    "conduction": {...}}}, "gap_ev", "window_ev", "sigma_ev", "warnings"}.
+
+    Args:
+        paths: the .pdos files on this machine (fs_download them first).
+        window_ev: the energy below the HOMO and above the LUMO whose states
+            count as the band edge.
+        sigma_ev: Gaussian broadening of the written DOS.
+        emin_ev, emax_ev: the written DOS's range, relative to the HOMO.
+        out_path: default <PROJECT>-pdos.dat beside the first file.
+        overwrite: replace out_path if it exists.
+    """
+    if not paths:
+        raise ValueError("paths is empty: pass the run's .pdos files")
+    srcs = [_local_file(p) for p in paths]
+    if len({s.resolve() for s in srcs}) != len(srcs):
+        raise ValueError("a file is given twice")
+    project = re.sub(r"-(ALPHA_|BETA_)?k\d+-\d+\.pdos$", "", srcs[0].name)
+    dst = (Path(out_path).expanduser() if out_path
+           else srcs[0].with_name(f"{project if project != srcs[0].name else srcs[0].stem}-pdos.dat"))
+    if any(dst.resolve() == s.resolve() for s in srcs):
+        raise ValueError("out_path must differ from the .pdos files")
+    if dst.exists() and not overwrite:
+        raise ValueError(f"{dst} exists; pass overwrite=true to replace it")
+    text, info = pdos_mod.analyse(srcs, window_ev, sigma_ev, 0.01, emin_ev, emax_ev)
     dst.write_text(text)
     return {"out": str(dst), **info}
 

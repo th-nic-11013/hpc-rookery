@@ -213,7 +213,7 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
                save_wfn: bool = False, stress: bool = False,
                precision: dict | None = None, guess_wfn: str | None = None,
                purpose: str = "result", guess_from: dict | None = None,
-               guess_dir: str | None = None) -> tuple[str, dict]:
+               guess_dir: str | None = None, pdos: dict | None = None) -> tuple[str, dict]:
     """The input text and a summary; `subsys` is cp2k_make_subsys' result.
 
     purpose="guess" writes a GGA single point whose only product is the
@@ -234,6 +234,20 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
     stem, d3_ref, d3_default, bj_only, cutoff_default, hf = PRESETS[functional]
     warnings = []
     guess_info = None
+    if pdos is not None:
+        if not isinstance(pdos, dict):
+            raise ValueError('pdos is {"nlumo": 20, "components": false}')
+        bad = set(pdos) - {"nlumo", "components"}
+        if bad:
+            raise ValueError(f"unknown pdos field(s) {sorted(bad)}; it takes nlumo and components")
+        if run_type != "sp":
+            raise ValueError("pdos is for a single point: run one on the optimised geometry "
+                             "(geo_opt/cell_opt/md would print it every step)")
+        nlumo = pdos.get("nlumo", 20)
+        if not isinstance(nlumo, int) or isinstance(nlumo, bool) or (nlumo < 1 and nlumo != -1):
+            raise ValueError("pdos nlumo is a positive number of unoccupied MOs (or -1 for all)")
+        if not isinstance(pdos.get("components", False), bool):
+            raise ValueError("pdos components is true (px, py, pz, d-2, ...) or false (s, p, d, f)")
     if guess_dir is not None and guess_from is None:
         raise ValueError("guess_dir goes with guess_from (the previous run's cp2k_parse_output)")
 
@@ -464,9 +478,21 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
     elif save_wfn:
         lines += ["      &PRINT", "        &RESTART ON", "        &END RESTART", "      &END PRINT"]
     lines.append("    &END SCF")
-    if print_gap:
-        lines += ["    &PRINT", "      &MO_CUBES", "        NHOMO 1", "        NLUMO 1",
-                  "        WRITE_CUBE FALSE", "      &END MO_CUBES", "    &END PRINT"]
+    if print_gap or pdos is not None:
+        # one &DFT%PRINT: the section can't be repeated
+        lines.append("    &PRINT")
+        if print_gap:
+            lines += ["      &MO_CUBES", "        NHOMO 1", "        NLUMO 1",
+                      "        WRITE_CUBE FALSE", "      &END MO_CUBES"]
+        if pdos is not None:
+            # CP2K 2026.2 layout (#5326): NLUMO on &DOS, &PDOS a subsection
+            # of it. Writes <PROJECT>-k<n>-1.pdos per kind (and a total
+            # .dos); yagura pdos_read reads them
+            lines += ["      &DOS", f"        NLUMO {pdos.get('nlumo', 20)}", "        &PDOS"]
+            if pdos.get("components"):
+                lines.append("          COMPONENTS T")
+            lines += ["        &END PDOS", "      &END DOS"]
+        lines.append("    &END PRINT")
     lines += ["    &XC", "      &XC_FUNCTIONAL"] + _indent(_XC[functional], 8) + ["      &END XC_FUNCTIONAL"]
     if hf:
         lines += _indent("\n".join(_hf(hf, screen_p, HF_FRACTION[functional])), 6)
@@ -482,6 +508,7 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
                          "wfn": f"{project}-RESTART.wfn"} if "RESTART" in sets else None),
             "settings": {k: v for k, v in sets.items() if k != "PROJECT"},
             "opt": o, "guess": guess_info,
+            "pdos": (f"{project}-k<n>-1.pdos, one per kind" if pdos is not None else None),
             "files": files["basis"] + [files["potential"]] + (["t_c_g.dat"] if hf == "truncated" else []),
             "warnings": warnings}
     return "\n".join(lines) + "\n", info
