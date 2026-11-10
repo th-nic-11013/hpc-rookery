@@ -35,10 +35,26 @@
 - **MLMD** — molecular dynamics driven by a machine-learned interatomic potential (e.g. MACE) instead of DFT forces.
 - **Collective variable (CV)** — one number that summarises a configuration (a distance, a torsion angle, a coordination number), chosen so it tells apart the states you care about.
 - **Metadynamics** — enhanced sampling that adds small energy "hills" where the CV has already been, so the system is pushed over barriers it would rarely cross on its own; well-tempered metadynamics shrinks the hills over time.
+- **OPES** — On-the-fly Probability Enhanced Sampling: a successor to metadynamics that builds the bias from a running estimate of the probability distribution, so it converges faster and has fewer knobs; `OPES_METAD_EXPLORE` favours exploration, and `OPES_EXPANDED` samples a range of temperatures/pressures in one run.
 - **Reweighting** — recovering unbiased averages from a biased run by giving each frame the weight exp(V/kT) of the bias it felt.
 - **Block averaging** — splitting a run into consecutive blocks and using the spread between block results as the error, so correlated frames aren't counted as independent.
 - **metatomic** — the model format and LAMMPS `pair_style` that let LAMMPS (and PLUMED) call an exported ML potential such as MACE.
 - **NVE energy drift** — how fast the total energy creeps in a run with no thermostat; near zero means the potential and timestep integrate cleanly.
 - **hybrid/overlay** — LAMMPS pair style that adds several potentials on the same atoms, e.g. MACE plus a D3 dispersion correction.
+- **Label sensitivity** — how much the training targets (energies, forces) change when you swap the DFT functional used to compute them; if small, use the cheaper functional.
+- **Δ-correction (Δ-learning)** — label most frames with a cheap method and learn only the difference to an expensive one from a small subset.
 - **PDOS (projected density of states)** — the density of states split by element or atom kind, showing which atoms the band edges sit on.
 - **KS gap vs optical gap** — the Kohn–Sham HOMO–LUMO gap is an orbital-energy difference; the optical gap is a measured absorption edge, and exciton effects lower it, so the two are not strictly the same quantity.
+- **MatPES** — a public ~400k-structure DFT dataset (PBE and r²SCAN, no dispersion) sampled from 300 K MD, used to train foundation MLIPs such as MACE-MATPES-r2SCAN-0.
+- **ECV (expansion collective variable)** — in OPES_EXPANDED, the per-target-ensemble energy shift ΔUᵢ(x) that tells the bias how much more likely x is at (Tᵢ, Pᵢ) than at the simulated T₀, P₀.
+- **Δf (DELTAFS)** — the free-energy offsets OPES_EXPANDED learns, one per target ensemble; when they stop changing, the bias has converged.
+- **stdio transport (MCP)** — the agent starts the tool server as a local child process and talks to it over stdin/stdout, so nothing listens on the network (like an intercom wired between two rooms, not a phone line).
+- **Prompt injection** — text the agent reads (a web page, job output, a doc) that contains instructions trying to make it misuse its tools.
+- **GTH pseudopotential** — replaces each atom's core electrons and nucleus with a smooth effective potential, so only valence electrons are computed; each is fitted to one functional (GTH-PBE, GTH-PBE0, GTH-SCAN).
+- **UZH basis/PP family** — the newer Zurich-made set of matched Gaussian basis sets, GTH pseudopotentials and ADMM auxiliary bases, fitted per functional; it replaced MOLOPT for hybrids in this study.
+- **AUX_FIT** — the per-kind line in CP2K that names the small auxiliary basis ADMM uses for exact exchange.
+- **dpdata / cp2kdata** — existing Python libraries that read DFT outputs (CP2K among them) into training-data formats; both need `PRINT_LEVEL MEDIUM` CP2K outputs.
+- **Print key (CP2K)** — an input section such as `&FORCES` that controls one block of output; its `FILENAME` sends that block to its own file instead of the main output.
+- **Label run (CP2K)** — a single point written with `cp2k_make_input(purpose="label")`: energy, forces and analytical stress all printed in the `.out`, with the D3 choice stated explicitly.
+- **AppleDouble (`._*` files)** — hidden companion files macOS adds when it copies or tars a file, holding its Finder metadata; junk on a Linux cluster, so folder uploads skip them.
+- **PMIx psec** — the PMIx security plugin that checks which process is talking to the MPI launcher; on HOKUSAI `PMIX_MCA_psec=native` picks the built-in one and stops the "munge component not found" log noise.

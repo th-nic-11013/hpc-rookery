@@ -1,0 +1,16 @@
+[RB230090] Large Scale Quantum Mechnical Calcuations: Computation and Analysis
+Node/User      Used(h)    Limit(h)    Used(%)    Expiry date
+-----------  ---------  ----------  ---------  -------------
+mpc          2320866.2   3019161.6       76.9     2027-03-31
+lmc              246.6     16588.8        1.5     2027-03-31
+gpu              399.2     38707.2        1.0     2027-03-31
+fpga               0.0           -          -     2027-03-31
+
+member1       700989.8           -          -     2027-03-31
+member2*       17780.8           -          -     2026-08-21
+member3      1565828.9           -          -     2027-03-31
+member4       25057.0           -          -     2027-03-31
+member5           139.3           -          -     2027-03-31
+thnic123        8745.7           -          -     2027-03-31
+member6        2970.5           -          -     2027-03-31
+

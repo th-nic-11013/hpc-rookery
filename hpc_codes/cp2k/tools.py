@@ -65,13 +65,15 @@ def bench_parse(facility: str, stage_dirs: list[str]) -> dict:
     return result
 
 
-def _run_with_exit(facility: str, body: str) -> tuple[int, list[str]]:
+def _run_with_exit(facility: str, body: str, timeout: float | None = None) -> tuple[int, list[str]]:
     """Run body in a subshell; return its exit code and output lines.
+    timeout: seconds the SSH transport waits (run_command), for slow bodies.
 
     stdin is /dev/null: run_command's ssh leaves it open, and cp2k.psmp
     (MPI start-up) waits on an open stdin until the transport times out.
     """
-    out = run_command(facility, f"( {body} ) </dev/null 2>&1; echo HPC_CODES_EXIT=$?")
+    out = run_command(facility, f"( {body} ) </dev/null 2>&1; echo HPC_CODES_EXIT=$?",
+                      timeout=timeout)
     lines = out.rstrip("\n").splitlines()
     code = int(lines[-1].split("=", 1)[1]) if lines and lines[-1].startswith("HPC_CODES_EXIT=") else -1
     return code, lines[:-1]
@@ -196,7 +198,8 @@ def check_input(facility: str, input_path: str, build_id: str | None = None) -> 
             f"&& {run} --check -i {shlex.quote(name)}; rc=$?; "
             f"if [ $rc -eq 0 ]; then {{ {run} --echo -i {shlex.quote(name)} 2>&1; "
             f"echo {_ECHO}_EXIT=$?; }} | {_ECHO_LOOP}; fi; exit $rc")
-    code, out = _run_with_exit(facility, body)
+    # --check and --echo may each use their 60 s, plus the env script (G4)
+    code, out = _run_with_exit(facility, body, timeout=150)
     lines = [l for l in out if not l.startswith(_ECHO + " ")]
     # (exists flag "1"/"0"/"-", echoed line)
     echo = [((l.split(" ", 2) + [""])[1], (l.split(" ", 2) + [""])[2]) for l in out
@@ -254,7 +257,8 @@ def check_build(facility: str, build_id: str | None = None) -> dict:
             f"source {env} >/dev/null 2>&1; b=$(command -v cp2k.psmp); echo BIN=$b; "
             f'[ -n "$b" ] && {{ ldd "$b" | grep "not found" | sed "s/^/MISSING=/"; '
             f'cp2k.psmp --version 2>/dev/null | grep -E "CP2K version|cp2kflags"; }}; true')
-    _, lines = _run_with_exit(facility, body)
+    # sourcing the env and ldd on a cold filesystem can pass 30 s (G4)
+    _, lines = _run_with_exit(facility, body, timeout=120)
     get = lambda key: next((l.split("=", 1)[1] for l in lines if l.startswith(key + "=")), "")
     version = next((l.split("CP2K version", 1)[1].strip() for l in lines if "CP2K version" in l), None)
     flags = next((l.split(":", 1)[1].split() for l in lines if "cp2kflags" in l), [])
@@ -417,7 +421,8 @@ def bench_dryrun(facility: str, bench_dir: str, ref_out: str, settings: dict | N
                 + ("" if keep_scratch else
                    f'case "$S" in "$HOME"/{DRYRUN_SCRATCH}/{case}.*) rm -rf -- "$S";; esac; ')
                 + "exit $rc")
-        code, lines = _run_with_exit(facility, body)
+        # the dry run allows itself `timeout 300` (G4)
+        code, lines = _run_with_exit(facility, body, timeout=330)
         if "HPC_DRYRUN_NO_GUARD" in lines:
             raise RuntimeError(f"{bench_dir}/dryrun.sh is missing or has no stub-srun check; "
                                "upload the benchmark skill's scripts/dryrun.sh first")

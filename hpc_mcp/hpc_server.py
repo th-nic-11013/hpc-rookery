@@ -367,11 +367,20 @@ def fs_mkdir(facility: str, path: str) -> str:
 @mcp.tool()
 @_configured_facility_tool
 def fs_upload(facility: str, local_path: str, remote_path: str) -> dict:
-    """Upload a local file to a facility via rsync (falling back to scp),
-    with a SHA-256 verification of the transfer. (IRI: POST /api/v1/filesystem/upload/{resource_id} — deviation: rsync/scp)
+    """Upload a local file, or a local folder's contents, to a facility via
+    rsync (falling back to scp), with a SHA-256 verification of the
+    transfer. (IRI: POST /api/v1/filesystem/upload/{resource_id} — deviation: rsync/scp, folders)
+
+    A file lands at remote_path. A folder's *contents* land in the folder
+    remote_path (created if needed; same-named files overwritten): it goes as
+    one tar.gz, is extracted there, and every file's sha256 is checked on the
+    cluster. macOS metadata (`._*`, .DS_Store), `__pycache__` and symlinks
+    are not sent; the result lists them under `skipped`.
 
     Stage uploads under `~/agent/work/...` (the agent's visible scratch
     area), never in the home-directory root."""
+    if Path(local_path).is_dir():
+        return middleware.upload_dir(facility, Path(local_path), remote_path)
     return upload_file(facility, Path(local_path), remote_path)
 
 

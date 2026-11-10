@@ -44,8 +44,11 @@ def _tail(line: str) -> str:
     return line.split()[-1]
 
 
-def parse(text: str) -> dict:
-    """Parse the text of a CP2K output. Raises ValueError if it isn't one."""
+def parse(text: str, vectors: bool = False) -> dict:
+    """Parse the text of a CP2K output. Raises ValueError if it isn't one.
+
+    vectors=True adds forces["vectors"]: the last force printout, one
+    [x, y, z] per atom in atom order (Ha/bohr), as CP2K printed it."""
     lines = text.splitlines()
     if not any(l.startswith((" CP2K| version", " GLOBAL| Run type")) for l in lines[:200]):
         raise ValueError("not a CP2K output: no CP2K| or GLOBAL| header in the first 200 lines")
@@ -53,7 +56,7 @@ def parse(text: str) -> dict:
     r = {"version": None, "project": None, "run_type": None, "finished": False,
          "started": None, "ranks": None, "threads": None, "natoms": None, "electrons": None}
     scf_steps, scf_outer, scf_nc, inner_pending = [], [], 0, []
-    energies, gaps = [], []
+    energies, gaps, disp = [], [], []
     forces, cur_forces, in_old_forces = None, [], False
     stress, cur_stress, third_trace = None, {}, None
     cell, cur_cell = None, {}
@@ -125,6 +128,8 @@ def parse(text: str) -> dict:
                 inner_pending = []
         if "HOMO - LUMO gap [eV]" in line:
             gaps.append(_f(_tail(line)))
+        if s.startswith("Dispersion energy:"):      # G39; printed in each SCF summary
+            disp.append(_f(_tail(line)))
 
         # --- forces (last printout wins)
         if line.startswith(" FORCES|"):
@@ -253,11 +258,17 @@ def parse(text: str) -> dict:
                 "steps": scf_steps, "outer": scf_outer}
     r["energy_ha"] = energies[-1] if energies else None
     r["gap_ev"] = gaps[-1] if gaps else None
+    r["dispersion_ha"] = disp[-1] if disp else None
     if forces:
         mags = [(a, (x * x + y * y + z * z) ** 0.5) for a, x, y, z in forces]
         atom, fmax = max(mags, key=lambda t: t[1])
         r["forces"] = {"max": fmax, "rms": (sum(m * m for _, m in mags) / len(mags)) ** 0.5,
                        "max_atom": atom, "natoms": len(mags)}
+        if vectors:
+            order = sorted(forces)
+            if [a for a, *_ in order] != list(range(1, len(order) + 1)):
+                raise ValueError("the force printout does not number the atoms 1..N once each")
+            r["forces"]["vectors"] = [[x, y, z] for _, x, y, z in order]
     else:
         r["forces"] = None
     r["stress_gpa"] = {"tensor": stress, "third_trace": third_trace} if stress else None

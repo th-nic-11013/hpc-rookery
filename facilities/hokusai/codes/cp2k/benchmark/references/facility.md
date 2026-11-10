@@ -26,9 +26,15 @@ points, not as clean layouts.
 ```bash
 srun --mpi=pmix -n R -c T --cpu-bind=cores --distribution=block:block
 export OMP_NUM_THREADS=T OMP_PLACES=cores OMP_PROC_BIND=close
+export PMIX_MCA_psec=native
 ```
 
 - `--mpi=pmix` is required: the builds use the site Open MPI.
+- `PMIX_MCA_psec=native` stops each rank printing two "A requested
+  component was not found ... Framework: psec Component: munge" boxes to
+  the Slurm log (hundreds of lines per job). It changes nothing else:
+  checked 2026-11-10 (job 9760836, 4 ranks, `cp2k.psmp --version`: 8
+  boxes without it, 0 with it, exit 0 both ways). `launch_plan` sets it.
 - `--cpus-per-task` must be repeated on `srun`, because Slurm 23.02 does not
   inherit it.
 - With these flags, rank r owns cores r×T to r×T+T−1.

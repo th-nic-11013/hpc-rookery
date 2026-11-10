@@ -19,8 +19,14 @@ plain SlurmBackend construction:
 2. **Fair-share standing governs when a queued job starts**, so
    get_projects() reports it alongside the plain associations the base
    SlurmBackend already returns.
+3. **The budget lives in `listcpu`, not in Slurm** (gap G35): core-hours
+   used and granted per subsystem (mpc, lmc, gpu, fpga) with an expiry
+   date. get_project_allocations() adds those rows; get_user_allocations()
+   adds the current user's own row. The command also lists every other
+   member's usage, which neither returns.
 """
 import os
+import re
 from pathlib import Path
 
 from hpc_agent_core import config
@@ -75,6 +81,60 @@ def _default_account() -> str | None:
             or cfg.get("account"))
 
 
+def _num(v: str) -> float | None:
+    return None if v.strip() in ("", "-") else float(v)
+
+
+def parse_listcpu(text: str, user: str | None = None) -> dict:
+    """`listcpu -p <project>` -> {project, title, subsystems, user}.
+
+    The first block (after the dashed rule, up to a blank line) is one row
+    per subsystem: name, used h, limit h, used %, expiry. The next block is
+    one row per member (used h, "-", "-", expiry; a trailing "*" on a name
+    is HOKUSAI's mark). Only `user`'s own row is kept; the others are not
+    returned. Refuses text it doesn't recognise rather than guessing.
+    """
+    lines = text.splitlines()
+    head = next((l for l in lines if l.strip()), "")
+    m = re.match(r"\s*\[([^\]]+)\]\s*(.*)", head)
+    rule = next((i for i, l in enumerate(lines) if set(l.strip()) <= {"-", " "} and "--" in l), None)
+    if not m or rule is None:
+        raise RuntimeError("listcpu output not recognised (no '[project] title' line or no "
+                           f"dashed rule): {text[:300]!r}")
+    blocks, cur = [], []
+    for l in lines[rule + 1:]:
+        if l.strip():
+            cur.append(l.split())
+        elif cur:
+            blocks.append(cur)
+            cur = []
+    if cur:
+        blocks.append(cur)
+    subsystems = []
+    for row in blocks[0] if blocks else []:
+        if len(row) != 5:
+            raise RuntimeError(f"listcpu subsystem row not recognised: {' '.join(row)!r}")
+        subsystems.append({"subsystem": row[0], "used_h": _num(row[1]), "limit_h": _num(row[2]),
+                           "used_pct": _num(row[3]), "expiry": row[4]})
+    mine = None
+    for row in (blocks[1] if len(blocks) > 1 else []):
+        if user and len(row) == 5 and row[0].rstrip("*") == user:
+            mine = {"user": user, "used_h": _num(row[1]), "expiry": row[4],
+                    "marked": row[0].endswith("*")}
+    return {"project": m.group(1), "title": m.group(2).strip(),
+            "subsystems": subsystems, "user": mine}
+
+
+def _listcpu(facility: str, project_id: str) -> tuple[dict, str]:
+    """Run listcpu for one project; return the parse and the login name."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", project_id or ""):
+        raise ValueError(f"project id {project_id!r} is not a HOKUSAI project (e.g. RB230090)")
+    out = run_command(facility, f'echo "ROOKERY_USER=$USER"; listcpu -p {project_id}')
+    first, _, rest = out.partition("\n")
+    user = first.split("=", 1)[1].strip() if first.startswith("ROOKERY_USER=") else None
+    return parse_listcpu(rest, user), user
+
+
 class HokusaiBackend(SlurmBackend):
     def apply_defaults(self, spec: JobSpec) -> None:
         """Fill in HBW2's default partition and the user's default project.
@@ -120,6 +180,34 @@ class HokusaiBackend(SlurmBackend):
                     "raw_usage": parts[2].strip(),
                 }
         return [{**p, **fairshare.get(p["account"], {})} for p in projects]
+
+    def _with_slurm_limits(self, fetch) -> dict:
+        """The base Slurm association limits, or why there are none: on
+        HBW2 the budget is listcpu's, so an empty association is no error."""
+        try:
+            return fetch()
+        except (RuntimeError, ValueError) as exc:
+            return {"slurm_limits_error": str(exc)}
+
+    def get_project_allocations(self, project_id: str) -> dict:
+        """Slurm's account limits plus `listcpu`'s per-subsystem budget:
+        `subsystems` = [{subsystem, used_h, limit_h, used_pct, expiry}]
+        (hours as listcpu prints them for each subsystem). Other
+        members' usage, which listcpu also prints, is not returned."""
+        base = self._with_slurm_limits(lambda: super(HokusaiBackend, self)
+                                       .get_project_allocations(project_id))
+        lc, _ = _listcpu(self.facility, project_id)
+        return {**base, "project": lc["project"], "title": lc["title"],
+                "subsystems": lc["subsystems"], "source": "listcpu -p"}
+
+    def get_user_allocations(self, project_id: str) -> dict:
+        """Slurm's per-user limits plus the current user's own `listcpu`
+        row: `usage` = {user, used_h, expiry, marked} (None if listcpu has
+        no row for this user under the project)."""
+        base = self._with_slurm_limits(lambda: super(HokusaiBackend, self)
+                                       .get_user_allocations(project_id))
+        lc, _ = _listcpu(self.facility, project_id)
+        return {**base, "project": lc["project"], "usage": lc["user"], "source": "listcpu -p"}
 
 
 BACKEND = HokusaiBackend(

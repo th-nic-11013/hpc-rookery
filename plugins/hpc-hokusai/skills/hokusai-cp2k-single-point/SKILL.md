@@ -18,8 +18,9 @@ submitting.
   `launch_plan` (layout, job spec, cost), `fs_upload`,
   `cp2k_check_input` (parse check),
   `submit_job`, `get_job_status`, `fs_download`, `cp2k_parse_output`
-  (the hyogo server, reads the output), `cp2k_record_from_run` (the
-  timing record); `fs_tail` / `fs_view` while it runs.
+  (the hyogo server, reads the output), `cp2k_make_labels` (the hyogo
+  server, MLIP training labels from the outputs), `cp2k_record_from_run`
+  (the timing record); `fs_tail` / `fs_view` while it runs.
 - **Preconditions:** the two prerequisites below, and the user's approval
   of the input and the cost.
 - **Done when:** the SCF converged and the energy (and forces) are
@@ -65,6 +66,8 @@ Ask the user about anything that changes the physics:
 | isolated molecule | periodic | follows `subsys.inc`: made with `periodic="NONE"`, the input gets `&POISSON` |
 | gap, wavefunction | off | `print_gap=True` (HOMO-LUMO), `save_wfn=True` (`<PROJECT>-RESTART.wfn`) |
 | projected DOS | off | `pdos={"nlumo": 20}` (one `<PROJECT>-k<n>-1.pdos` per kind; `"components": true` splits px/py/pz, d-2...); single points only |
+| MLIP training labels | off | `purpose="label"`: see "MLIP training labels" below |
+| print level | `print_level="LOW"` | `"MEDIUM"` for a more verbose log (e.g. to cross-check with dpdata); LOW already prints everything the hyogo parsers read |
 
 The input has **no `IGNORE_CONVERGENCE_FAILURE`**. An unconverged SCF
 must stop the run, not produce an energy that looks valid.
@@ -115,6 +118,28 @@ For the hybrids (ADMM, 25 % exact exchange):
   auxiliary basis as large as the primary is outside what ADMM is for;
 - `stress=True` adds the analytical stress tensor (GPa), and
   `precision={"eps_pgf_orb": ...}` tightens `&QS`.
+
+### MLIP training labels
+
+Labels are single points whose energy, forces and stress all go into the
+`.out`, and nowhere else:
+
+```text
+cp2k_make_input(run_type="sp", functional=<the label functional>, subsys=..., kinds=...,
+                purpose="label", d3="none")
+```
+
+- `purpose="label"` turns on forces and the analytical stress. It refuses
+  to run without an explicit `d3`, because that choice must match the
+  model:
+  - `d3="none"` when the model adds D3 at inference, e.g. a foundation
+    model trained without dispersion (MatPES) plus LAMMPS
+    `dispersion/d3` with the same functional's parameters;
+  - `"bj"` when the model must learn dispersion itself.
+- The tool warns that a D3-free result is wrong for structures or
+  energetics; it is only for labels.
+- Use one functional, one D3 choice, and one cutoff/basis family for the
+  whole set.
 
 **By hand, without the hyogo server:** copy `templates/single_point.inp`
 (revPBE-D3 only) next to `subsys.inc` and set its `@SET` lines; its
@@ -247,6 +272,19 @@ an unconverged SCF, and CP2K's own `*** WARNING` boxes in full.
   gap and each kind's and channel's share of the edge states, and writes
   a broadened DOS to plot. Read its warnings: a missing kind file, or no
   LUMO (rerun with `pdos`).
+- **MLIP labels:** `fs_download` each label run's `.out` **and the
+  `subsys.inc` it ran on**, then `cp2k_make_labels(frames=[{"out": ...,
+  "subsys": ..., "config_type": ...}, ...], out_path="<set>.extxyz",
+  head=<MACE head>)`.
+  - It writes one extended-XYZ file in MACE's keys: `REF_energy` (eV),
+    `REF_forces` (eV/Å) and `REF_stress` (eV/Å³, ASE sign, Voigt). Each
+    frame carries its source path, sha256 and CP2K version.
+  - It refuses unfinished or unconverged runs, atom-count mismatches,
+    missing stress, untested CP2K versions, and sets mixing D3 with no-D3.
+  - D3 is never subtracted: the `.out` has the D3 energy but not its forces
+    or stress, so re-run with `d3="none"` instead.
+  - The `.out` stays the record. Regenerate the extxyz from it; never edit
+    the extxyz.
 - Record the timing (it is what `launch_plan` sizes the next run from): `cp2k_record_from_run` with the whole parse result as `parsed`, `nodes`, `job_id`, and `like` = a `benchmarks` id of the same system and method (`records_query`), overriding what differs with `method={...}` (e.g. `{"functional": "PBE0"}`). Use `dry_run: true` first to show the user the record. Don't type a record by hand (hokusai-records). An unconverged run is recorded with `valid: false`.
 
 By hand, if the hyogo server isn't available: `fs_tail` / `fs_view` on

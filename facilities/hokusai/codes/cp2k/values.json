@@ -14,7 +14,8 @@
     "environment": {
       "OMP_NUM_THREADS": "{T}",
       "OMP_PLACES": "cores",
-      "OMP_PROC_BIND": "close"
+      "OMP_PROC_BIND": "close",
+      "PMIX_MCA_psec": "native"
     }
   }
 }

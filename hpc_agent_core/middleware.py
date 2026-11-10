@@ -172,27 +172,63 @@ def _unreachable_message(fac, detail: str) -> str:
     return config.setup_instructions(fac, problem=problem, ssh_error=detail)
 
 
-def run_command(facility: "Facility | str", cmd: str) -> str:
+#: remotemanager's text when a command outlives its transport wait
+#: (remotemanager/connection/cmd.py, _communicate). The process is killed.
+_TRANSPORT_TIMEOUT_TEXT = "could not communicate with process"
+
+
+def _transport_wait_s(timeout, max_timeouts) -> float:
+    """How long remotemanager waits before giving up on a command: it tries
+    communicate(timeout) max_timeouts times and sleeps timeout x try between
+    tries, so the default 5 s x 3 is 5+5+5+10+5 = 30 s, not 15."""
+    t, m = float(timeout or 0), int(max_timeouts or 0)
+    if t <= 0 or m <= 0:
+        return float("inf")
+    return t * m + t * m * (m - 1) / 2
+
+
+def _slow_command_message(fac, wait_s: float, per_call: bool) -> str:
+    how = ("pass a longer timeout to this call" if per_call else
+           f'raise "computer": {{"timeout": ...}} in {config.config_path(fac)}')
+    return (f"The command on {fac.display_name} ({fac.slug!r}) ran longer than the SSH "
+            f"transport waits (about {wait_s:.0f} s) and was stopped. The cluster was "
+            f"reached; this is not a connection or settings problem. Submit long work as a "
+            f"job (submit_job), or {how}.")
+
+
+def run_command(facility: "Facility | str", cmd: str, timeout: float | None = None) -> str:
     """Run a shell command on `facility`'s login node; return stdout.
 
     Raises RuntimeError on non-zero exit so callers receive a clean MCP tool
     error rather than having to parse error text from the output. When the
     failure is "we never reached the cluster" rather than "a command failed
     there", the error carries this facility's full setup directions — see
-    config.setup_instructions().
+    config.setup_instructions(). A command that outlives the transport's wait
+    gets its own message instead (gap G4: it used to read as broken SSH).
+
+    timeout: seconds this call may take, for commands known to be slow (a
+    `cp2k --check`). Without it the facility's computer settings apply
+    (remotemanager's timeout x max_timeouts, about 30 s by default).
     Output beyond OUTPUT_LIMIT_BYTES is truncated with a marker.
     """
     fac = config.resolve(facility)
     payload = 'cd "$HOME" && ' + cmd
     encoded = base64.b64encode(payload.encode()).decode()
+    frontend = get_frontend(fac)
+    kw = {} if timeout is None else {"timeout": max(1, int(round(timeout))), "max_timeouts": 1}
     # remotemanager may print progress to stdout, which would corrupt the
     # MCP stdio transport — divert anything it emits.
     with contextlib.redirect_stdout(sys.stderr):
         try:
-            result = get_frontend(fac).cmd(
-                f"echo {encoded} | base64 -d | bash -l", raise_errors=False,
+            result = frontend.cmd(
+                f"echo {encoded} | base64 -d | bash -l", raise_errors=False, **kw,
             )
         except Exception as exc:
+            if _TRANSPORT_TIMEOUT_TEXT in str(exc):
+                wait = (kw["timeout"] if kw else
+                        _transport_wait_s(getattr(frontend, "timeout", None),
+                                          getattr(frontend, "max_timeouts", None)))
+                raise RuntimeError(_slow_command_message(fac, wait, bool(kw))) from exc
             raise RuntimeError(_unreachable_message(fac, str(exc))) from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
@@ -438,4 +474,105 @@ def upload_file(facility: "Facility | str", local_path: Path, remote_path: str) 
         "sha256": local_sha,
         "verified": True,
         "transport": type(transport).__name__,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Folder upload (gap G6)
+# ---------------------------------------------------------------------------
+
+#: Names never shipped in a folder upload: macOS metadata (AppleDouble `._*`
+#: files that macOS tar adds, Finder's .DS_Store) and Python caches.
+_UPLOAD_SKIP_NAMES = {".DS_Store", "__pycache__", ".ipynb_checkpoints"}
+
+
+def _upload_skip(name: str) -> bool:
+    return name in _UPLOAD_SKIP_NAMES or name.startswith("._")
+
+
+def _folder_manifest(local_dir: Path) -> tuple[list[str], list[str], dict, list[str]]:
+    """Walk local_dir: (dirs, files, {file: sha256}, skipped), paths relative
+    and POSIX, sorted. Symlinks are skipped (a link's target may be outside
+    the folder or absent on the cluster); so are the names above."""
+    dirs, files, shas, skipped = [], [], {}, []
+    for path in sorted(local_dir.rglob("*")):
+        rel = path.relative_to(local_dir)
+        if any(_upload_skip(part) for part in rel.parts):
+            if _upload_skip(rel.parts[-1]):
+                skipped.append(rel.as_posix())
+            continue
+        if path.is_symlink():
+            skipped.append(rel.as_posix() + " (symlink)")
+            continue
+        name = rel.as_posix()
+        if "\n" in name or "\\" in name:
+            raise ValueError(f"cannot upload {name!r}: newline or backslash in a file name")
+        if path.is_dir():
+            dirs.append(name)
+        elif path.is_file():
+            files.append(name)
+            shas[name] = _sha256_local(path)
+        else:
+            skipped.append(name + " (not a regular file)")
+    return dirs, files, shas, skipped
+
+
+def upload_dir(facility: "Facility | str", local_dir: Path, remote_dir: str) -> dict:
+    """Push the *contents* of local_dir into remote_dir on `facility`.
+
+    One tar.gz (written by Python's tarfile, so no macOS AppleDouble or
+    xattr entries), sent with upload_file's sha256 check, extracted into
+    remote_dir, then every file's sha256 is checked on the cluster against
+    the local manifest (`sha256sum -c`). Existing files of the same name in
+    remote_dir are overwritten; others are left alone. The tarball and the
+    manifest are removed afterwards, whether or not the check passed.
+    """
+    import secrets
+    import tarfile
+    import tempfile
+
+    local_dir = Path(local_dir)
+    if not local_dir.is_dir():
+        raise NotADirectoryError(str(local_dir))
+    dirs, files, shas, skipped = _folder_manifest(local_dir)
+    if not files:
+        raise ValueError(f"{local_dir} has no files to upload"
+                         + (f" (skipped: {', '.join(skipped)})" if skipped else ""))
+    remote_dir = norm_path(remote_dir).rstrip("/") or "."
+    tag = secrets.token_hex(6)
+    manifest = f".rookery-upload-{tag}.sha256"
+    total = sum((local_dir / f).stat().st_size for f in files)
+
+    with tempfile.TemporaryDirectory(prefix="rookery-upload-") as tmp:
+        tar_path = Path(tmp) / f".rookery-upload-{tag}.tar.gz"
+        man_path = Path(tmp) / manifest
+        man_path.write_text("".join(f"{shas[f]}  {f}\n" for f in files))
+        with tarfile.open(tar_path, "w:gz", format=tarfile.PAX_FORMAT) as tar:
+            for name in dirs + files:
+                tar.add(local_dir / name, arcname=name, recursive=False)
+            tar.add(man_path, arcname=manifest)
+        sent = upload_file(facility, tar_path, f"{remote_dir}/{tar_path.name}")
+
+    d, t, m = quote_path(remote_dir), shlex.quote(tar_path.name), shlex.quote(manifest)
+    # hashing on the cluster reads every byte once more: allow ~50 MB/s
+    out = run_command(
+        facility,
+        f"cd {d} && tar --no-same-owner -xzf {t} && sha256sum -c --quiet {m} 2>&1; "
+        f"rc=$?; rm -f -- {t} {m}; echo ROOKERY_UPLOAD_EXIT=$rc",
+        timeout=60 + total / 50e6)
+    lines = out.rstrip("\n").splitlines()
+    rc = lines[-1].split("=", 1)[1] if lines and lines[-1].startswith("ROOKERY_UPLOAD_EXIT=") else "?"
+    if rc != "0":
+        bad = [l for l in lines[:-1] if l.strip()]
+        raise RuntimeError(f"Folder upload of {local_dir} to {remote_dir}: extraction or the "
+                           f"per-file sha256 check failed (exit {rc}): "
+                           f"{'; '.join(bad[:20]) or 'no output'}")
+    return {
+        "remote_path": sent["remote_path"].rsplit("/", 1)[0],
+        "files": len(files),
+        "dirs": len(dirs),
+        "bytes": total,
+        "verified": True,
+        "skipped": skipped,
+        "transport": sent["transport"],
     }

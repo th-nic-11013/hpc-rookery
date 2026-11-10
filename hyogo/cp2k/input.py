@@ -213,15 +213,32 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
                save_wfn: bool = False, stress: bool = False,
                precision: dict | None = None, guess_wfn: str | None = None,
                purpose: str = "result", guess_from: dict | None = None,
-               guess_dir: str | None = None, pdos: dict | None = None) -> tuple[str, dict]:
+               guess_dir: str | None = None, pdos: dict | None = None,
+               print_level: str = "LOW") -> tuple[str, dict]:
     """The input text and a summary; `subsys` is cp2k_make_subsys' result.
 
     purpose="guess" writes a GGA single point whose only product is the
     wavefunction a hybrid restarts from, in the hybrid's basis and
     potentials (a wavefunction can't move between bases). Its energy is not
-    a result: the potentials belong to another functional."""
-    if purpose not in ("result", "guess"):
-        raise ValueError('purpose is "result" or "guess" (a wavefunction for a hybrid to restart from)')
+    a result: the potentials belong to another functional.
+
+    purpose="label" (G48) writes a single point for MLIP training labels:
+    energy, forces and the analytical stress all printed in the .out (no
+    separate files), with D3 stated explicitly (d3="none" when the model
+    adds D3 at inference)."""
+    if purpose not in ("result", "guess", "label"):
+        raise ValueError('purpose is "result", "guess" (a wavefunction for a hybrid to restart '
+                         'from) or "label" (MLIP training labels: energy, forces, stress)')
+    if print_level not in ("LOW", "MEDIUM"):
+        raise ValueError('print_level is "LOW" (default; prints everything the parser and '
+                         'cp2k_make_labels need) or "MEDIUM"')
+    if purpose == "label":
+        if run_type != "sp":
+            raise ValueError('purpose="label" is a single point (run_type="sp")')
+        if d3 is None:
+            raise ValueError('purpose="label" needs d3 stated: d3="none" if the model adds D3 at '
+                             'inference (e.g. MACE-MATPES-r2SCAN-0 + LAMMPS D3), else "bj" or "zero"')
+        stress = True
     if run_type not in RUN_TYPES:
         raise ValueError(f"run_type is one of {list(RUN_TYPES)}")
     if functional not in PRESETS:
@@ -284,8 +301,13 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
         guess_wfn, guess_info = _guess_from(guess_from, guess_dir, guess_wfn, subsys, files, warnings)
 
     d3 = d3 or d3_default
-    if d3 not in ("zero", "bj"):
-        raise ValueError('d3 is "zero" or "bj"')
+    if d3 not in ("zero", "bj", "none"):
+        raise ValueError('d3 is "zero", "bj" or "none" (no dispersion; for MLIP labels whose '
+                         'model adds D3 at inference)')
+    if d3 == "none" and purpose != "guess":
+        warnings.append("no D3: dispersion is missing from this energy, forces and stress. Right for "
+                        "MLIP labels whose model adds D3 at inference; wrong for structures or "
+                        "energetics of a dispersion-bound system (MOF pores, layers, adsorption)")
     if d3 == "zero" and bj_only:
         raise ValueError(f"{functional} has D3 parameters only with BJ damping: use d3=\"bj\"")
 
@@ -398,7 +420,8 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
         warnings.append("smearing in MD: the conserved quantity drifts more; watch it")
 
     width = max(len(k) for k in sets) + 2
-    lines = [f"# CP2K {run_type}, {functional}-D3{'(BJ)' if d3 == 'bj' else ''}, "
+    disp = " (no D3)" if d3 == "none" else f"-D3{'(BJ)' if d3 == 'bj' else ''}"
+    lines = [f"# CP2K {run_type}{' (MLIP labels)' if purpose == 'label' else ''}, {functional}{disp}, "
              f"{subsys.get('formula', '?')}; written by cp2k_make_input",
              "# Edit the @SET values; the structure is in subsys.inc."]
     if purpose == "guess":
@@ -413,7 +436,7 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
                   + ("${PROJECT}-RESTART.wfn" if "WFN" in sets else "RESTART"),
                   "@ENDIF"]
     lines += ["", "&GLOBAL", "  PROJECT     ${PROJECT}", f"  RUN_TYPE    {'ENERGY' if purpose == 'guess' else RUN_TYPES[run_type][0]}",
-              "  PRINT_LEVEL LOW"]
+              f"  PRINT_LEVEL {print_level}"]
     if "WALLTIME" in sets:
         lines.append("  WALLTIME    ${WALLTIME}")
     lines += ["&END GLOBAL", ""]
@@ -496,13 +519,19 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
     lines += ["    &XC", "      &XC_FUNCTIONAL"] + _indent(_XC[functional], 8) + ["      &END XC_FUNCTIONAL"]
     if hf:
         lines += _indent("\n".join(_hf(hf, screen_p, HF_FRACTION[functional])), 6)
-    lines += ["      &VDW_POTENTIAL", "        POTENTIAL_TYPE PAIR_POTENTIAL", "        &PAIR_POTENTIAL",
-              f"          TYPE                 {'DFTD3(BJ)' if d3 == 'bj' else 'DFTD3'}",
-              "          PARAMETER_FILE_NAME  dftd3.dat", f"          REFERENCE_FUNCTIONAL {d3_ref}",
-              "        &END PAIR_POTENTIAL", "      &END VDW_POTENTIAL", "    &END XC", "  &END DFT",
+    if d3 != "none":
+        lines += ["      &VDW_POTENTIAL", "        POTENTIAL_TYPE PAIR_POTENTIAL", "        &PAIR_POTENTIAL",
+                  f"          TYPE                 {'DFTD3(BJ)' if d3 == 'bj' else 'DFTD3'}",
+                  "          PARAMETER_FILE_NAME  dftd3.dat", f"          REFERENCE_FUNCTIONAL {d3_ref}",
+                  "        &END PAIR_POTENTIAL", "      &END VDW_POTENTIAL"]
+    lines += ["    &END XC", "  &END DFT",
               "  &SUBSYS", "    @INCLUDE subsys.inc", "  &END SUBSYS", "&END FORCE_EVAL"]
 
     info = {"run_type": run_type, "functional": functional, "d3": d3, "scf": scf, "purpose": purpose,
+            "print_level": print_level,
+            "label": ({"prints": ["energy", "forces", "stress"], "in": f"{project}.out (stdout)",
+                       "next": "fs_download the .out and subsys.inc, then cp2k_make_labels"}
+                      if purpose == "label" else None),
             "wfn": f"{project}-RESTART.wfn" if save_wfn and run_type == "sp" else None,
             "restart": ({"set": "RESTART", "file": f"{project}-1.restart",
                          "wfn": f"{project}-RESTART.wfn"} if "RESTART" in sets else None),

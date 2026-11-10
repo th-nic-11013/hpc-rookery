@@ -1603,6 +1603,138 @@ def check_repo() -> None:
                 else:
                     raise AssertionError(f"fs_rm did not refuse {bad!r}")
 
+    def slow_commands_are_not_reported_as_unreachable():
+        """G4: remotemanager kills a command that outlives timeout x
+        max_timeouts and raises "could not communicate with process".
+        run_command used to turn that into the SSH setup directions, so a
+        slow `cp2k --check` read as a broken connection. It must say the
+        command was slow; a real SSH failure keeps the setup text; and a
+        per-call timeout reaches remotemanager as an exact wait."""
+        from hpc_agent_core import middleware
+
+        class Frontend:
+            timeout, max_timeouts = 5, 3
+
+            def __init__(self, exc):
+                self.exc, self.kw = exc, None
+
+            def cmd(self, command, **kw):
+                self.kw = kw
+                raise self.exc
+
+        slow = Frontend(RuntimeError("could not communicate with process"))
+        with patch.object(middleware, "get_frontend", return_value=slow):
+            try:
+                middleware.run_command("hokusai", "sleep 45")
+            except RuntimeError as e:
+                msg = str(e)
+            else:
+                raise AssertionError("a killed command did not raise")
+        assert "ran longer than the SSH transport waits (about 30 s)" in msg, msg
+        assert "probably wrong" not in msg and "submit_job" in msg, msg
+        assert "timeout" not in slow.kw, f"no per-call timeout was asked for: {slow.kw}"
+        with patch.object(middleware, "get_frontend", return_value=slow):
+            try:
+                middleware.run_command("hokusai", "sleep 45", timeout=90)
+            except RuntimeError as e:
+                msg = str(e)
+        assert slow.kw.get("timeout") == 90 and slow.kw.get("max_timeouts") == 1, slow.kw
+        assert "about 90 s" in msg and "longer timeout to this call" in msg, msg
+        assert middleware._transport_wait_s(20, 3) == 120, "20 s x 3 waits 20+20+20+20+40"
+
+        down = Frontend(RuntimeError("ssh: Could not resolve hostname hokusai"))
+        with patch.object(middleware, "get_frontend", return_value=down):
+            try:
+                middleware.run_command("hokusai", "true")
+            except RuntimeError as e:
+                msg = str(e)
+        assert "ran longer" not in msg and "Could not resolve hostname" in msg, msg
+
+    def folder_upload_ships_files_only_and_checks_each():
+        """G6: fs_upload takes a folder. The tarball must hold the files
+        and folders (an empty one too) but no macOS metadata, caches or
+        symlinks; its manifest must hash every file; the cluster-side check
+        failing must raise. The transport is stubbed: nothing leaves here."""
+        import hashlib
+        import tarfile
+        import tempfile
+        from pathlib import Path
+        from hpc_agent_core import middleware
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "run"
+            (src / "sub").mkdir(parents=True)
+            (src / "empty").mkdir()
+            (src / "__pycache__").mkdir()
+            (src / "a.inp").write_text("&GLOBAL\n&END GLOBAL\n")
+            (src / "sub" / "b.xyz").write_bytes(b"1\n\nH 0 0 0\n")
+            (src / "._a.inp").write_bytes(b"\0\5\26\7")
+            (src / ".DS_Store").write_bytes(b"x")
+            (src / "__pycache__" / "m.pyc").write_bytes(b"x")
+            (src / "link").symlink_to("/etc/hosts")
+            sent = {}
+
+            def fake_upload(facility, local_path, remote_path):
+                with tarfile.open(local_path) as tar:
+                    sent["members"] = sorted(tar.getnames())
+                    man = next(m for m in tar.getmembers() if m.name.endswith(".sha256"))
+                    sent["manifest"] = tar.extractfile(man).read().decode()
+                sent["remote"] = remote_path
+                return {"remote_path": remote_path, "transport": "stub"}
+
+            def fake_run(facility, command, timeout=None):
+                sent["command"] = command
+                return sent.get("reply", "ROOKERY_UPLOAD_EXIT=0\n")
+
+            with patch.object(middleware, "upload_file", side_effect=fake_upload), \
+                    patch.object(middleware, "run_command", side_effect=fake_run):
+                r = middleware.upload_dir("hokusai", src, "~/agent/work/run/")
+                files = [m for m in sent["members"] if not m.startswith(".rookery-upload-")]
+                assert files == ["a.inp", "empty", "sub", "sub/b.xyz"], sent["members"]
+                want = {f: hashlib.sha256((src / f).read_bytes()).hexdigest()
+                        for f in ("a.inp", "sub/b.xyz")}
+                got = dict(reversed(l.split("  ", 1)) for l in sent["manifest"].splitlines())
+                assert got == want, got
+                assert sent["remote"].startswith("agent/work/run/.rookery-upload-"), sent["remote"]
+                assert "sha256sum -c" in sent["command"] and "rm -f" in sent["command"]
+                assert r["files"] == 2 and r["verified"] and r["remote_path"] == "agent/work/run", r
+                assert sorted(r["skipped"]) == [".DS_Store", "._a.inp", "__pycache__",
+                                                "link (symlink)"], r["skipped"]
+                sent["reply"] = "sub/b.xyz: FAILED\nROOKERY_UPLOAD_EXIT=1\n"
+                try:
+                    middleware.upload_dir("hokusai", src, "agent/work/run")
+                except RuntimeError as e:
+                    assert "sub/b.xyz: FAILED" in str(e), e
+                else:
+                    raise AssertionError("a failed per-file check did not raise")
+
+    def hokusai_listcpu_budget_keeps_only_my_row():
+        """G35: listcpu -p prints the per-subsystem budget and every
+        member's usage. The parser keeps the budget and the caller's own
+        row only; other members never appear in what it returns."""
+        import json
+        from pathlib import Path
+        from facilities.hokusai.facility import parse_listcpu
+        text = (Path(__file__).parent / "fixtures" / "hokusai" / "listcpu-p.txt").read_text()
+        r = parse_listcpu(text, "thnic123")
+        assert r["project"] == "RB230090", r
+        mpc = r["subsystems"][0]
+        assert (mpc["subsystem"], mpc["used_h"], mpc["limit_h"], mpc["used_pct"], mpc["expiry"]) \
+            == ("mpc", 2320866.2, 3019161.6, 76.9, "2027-03-31"), mpc
+        assert [x["subsystem"] for x in r["subsystems"]] == ["mpc", "lmc", "gpu", "fpga"]
+        assert r["subsystems"][3]["limit_h"] is None, "fpga has no limit ('-')"
+        assert r["user"] == {"user": "thnic123", "used_h": 8745.7, "expiry": "2027-03-31",
+                             "marked": False}, r["user"]
+        assert "member" not in json.dumps(r), "another member's row leaked"
+        assert parse_listcpu(text, "member2")["user"]["marked"] is True
+        assert parse_listcpu(text, "nobody")["user"] is None
+        try:
+            parse_listcpu("listcpu: command not found", "thnic123")
+        except RuntimeError as e:
+            assert "not recognised" in str(e)
+        else:
+            raise AssertionError("unrecognised listcpu text was parsed")
+
     def generated_skills_are_wellformed():
         """Every generated SKILL.md needs YAML frontmatter whose name
         matches its directory, or the client cannot discover it.
@@ -2119,6 +2251,12 @@ def check_repo() -> None:
     check("unknown facility errors clearly, listing valid slugs", unknown_facility_errors_clearly)
     check("slugs are lowercase and safe", slugs_are_url_and_identifier_safe)
     check("fs_rm refuses home/root paths", fs_rm_refuses_dangerous_paths)
+    check("a slow command is not reported as unreachable (G4)",
+          slow_commands_are_not_reported_as_unreachable)
+    check("folder upload ships files only and checks each (G6)",
+          folder_upload_ships_files_only_and_checks_each)
+    check("HOKUSAI listcpu budget keeps only my row (G35)",
+          hokusai_listcpu_budget_keeps_only_my_row)
     check("job names cannot inject into scripts", job_name_cannot_inject_into_scripts)
     check("resource quantities are positive", resource_quantities_are_positive)
     check("process_count does not conflict with default tasks-per-node",
@@ -2398,7 +2536,7 @@ def check_repo() -> None:
                                       "'cp2k_kinds', 'cp2k_record_from_run', 'launch_plan', 'records_append', 'records_check', "
                                       "'records_query']"), out.stdout
 
-    def local_run_command(facility, cmd):
+    def local_run_command(facility, cmd, timeout=None):
         """middleware.run_command's contract, run in a local bash: the same
         payload (cd "$HOME" first), stdout back, RuntimeError on failure.
         Only read-only commands reach it (the cp2k_* tools)."""
@@ -3434,6 +3572,173 @@ def check_repo() -> None:
                 else:
                     raise AssertionError(f"cp2k_parse_output accepted {args}")
 
+    def hyogo_writes_mlip_labels_from_the_out():
+        """G43/G48/G39: cp2k_make_labels turns six real r2SCAN single points
+        (tests/fixtures/cp2k_labels/README.md) into a MACE extxyz whose
+        energies, forces and stress equal the values read from the .out by
+        the T1 scratch script; ASE reads it back; each refusal fires.
+        cp2k_parse_output returns the D3 energy and, on request, the force
+        vectors (agreeing with rookery's parse_bench). cp2k_make_input writes
+        D3-free label inputs, refuses a label run without an explicit d3."""
+        import gzip
+        import hashlib
+        import numpy as np
+        from hyogo import server as hsrv
+        from hpc_codes.cp2k import parse_bench
+        root = pathlib.Path(__file__).resolve().parent.parent
+        fx = root / "tests" / "fixtures" / "cp2k_labels"
+        names = ["f0", "f4", "f6", "g1", "g2", "g3"]
+        HA, BOHR = 27.211386245988, 0.529177210903
+        # read from the .out by hand / by prep_frames.py (T1, 2026-11-10)
+        e_ha = {"f0": -4331.290510609114790, "f4": -4329.822648671946808, "f6": -4329.492885091510288,
+                "g1": -4330.083526623568105, "g2": -4329.558230738028215, "g3": -4329.754518004212514}
+        disp = {"f0": -0.49296898210552, "f4": -0.55561696321359, "f6": -0.62812280703689,
+                "g1": -0.53685677067104, "g2": -0.60928280355682, "g3": -0.81121842562775}
+        # D3-free dE vs f0 in meV/atom (eval.json, T1)
+        de_nod3 = {"f4": 91.33179065687919, "f6": 115.33685354825457, "g1": 74.64463813502925,
+                   "g2": 110.31315127094562, "g3": 110.65021178342647}
+        f0_atom1 = [3.04250713e-03, 3.06068636e-03, -5.27325955e-05]          # Ha/bohr
+        g3_stress = [[-0.786827370621, 0.608844789297, -0.0496170247816],      # GPa, CP2K sign
+                     [0.608844789297, -1.77506239311, -0.216342540857],
+                     [-0.0496170247816, -0.216342540857, -1.88814737907]]
+        close = lambda a, b, tol=1e-9: abs(a - b) <= tol * max(1.0, abs(b))
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            for n in names:
+                (d / f"{n}.out").write_bytes(gzip.decompress((fx / f"{n}.out.gz").read_bytes()))
+                (d / f"{n}.inc").write_bytes(gzip.decompress((fx / f"{n}.subsys.inc.gz").read_bytes()))
+            # cp2k_parse_output: D3 energy always, vectors on request (G39, G43)
+            for n in names:
+                r = hsrv.cp2k_parse_output(str(d / f"{n}.out"), vectors=True)
+                assert close(r["dispersion_ha"], disp[n]), (n, r["dispersion_ha"])
+                v = r["forces"]["vectors"]
+                assert len(v) == 456 == r["forces"]["natoms"], n
+                comps = parse_bench.parse_out(d / f"{n}.out")["forces"]
+                assert np.allclose(np.ravel(v), comps, rtol=0, atol=1e-14), n
+                if n == "f0":
+                    assert v[0] == f0_atom1, v[0]
+                assert "vectors" not in hsrv.cp2k_parse_output(str(d / f"{n}.out"))["forces"], n
+            # the existing fixtures have D3: the parser reads it there too
+            plain = d / "plain.out"
+            plain.write_bytes(gzip.decompress((root / "tests" / "fixtures" / "cp2k_outputs" /
+                                               "r2scan-sp.out.gz").read_bytes()))
+            assert hsrv.cp2k_parse_output(str(plain))["dispersion_ha"] is not None
+
+            frames = [{"out": str(d / f"{n}.out"), "subsys": str(d / f"{n}.inc"), "config_type": n}
+                      for n in names]
+            r = hsrv.cp2k_make_labels(frames, str(d / "labels.extxyz"), head="r2scan")
+            assert r["frames"] == 6 and r["natoms"] == [456] * 6 and r["stress"], r
+            assert r["d3"] == "included" and any("include D3" in w for w in r["warnings"]), r
+            assert r["versions"] == ["CP2K version 2026.2"], r
+            try:
+                from ase.io import read as ase_read
+            except ImportError:
+                ase_read = None
+            if ase_read is not None:      # ASE is the yagura extra; hyogo itself doesn't need it
+                atoms = ase_read(str(d / "labels.extxyz"), ":")
+                assert len(atoms) == 6
+                for n, a in zip(names, atoms):
+                    assert a.info["config_type"] == n and a.info["head"] == "r2scan", a.info
+                    assert close(a.info["REF_energy"], e_ha[n] * HA), n
+                    assert close(a.info["dispersion_eV"], disp[n] * HA), n
+                    assert a.info["source_sha256"] == hashlib.sha256(
+                        (d / f"{n}.out").read_bytes()).hexdigest(), n
+                    assert len(a) == 456 and list(a.pbc) == [True] * 3, n
+                    assert a.info["REF_stress"].shape == (6,), a.info["REF_stress"]
+                    if n == "f0":
+                        assert np.allclose(a.arrays["REF_forces"][0],
+                                           np.array(f0_atom1) * HA / BOHR, rtol=1e-11), n
+                    if n == "g3":   # ASE sign = -CP2K's pressure-like tensor; Voigt xx yy zz yz xz xy
+                        s = -np.array(g3_stress) / 160.21766208
+                        want = [s[0, 0], s[1, 1], s[2, 2], s[1, 2], s[0, 2], s[0, 1]]
+                        assert np.allclose(a.info["REF_stress"], want, rtol=1e-11, atol=0), n
+                e0 = (atoms[0].info["REF_energy"] - atoms[0].info["dispersion_eV"])
+                for n, a in zip(names[1:], atoms[1:]):
+                    got = (a.info["REF_energy"] - a.info["dispersion_eV"] - e0) / 456 * 1e3
+                    assert abs(got - de_nod3[n]) < 1e-6, (n, got)
+            # refusals
+            text = (d / "f0.out").read_text().splitlines()
+            cut = d / "cut.out"
+            cut.write_text("\n".join(l for l in text if "PROGRAM ENDED" not in l) + "\n")
+            old = d / "old.out"
+            old.write_text("\n".join(l.replace("2026.2", "2024.1") for l in text) + "\n")
+            nostress = d / "nostress.out"
+            nostress.write_text("\n".join(l for l in text if not l.startswith(" STRESS|")) + "\n")
+            nod3 = d / "nod3.out"
+            nod3.write_text("\n".join(l for l in text if "Dispersion energy:" not in l) + "\n")
+            short = d / "short.inc"
+            inc = (d / "f0.inc").read_text().splitlines()
+            drop = next(i for i, l in enumerate(inc) if l.startswith("&COORD")) + 1
+            short.write_text("\n".join(inc[:drop] + inc[drop + 1:]) + "\n")
+            f0 = {"out": str(d / "f0.out"), "subsys": str(d / "f0.inc")}
+            for fr, kw, msg in (([{**f0, "out": str(cut)}], {}, "PROGRAM ENDED"),
+                                ([{**f0, "out": str(old)}], {}, "allow_untested_version"),
+                                ([{**f0, "out": str(nostress)}], {}, "require_stress"),
+                                ([f0, {**f0, "out": str(nod3)}], {}, "mix runs with and without D3"),
+                                ([{**f0, "subsys": str(short)}], {}, "455 atoms in its subsys.inc"),
+                                ([{**f0, "subsys": str(d / "missing.inc")}], {}, "fs_download"),
+                                ([{"out": str(d / "f0.out")}], {}, "each frame is"),
+                                ([f0], {"overwrite": False}, "exists")):
+                dst = d / ("labels.extxyz" if msg == "exists" else "bad.extxyz")
+                try:
+                    hsrv.cp2k_make_labels(fr, str(dst), **kw)
+                except ValueError as e:
+                    assert msg in str(e), (msg, e)
+                else:
+                    raise AssertionError(f"cp2k_make_labels accepted {msg}")
+                assert msg == "exists" or not dst.exists(), msg
+            # an untested version passes when asked, with a warning; no stress when not required
+            r = hsrv.cp2k_make_labels([{**f0, "out": str(old)}], str(d / "old.extxyz"),
+                                      allow_untested_version=True)
+            assert any("2024.1 is not a tested layout" in w for w in r["warnings"]), r
+            r = hsrv.cp2k_make_labels([{**f0, "out": str(nostress)}], str(d / "ns.extxyz"),
+                                      require_stress=False)
+            assert not r["stress"] and "REF_stress" not in (d / "ns.extxyz").read_text(), r
+
+            # G48: D3-free label inputs, everything printed in the .out
+            k = {"files": {"basis": ["BASIS_MOLOPT_UZH_2026.2"], "potential": "POTENTIAL_UZH_2026.2"},
+                 "kinds": {e: {"q": q, "basis": f"DZVP-MOLOPT-SCAN-GTH-q{q}", "potential": f"GTH-SCAN-q{q}"}
+                           for e, q in {"H": 1, "C": 4, "O": 6, "Zr": 12}.items()}, "errors": {}}
+            xyz = d / "f0.xyz"
+            from hyogo.cp2k import labels as hl
+            s0 = hl.read_subsys((d / "f0.inc").read_text())
+            xyz.write_text(f"{len(s0['symbols'])}\nLattice=\"" +
+                           " ".join(f"{v:.8f}" for row in s0["cell"] for v in row) +
+                           "\" Properties=species:S:1:pos:R:3 pbc=\"T T T\"\n" +
+                           "\n".join(f"{el} {x:.8f} {y:.8f} {z:.8f}"
+                                     for el, (x, y, z) in zip(s0["symbols"], s0["positions"])) + "\n")
+            sub = hsrv.cp2k_make_subsys(str(xyz), k, str(d / "lab.inc"))
+            r = hsrv.cp2k_make_input("sp", "r2scan", sub, k, project="lab", purpose="label", d3="none",
+                                     out_path=str(d / "lab.inp"))
+            inp = (d / "lab.inp").read_text()
+            assert r["d3"] == "none" and r["purpose"] == "label" and r["label"]["prints"], r
+            assert "VDW_POTENTIAL" not in inp and "DFTD3" not in inp, inp
+            for need in ("RUN_TYPE    ENERGY_FORCE", "PRINT_LEVEL LOW", "STRESS_TENSOR ANALYTICAL",
+                         "&FORCES ON", "&STRESS_TENSOR ON", "STRESS_UNIT GPa"):
+                assert need in inp, need
+            assert "FILENAME" not in inp, "label output must stay in the .out"
+            assert any("no D3" in w for w in r["warnings"]), r["warnings"]
+            r = hsrv.cp2k_make_input("sp", "r2scan", sub, k, project="labd3", purpose="label", d3="bj",
+                                     print_level="MEDIUM", out_path=str(d / "labd3.inp"))
+            inp = (d / "labd3.inp").read_text()
+            assert "DFTD3(BJ)" in inp and "PRINT_LEVEL MEDIUM" in inp and "&STRESS_TENSOR ON" in inp
+            # the default input is unchanged: D3 on, LOW
+            r = hsrv.cp2k_make_input("sp", "r2scan", sub, k, project="plain", out_path=str(d / "p.inp"))
+            inp = (d / "p.inp").read_text()
+            assert "DFTD3(BJ)" in inp and "PRINT_LEVEL LOW" in inp and r["label"] is None
+            for kw, msg in ((dict(purpose="label"), "needs d3 stated"),
+                            (dict(purpose="label", d3="none", run_type="geo_opt"), "single point"),
+                            (dict(print_level="HIGH"), "print_level"),
+                            (dict(d3="off"), '"none"')):
+                rt = kw.pop("run_type", "sp")
+                try:
+                    hsrv.cp2k_make_input(rt, "r2scan", sub, k, out_path=str(d / "bad.inp"),
+                                         overwrite=True, **kw)
+                except ValueError as e:
+                    assert msg in str(e), (msg, e)
+                else:
+                    raise AssertionError(f"cp2k_make_input accepted {kw}")
+
     def hyogo_vasp_tools_match_the_campaign_scripts():
         """hyogo's vasp_make_incar writes the settings the MXene campaign's
         make_magmom_test2.py wrote (tests/fixtures/vasp_inputs/README.md) and
@@ -4080,6 +4385,12 @@ print(json.dumps(bad)); sys.exit(1 if bad else 0)
         metad = [{"label": "metad", "type": "METAD", "arg": "phi", "pace": 500, "height": 1.2,
                   "biasfactor": 8, "sigma": 0.35, "grid_min": "-pi", "grid_max": "pi"}]
         temp_added = (("metad:", "METAD"), "TEMP=300.0")
+        enevol = [{"label": "ene", "type": "ENERGY"}, {"label": "vol", "type": "VOLUME"}]
+        ecv = [{"label": "ecv", "type": "ECV_MULTITHERMAL_MULTIBARIC", "arg": ["ene", "vol"],
+                "temp_min": 300, "temp_max": 600, "pressure_bar": 1, "pressure_min_bar": 1,
+                "pressure_max_bar": 10000}]
+        opes_x = [{"label": "opes", "type": "OPES_EXPANDED", "arg": "ecv", "pace": 50,
+                   "observation_steps": 10, "print_stride": 500}]
         cases = (
             (fx / "lammps" / "hokusai_smoke" / "plumed.dat",
              dict(cvs=[{"label": "d", "type": "DISTANCE", "atoms": [1, 2]}],
@@ -4096,16 +4407,42 @@ print(json.dumps(bad)); sys.exit(1 if bad else 0)
             # REWEIGHT_BIAS, HISTOGRAM x2, CONVERT_TO_FES x2, DUMPGRID x2); here that
             # step is yagura's colvar_fes, which adds block errors
             (fx / "plumed" / "master-ISDD-2" / "plumed_reweight.dat",
-             dict(cvs=tors, bias=metad, molinfo="diala.pdb", temperature=300, mode="reweight"), None, 7))
+             dict(cvs=tors, bias=metad, molinfo="diala.pdb", temperature=300, mode="reweight"), None, 7),
+            # G40: the hand-written OPES_EXPANDED input of the UiO-66 O1 run; pressures
+            # given in bar and converted to eV/A^3
+            (fx / "plumed" / "o1-opes-expanded" / "plumed.dat",
+             dict(cvs=enevol, ecvs=ecv, bias=opes_x, temperature=300, print_stride=50,
+                  units={"length": "A", "energy": "eV", "time": "ps"}), None, 0))
         with tempfile.TemporaryDirectory() as d:
+            rs = []
             for i, (ref, kw, added, dropped) in enumerate(cases):
                 r = hsrv.plumed_make_input(out_path=str(pathlib.Path(d) / f"p{i}.dat"), **kw)
+                rs.append(r)
                 got, want = pnorm(r["out"]), pnorm(ref)
                 if added:
                     got = [(h, t - {added[1]}) if h == added[0] else (h, t) for h, t in got]
                 missing = [x for x in want if x not in got]
                 assert [x for x in got if x not in want] == [] and len(missing) == dropped, (ref, got, missing)
-            assert r["print"] == {"file": "COLVAR_REWEIGHT", "stride": 1, "args": ["phi", "psi", "metad.bias"]}
+            assert rs[3]["print"] == {"file": "COLVAR_REWEIGHT", "stride": 1, "args": ["phi", "psi", "metad.bias"]}
+            r = rs[4]
+            assert r["outputs"] == ["COLVAR", "DELTAFS"] and any("25000 steps" in w for w in r["warnings"]), r
+            # 1 GPa in kJ/mol/nm^3 (PLUMED's default units): 10^9 Pa x 1e-27 m^3 x N_A / 1000
+            assert abs(hsrv.plumed_input.bar_to_plumed(1e4, None) - 602.214076) < 1e-6
+            assert abs(hsrv.plumed_input.bar_to_plumed(1, {"length": "A", "energy": "eV"}) - 6.241509e-7) < 1e-12
+            # OPES_METAD and _EXPLORE, and the single-temperature ECV
+            r = hsrv.plumed_make_input([{"label": "v", "type": "VOLUME"}], str(pathlib.Path(d) / "om.dat"),
+                                       bias=[{"label": "o", "type": "OPES_METAD_EXPLORE", "arg": "v",
+                                              "pace": 500, "barrier": 0.5}],
+                                       units={"length": "A", "energy": "eV"}, temperature=300)
+            text = pathlib.Path(r["out"]).read_text()
+            assert "o: OPES_METAD_EXPLORE ARG=v PACE=500 BARRIER=0.5 FILE=KERNELS TEMP=300" in text, text
+            assert r["outputs"] == ["COLVAR", "KERNELS"] and any("no sigma" in w for w in r["warnings"]), r
+            r = hsrv.plumed_make_input(enevol[:1], str(pathlib.Path(d) / "mt.dat"), temperature=300,
+                                       ecvs=[{"label": "ecv", "type": "ECV_MULTITHERMAL", "arg": "ene",
+                                              "temp_min": 300, "temp_max": 500, "temp_steps": 8}],
+                                       bias=[{**opes_x[0], "print_stride": 10}])
+            assert "ecv: ECV_MULTITHERMAL ARG=ene TEMP=300 TEMP_MIN=300 TEMP_MAX=500 TEMP_STEPS=8" \
+                in pathlib.Path(r["out"]).read_text(), r
             mr = {"label": "m", "type": "MOVINGRESTRAINT", "arg": "d", "step": [0, 50000, 100000],
                   "at": [2.3, 4.5, 2.3], "kappa": [100, 100, 100]}
             r = hsrv.plumed_make_input([{"label": "d", "type": "DISTANCE", "atoms": [1, 2]}],
@@ -4126,7 +4463,26 @@ print(json.dumps(bad)); sys.exit(1 if bad else 0)
                     (([d1],), {"bias": [{**metad[0], "arg": "d", "biasfactor": 1}]}, "biasfactor > 1"),
                     (([d1],), {"bias": [{**metad[0], "arg": "d"}]}, "needs temperature"),
                     (([d1],), {"mode": "reweight", "temperature": 300}, "exactly one METAD"),
-                    (([{"label": "t", "type": "TORSION", "atoms": "@phi-2"}],), {}, "needs molinfo")):
+                    (([{"label": "t", "type": "TORSION", "atoms": "@phi-2"}],), {}, "needs molinfo"),
+                    # G40 refusals
+                    ((enevol,), {"ecvs": [{**ecv[0], "arg": ["vol", "ene"]}], "bias": opes_x,
+                                 "temperature": 300}, "in that order"),
+                    ((enevol,), {"ecvs": ecv, "bias": opes_x}, "needs temperature"),
+                    ((enevol,), {"ecvs": [{k: v for k, v in ecv[0].items() if k != "pressure_bar"}],
+                                 "bias": opes_x, "temperature": 300}, "missing ['pressure_bar']"),
+                    ((enevol,), {"ecvs": ecv, "temperature": 300}, "not used by an OPES_EXPANDED"),
+                    ((enevol,), {"bias": [{**opes_x[0], "arg": "ene"}], "temperature": 300},
+                     "names ECVs"),
+                    ((enevol,), {"ecvs": ecv, "bias": opes_x + [{"label": "r", "type": "RESTRAINT",
+                                 "arg": "ecv", "at": 1, "kappa": 1}], "temperature": 300}, "only OPES_EXPANDED"),
+                    ((enevol,), {"ecvs": ecv, "bias": [{**opes_x[0], "temp": 300}], "temperature": 300},
+                     "unknown ['temp']"),
+                    ((enevol,), {"ecvs": ecv, "bias": opes_x, "temperature": 300, "units": "natural"},
+                     "need real units"),
+                    ((enevol,), {"bias": [{"label": "o", "type": "OPES_METAD", "arg": "vol", "pace": 500}],
+                                 "temperature": 300}, "missing ['barrier']"),
+                    ((enevol,), {"bias": [{"label": "o", "type": "OPES_METAD", "arg": "vol", "pace": 500,
+                                           "barrier": 40}]}, "needs temperature")):
                 try:
                     hsrv.plumed_make_input(*args, str(pathlib.Path(d) / "bad.dat"), **kw)
                 except ValueError as e:
@@ -4701,6 +5057,7 @@ print(json.dumps(res))
     check("hyogo make_input matches the templates and UiO-66",
           hyogo_make_input_matches_the_templates_and_uio66)
     check("hyogo parse_output reads the HOKUSAI runs", hyogo_parse_output_reads_the_hokusai_runs)
+    check("hyogo writes MLIP labels from the .out", hyogo_writes_mlip_labels_from_the_out)
     check("hyogo VASP tools match the campaign scripts", hyogo_vasp_tools_match_the_campaign_scripts)
     check("hyogo checks INCARs through lit-search", hyogo_checks_incars_through_lit_search)
     check("hyogo chains one run into the next (G27)", hyogo_chains_one_run_into_the_next)

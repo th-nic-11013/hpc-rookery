@@ -8,7 +8,7 @@ import argparse
 import gzip
 from pathlib import Path
 
-from hyogo.cp2k import input as cp2k_input, output as cp2k_output, subsys
+from hyogo.cp2k import input as cp2k_input, labels as cp2k_labels, output as cp2k_output, subsys
 from hyogo.lammps import input as lammps_input, log as lammps_log
 from hyogo.plumed import input as plumed_input
 from hyogo.vasp import incar as vasp_incar, litsearch_check, output as vasp_output
@@ -78,7 +78,8 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
                     stress: bool = False, precision: dict | None = None,
                     guess_wfn: str | None = None, purpose: str = "result",
                     guess_from: dict | None = None, guess_dir: str | None = None,
-                    pdos: dict | None = None, overwrite: bool = False) -> dict:
+                    pdos: dict | None = None, print_level: str = "LOW",
+                    overwrite: bool = False) -> dict:
     """Write a CP2K run input that includes subsys.inc: a single point,
     a geometry or cell optimisation, or NVT MD, with a functional preset
     (XC, exact exchange, ADMM, D3). Tunables are @SET lines at the top.
@@ -98,7 +99,11 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
 
     Refuses: potentials of the wrong family, a hybrid without AUX_FIT
     bases, an HFX radius at or above half the narrowest cell width, zero
-    damping D3 with r2SCAN presets.
+    damping D3 with r2SCAN presets, purpose="label" without an explicit d3
+    or for anything but a single point.
+
+    For MLIP labels (energy, forces, stress in the .out): run_type="sp",
+    purpose="label", d3="none" when the model adds D3 at inference.
 
     To start a hybrid from a GGA wavefunction in the hybrid's own basis:
     first cp2k_make_input("sp", "pbe", <the hybrid's subsys>, <its kinds>,
@@ -118,7 +123,8 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
     walltime stop, set it to 1 and resubmit: the run continues from its
     <project>-1.restart and its own wavefunction.
 
-    Returns {"out", "run_type", "functional", "d3", "scf", "purpose", "wfn"
+    Returns {"out", "run_type", "functional", "d3", "scf", "purpose",
+    "print_level", "label" ({prints, in, next} for purpose="label"), "wfn"
     (the restart file a sp writes, or null), "restart" ({set, file, wfn}
     for geo_opt/cell_opt/md_nvt, else null), "opt", "guess" ({wfn,
     from_project, checked, final_xyz} with guess_from, else null), "settings":
@@ -141,7 +147,9 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
         cutoff: MGRID CUTOFF in Ry; default 450 for GGA, 600 for r2SCAN,
             hybrids and cell_opt.
         rel_cutoff: MGRID REL_CUTOFF in Ry.
-        d3: "zero" or "bj"; default zero for revpbe, bj otherwise.
+        d3: "zero", "bj" or "none"; default zero for revpbe, bj otherwise.
+            "none" leaves dispersion out: only for MLIP labels whose model
+            adds D3 at inference (warned).
         scf: "ot" (insulators) or "smear" (metals, small gaps).
         multiplicity: spin multiplicity; default 1, or 2 for odd electrons.
         duration: job duration "HH:MM:SS"; WALLTIME leaves a margin.
@@ -169,9 +177,15 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
         guess_wfn: wavefunction to start from (SCF_GUESS RESTART), a path
             on the cluster relative to the run folder or absolute; it must
             use the same basis. Start hybrids from a converged GGA run.
-        purpose: "result" (default) or "guess": a GGA single point (RUN_TYPE
-            ENERGY, wavefunction saved) in a hybrid's basis and potentials,
-            labelled as not a result. Its only use is the hybrid's guess_wfn.
+        purpose: "result" (default), "guess" or "label". "guess": a GGA
+            single point (RUN_TYPE ENERGY, wavefunction saved) in a hybrid's
+            basis and potentials, labelled as not a result; its only use is
+            the hybrid's guess_wfn. "label": a single point for MLIP training
+            labels, with energy, forces and analytical stress all printed in
+            the .out (no separate files); d3 must be given (refused when
+            omitted). Read the outputs with cp2k_make_labels.
+        print_level: GLOBAL PRINT_LEVEL, "LOW" (default; prints everything
+            cp2k_parse_output and cp2k_make_labels read) or "MEDIUM".
         guess_from: a previous run's cp2k_parse_output result, unchanged;
             sets guess_wfn from it (don't pass both).
         guess_dir: that run's folder relative to this run's folder;
@@ -186,7 +200,7 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
     text, info = cp2k_input.make_input(run_type, functional, subsys, files, project, cutoff,
                                        rel_cutoff, d3, scf, multiplicity, duration, md, opt, hfx,
                                        print_gap, save_wfn, stress, precision, guess_wfn, purpose,
-                                       guess_from, guess_dir, pdos)
+                                       guess_from, guess_dir, pdos, print_level)
     name = (f"{project}.inp" if project else "guess.inp" if purpose == "guess"
             else cp2k_input.RUN_TYPES[run_type][3])
     dst = Path(out_path).expanduser() if out_path else Path(subsys["out"]).expanduser().with_name(name)
@@ -197,7 +211,75 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
 
 
 @mcp.tool()
-def cp2k_parse_output(out_path: str) -> dict:
+def cp2k_make_labels(frames: list, out_path: str, head: str | None = None,
+                     config_type: str | None = None, require_stress: bool = True,
+                     allow_untested_version: bool = False, overwrite: bool = False) -> dict:
+    """Write MLIP training labels (one extended-XYZ file, MACE's keys) from
+    CP2K single points: each run's .out plus the subsys.inc it ran on.
+    Local only: the .out is the record, this file is rebuilt from it.
+
+    Before it: cp2k_make_input("sp", ..., purpose="label", d3=...) for each
+    frame, the runs, then fs_download each .out and its subsys.inc.
+
+    Writes per frame: species, positions and Lattice from subsys.inc;
+    REF_energy (eV), REF_forces (eV/A), REF_stress (eV/A^3, ASE sign,
+    Voigt xx yy zz yz xz xy; CP2K's printed GPa tensor is pressure-like, so
+    the sign flips), pbc, config_type, head, source (path as given),
+    source_sha256, cp2k_version, project, dispersion_eV (D3 energy, only
+    when the run had D3). D3 is never subtracted: the .out has its energy
+    but not its forces or stress.
+
+    Refuses: an unfinished run, a run type other than ENERGY_FORCE, an
+    unconverged SCF, a missing force printout, force rows or .out atoms
+    that don't match subsys.inc, a missing stress tensor (unless
+    require_stress=false), a CP2K version whose .out layout isn't tested
+    (unless allow_untested_version=true), and frames that mix D3 with
+    no-D3 runs.
+
+    Returns {"out", "frames", "natoms", "d3" ("included" or "none"),
+    "versions", "stress", "warnings"}; read the warnings to the user
+    (labels that include D3, CP2K's own warnings, duplicates).
+
+    Args:
+        frames: [{"out": local .out, "subsys": local subsys.inc,
+            "config_type": optional per frame}], in the order to write.
+        out_path: the .extxyz to write.
+        head: MACE head name for every frame (multihead fine-tuning).
+        config_type: default config_type for frames without their own.
+        require_stress: refuse frames without the stress tensor.
+        allow_untested_version: accept a CP2K version the tests don't
+            cover (warned).
+        overwrite: replace out_path if it exists.
+    """
+    import hashlib
+    if not isinstance(frames, list) or not all(isinstance(f, dict) for f in frames):
+        raise ValueError('frames is a list of {"out": <.out>, "subsys": <subsys.inc>}')
+    items = []
+    for f in frames:
+        if set(f) - {"out", "subsys", "config_type"} or not f.get("out") or not f.get("subsys"):
+            raise ValueError(f'each frame is {{"out", "subsys", "config_type"?}}, got {sorted(f)}')
+        out, sub = Path(f["out"]).expanduser(), Path(f["subsys"]).expanduser()
+        for x in (out, sub):
+            if not x.is_file():
+                raise ValueError(f"{x} is not a file on this machine; download it first "
+                                 "(fs_download), with the subsys.inc from the same run folder")
+        raw = out.read_bytes()
+        items.append({"out_text": raw.decode(errors="replace"),
+                      "subsys_text": sub.read_text(errors="replace"), "source": f["out"],
+                      "sha256": hashlib.sha256(raw).hexdigest(),
+                      "config_type": f.get("config_type", config_type)})
+    dst = Path(out_path).expanduser()
+    if dst.suffix not in (".extxyz", ".xyz"):
+        raise ValueError("out_path ends in .extxyz (or .xyz)")
+    if dst.exists() and not overwrite:
+        raise ValueError(f"{dst} exists; pass overwrite=true to replace it")
+    text, info = cp2k_labels.make_labels(items, head, require_stress, allow_untested_version)
+    dst.write_text(text)
+    return {"out": str(dst), **info}
+
+
+@mcp.tool()
+def cp2k_parse_output(out_path: str, vectors: bool = False) -> dict:
     """Read a CP2K output (.out) on this machine: did the run finish and
     converge, what did it print, and what did it cost. Writes nothing.
     Use it instead of grepping an output.
@@ -212,7 +294,10 @@ def cp2k_parse_output(out_path: str) -> dict:
     Returns {"path", "version", "project", "run_type", "finished",
     "started" (YYYY-MM-DD), "ranks", "threads" (per rank), "natoms",
     "electrons", "scf": {evaluations, not_converged, steps, outer},
-    "energy_ha", "gap_ev", "forces": {max, rms, max_atom} (Ha/bohr),
+    "energy_ha", "gap_ev", "dispersion_ha" (the D3 energy CP2K prints in
+    each SCF summary, last one; null without D3), "forces": {max, rms,
+    max_atom, natoms, vectors (natoms x [x, y, z], with vectors=true)}
+    (Ha/bohr),
     "stress_gpa": {tensor, third_trace}, "cell": {a, b, c, alpha, beta,
     gamma, volume} (A, degrees, A^3), "opt": {converged, steps,
     max_iter_hit, criteria: {max_step, rms_step, max_gradient,
@@ -229,16 +314,19 @@ def cp2k_parse_output(out_path: str) -> dict:
     user: an unfinished output, unconverged SCF, an optimisation stopped
     by WALLTIME (continue it with @SET RESTART 1) or MAX_ITER, and CP2K's
     own warnings. For a benchmark record, pass the whole result to
-    rookery's cp2k_record_from_run.
+    rookery's cp2k_record_from_run. For MLIP training labels, use
+    cp2k_make_labels, which calls this with vectors=true.
 
     Args:
         out_path: the CP2K output on this machine; ~ is expanded.
+        vectors: also return the per-atom force vectors (large: 3 floats
+            per atom).
     """
     src = Path(out_path).expanduser()
     if not src.is_file():
         raise ValueError(f"{src} is not a file on this machine. For an output on a "
                          "cluster, download it first (fs_download).")
-    return {"path": str(src), **cp2k_output.parse(src.read_text(errors="replace"))}
+    return {"path": str(src), **cp2k_output.parse(src.read_text(errors="replace"), vectors)}
 
 
 @mcp.tool()
@@ -354,7 +442,7 @@ def plumed_make_input(cvs: list[dict], out_path: str, bias: list[dict] | None = 
                       print_args: list[str] | None = None, units: dict | str | None = None,
                       temperature: float | None = None, mode: str = "run",
                       molinfo: str | None = None, natoms: int | None = None,
-                      overwrite: bool = False) -> dict:
+                      ecvs: list[dict] | None = None, overwrite: bool = False) -> dict:
     """Write a PLUMED input (plumed.dat): collective variables, an
     optional bias, and a PRINT of the CVs and bias to COLVAR. Local only;
     fs_upload it to the run folder and pass its name to lammps_make_input
@@ -365,6 +453,17 @@ def plumed_make_input(cvs: list[dict], out_path: str, bias: list[dict] | None = 
     about the CV's fluctuation in a short unbiased run (this tool with no
     bias, then the COLVAR).
 
+    OPES: OPES_METAD and OPES_METAD_EXPLORE bias CVs (BARRIER in energy
+    units; sigma adapts if omitted). OPES_EXPANDED samples a temperature
+    (x pressure) window with no geometric CV: cvs ENERGY and VOLUME, an
+    ECV in ecvs, and a bias whose arg names that ECV. Pressures are given
+    in bar and converted to PLUMED's energy/length^3 for these units
+    (1 bar = 6.2415e-07 eV/A^3). TEMP and PRESSURE must equal the
+    thermostat and barostat. PRINT_STRIDE of OPES_EXPANDED counts in PACE
+    units (the warning gives the step count). An OPES bias is
+    quasi-static, so reweight COLVAR's .bias directly (yagura colvar_fes);
+    mode "reweight" is for METAD only.
+
     mode "reweight": the same CVs and METAD with PACE never reached,
     HEIGHT 0 and RESTART=YES, printing every frame with the bias, for
     `plumed driver` over the finished trajectory (the `driver` key says
@@ -373,7 +472,11 @@ def plumed_make_input(cvs: list[dict], out_path: str, bias: list[dict] | None = 
     Refuses: an unknown CV or bias type or keyword, a label used twice or
     with a dot, an ARG that isn't a label above (or a component it lacks),
     atom indices below 1 or beyond natoms, METAD without sigma/height/pace,
-    a biasfactor <= 1, well-tempered METAD or reweight without temperature.
+    a biasfactor <= 1, well-tempered METAD or reweight without temperature;
+    OPES_METAD without pace/barrier or temperature; an ECV whose arg isn't
+    an ENERGY (then a VOLUME) label in that order, without temperature or
+    its ranges, or not used by an OPES_EXPANDED; OPES_EXPANDED on anything
+    but ECVs; pressures with units it can't convert.
 
     Returns {"out", "labels", "print": {file, stride, args}, "mode",
     "length_unit", "outputs", "driver" (reweight only), "warnings"}.
@@ -382,12 +485,17 @@ def plumed_make_input(cvs: list[dict], out_path: str, bias: list[dict] | None = 
         cvs: [{label, type, ...}]: DISTANCE {atoms: [i, j], components},
             ANGLE {atoms: 3}, TORSION {atoms: 4 or "@phi-2" with molinfo},
             GYRATION {atoms, kind}, COORDINATION {groupa, groupb, r_0, d_0,
-            nn, mm}. Atom indices are 1-based (LAMMPS ids).
+            nn, mm}, ENERGY {}, VOLUME {}. Atom indices are 1-based (LAMMPS
+            ids).
         out_path: where to write, e.g. ~/runs/x/plumed.dat.
         bias: [{label, type, arg, ...}]: RESTRAINT {at, kappa, slope};
             MOVINGRESTRAINT {step: [...], at: [...], kappa: [...]}; METAD
-            {sigma, height, pace, biasfactor, grid_min, grid_max, file}.
-            Energies in kJ/mol unless units say otherwise.
+            {sigma, height, pace, biasfactor, grid_min, grid_max, file};
+            OPES_METAD / OPES_METAD_EXPLORE {pace, barrier, sigma,
+            biasfactor, file (KERNELS)}; OPES_EXPANDED {arg: ECV label(s),
+            pace, observation_steps (in PACE units), file (DELTAFS),
+            print_stride (in PACE units)}. Energies in kJ/mol unless units
+            say otherwise.
         print_stride: PRINT every n steps.
         print_file: COLVAR file name.
         print_args: what PRINT writes; default every CV and every bias's .bias.
@@ -396,13 +504,20 @@ def plumed_make_input(cvs: list[dict], out_path: str, bias: list[dict] | None = 
         mode: "run" or "reweight".
         molinfo: a PDB name in the run folder, for @phi-2 style shortcuts.
         natoms: the system's atom count, to check indices.
+        ecvs: expansion CVs for OPES_EXPANDED: [{label, type, arg, ...}]:
+            ECV_MULTITHERMAL {arg: energy label, temp_min, temp_max,
+            temp_steps}; ECV_MULTITHERMAL_MULTIBARIC {arg: [energy, volume],
+            temp_min, temp_max, pressure_bar, pressure_min_bar,
+            pressure_max_bar, temp_steps, pressure_steps, cut_corner:
+            [T_low, P_low_bar, T_high, P_high_bar]}. Steps default to
+            PLUMED's estimate from the observation phase. Needs temperature.
         overwrite: replace out_path if it exists.
     """
     dst = Path(out_path).expanduser()
     if dst.exists() and not overwrite:
         raise ValueError(f"{dst} exists; pass overwrite=true to replace it")
     text, info = plumed_input.make_input(cvs, bias, print_stride, print_file, print_args,
-                                         units, temperature, mode, molinfo, natoms)
+                                         units, temperature, mode, molinfo, natoms, ecvs)
     dst.write_text(text)
     return {"out": str(dst), **info}
 
