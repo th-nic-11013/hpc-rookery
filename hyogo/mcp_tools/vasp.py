@@ -18,8 +18,8 @@ TOOL_META = {
         "code": "vasp",
         "module": "`hyogo/vasp/incar.py`",
         "status": "live",
-        "source": "MXene+water labelling campaign `make_magmom_test2.py` (G32)",
-        "notes": "edits a base INCAR in place (layout and comments kept, so a comment can go stale): MAGMOM per element in POSCAR order plus per-site overrides, NUPDOWN, NCORE/KPAR, NBANDS pinned (or read from a reference OUTCAR) and refused when it isn't a multiple of the band groups, constrain-then-release `INCAR.pre`; refuses MAGMOM/NUPDOWN with ISPIN 1 and a MAGMOM that doesn't count every atom; matched the script's settings on all 23 MAGMOM test 2 runs",
+        "source": "MXene+water labelling campaign `make_magmom_test2.py` (G32); DFT+U from its `make_u_pilot.py` (G42)",
+        "notes": "edits a base INCAR in place (layout and comments kept, so a comment can go stale): MAGMOM per element in POSCAR order plus per-site overrides, NUPDOWN, NCORE/KPAR, NBANDS pinned (or read from a reference OUTCAR) and refused when it isn't a multiple of the band groups, constrain-then-release `INCAR.pre`; refuses MAGMOM/NUPDOWN with ISPIN 1 and a MAGMOM that doesn't count every atom; matched the script's settings on all 23 MAGMOM test 2 runs; DFT+U (G42): ldau preset \"mp\" or {element: U}, LDAUL/LDAUU/LDAUJ per POSCAR species block, LMAXMIX from the highest l, LDAU lists in the base checked, POTCAR TITEL order checked with potcar_path",
     },
     "vasp_check_incar": {
         "method": "any",
@@ -57,9 +57,10 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
                     parallel: dict | None = None, nbands: int | None = None,
                     nbands_from: str | None = None, pre: dict | None = None,
                     out_path: str | None = None, overwrite: bool = False,
-                    vasp_version: str | None = None) -> dict:
+                    vasp_version: str | None = None, ldau: dict | str | None = None,
+                    ldautype: int = 2, potcar_path: str | None = None) -> dict:
     """Write a VASP INCAR by editing a base INCAR (or from scratch), with
-    the checks that matter for spin and parallel settings. The base file's
+    the checks that matter for spin, DFT+U and parallel settings. The base file's
     layout and comments are kept; changed keys are replaced in place.
     Local only; fs_upload the result into the run folder.
 
@@ -75,6 +76,11 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
       groups (ranks / (KPAR x NCORE)). With parallel.ranks given, a
       pinned NBANDS that doesn't divide is refused, and an unpinned one
       gets a warning.
+    - DFT+U (ldau): LDAUL, LDAUU and LDAUJ get one value per POSCAR
+      species block, in POSCAR order, and LMAXMIX covers the highest l
+      with a U (4 for d, 6 for f). LDAU lists already in the base INCAR
+      are checked the same way. With potcar_path, the POTCAR's TITEL
+      order must be the POSCAR's (MAGMOM and LDAU follow the POSCAR).
     - NUPDOWN in a result fixes its total moment: right for a half-metal
       or a non-magnetic system, a bias for a metallic magnet. For those,
       pass pre to constrain, then release.
@@ -89,7 +95,9 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
 
     Returns {"out", "pre_out" (INCAR.pre path or null), "natoms",
     "species": [[element, count]], "magmom" (the value written),
-    "total_magmom", "nbands", "band_groups", "changed": {KEY: [old, new]},
+    "total_magmom", "nbands", "band_groups", "ldau" (the LDAU tags and
+    LMAXMIX written, or null), "potcar" (the POTCAR labels, e.g. "Cr_pv",
+    or null), "changed": {KEY: [old, new]},
     "pre": {"changed": ...} or null, "incar_check" (vasp_check_incar's
     result for each file written), "warnings"}. Read the warnings to the
     user.
@@ -115,6 +123,15 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
         overwrite: replace out_path (and INCAR.pre) if they exist.
         vasp_version: the VASP that will run it (e.g. "6.4.3"), so tags it
             does not have yet are flagged.
+        ldau: DFT+U. "mp" for the Materials Project's U values (Co 3.32,
+            Cr 3.7, Fe 5.3, Mn 3.9, Mo 4.38, Ni 6.2, V 3.25, W 6.2 eV on d;
+            the set MPtrj and OMat24 use, applied by MP only with O or F
+            present), or {element: U in eV} (on d), or {element: {"u": U,
+            "j": J, "l": 3}} for f. Other species get none. LDAU tags and
+            LMAXMIX then can't also be in settings.
+        ldautype: LDAUTYPE, default 2 (Dudarev: only U - J counts).
+        potcar_path: the run's POTCAR on this machine, to check its species
+            order against the POSCAR (only its TITEL lines are read).
     """
     psrc, praw = _read_local(poscar_path, "POSCAR")
     base = ""
@@ -131,8 +148,13 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
     for f in (dst, pre_dst) if pre is not None else (dst,):
         if f.exists() and not overwrite:
             raise ValueError(f"{f} exists; pass overwrite=true to replace it")
+    potcar = None
+    if potcar_path:
+        _, potraw = _read_local(potcar_path, "POTCAR")
+        potcar = potraw.decode("latin-1")
     text, pre_text, info = vasp_incar.make_incar(base, praw.decode("latin-1"), settings, magmom,
-                                                 magmom_sites, nupdown, parallel, nbands, pre)
+                                                 magmom_sites, nupdown, parallel, nbands, pre,
+                                                 ldau, ldautype, potcar)
     dst.write_text(text)
     if pre_text is not None:
         pre_dst.write_text(pre_text)
