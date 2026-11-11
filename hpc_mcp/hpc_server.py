@@ -12,11 +12,14 @@ cluster.
 
 Tool groups mirror the IRI Facility API resource groups (facility, status,
 account, compute, filesystem); see IRI_CHECKLIST.md at the repo root for
-coverage. Tools are thin verbs — workflow knowledge (when to pick which
+coverage. The docs-search tools (hpc_agent_core.docs_server) and the
+code-pack tools (hpc_codes.server) are registered on this same server at the
+bottom of this file, each in its own guard. Tools are thin verbs — workflow knowledge (when to pick which
 facility, how to read a failed job) lives in plugins/hpc/skills/, not in
 long docstrings here.
 """
 import shlex
+import sys
 from functools import wraps
 from pathlib import Path
 
@@ -521,6 +524,38 @@ def fs_extract(facility: str, archive_path: str, dest_dir: str = ".") -> str:
         facility,
         f"mkdir -p {quote_path(dest_dir)} && tar -xf {quote_path(archive_path)} -C {quote_path(dest_dir)}",
     )
+
+
+# ---------------------------------------------------------------------------
+# Docs search and code-pack tools, served by this same process
+# ---------------------------------------------------------------------------
+# They used to be separate servers (hpc-docs-mcp, hpc-codes-mcp) so a fault in
+# them could never stop the scheduler tools above from starting. Each group is
+# registered inside its own guard to keep that promise: a group that fails to
+# import or register is reported on stderr and in FAILED_TOOL_GROUPS, and the
+# rest of the server starts as usual.
+
+#: tool group -> why it failed to load; empty when every group loaded
+FAILED_TOOL_GROUPS: dict[str, str] = {}
+
+
+def _register_docs(target: MCPServer) -> None:
+    from hpc_agent_core.docs_server import build
+    build(target)
+
+
+def _register_codes(target: MCPServer) -> None:
+    from hpc_codes.server import register
+    register(target)
+
+
+for _group, _register in (("docs", _register_docs), ("codes", _register_codes)):
+    try:
+        _register(mcp)
+    except Exception as e:  # never let one tool group deny the scheduler tools
+        FAILED_TOOL_GROUPS[_group] = f"{type(e).__name__}: {e}"
+        print(f"hpc-mcp: the {_group} tools failed to load and are unavailable: "
+              f"{FAILED_TOOL_GROUPS[_group]}", file=sys.stderr)
 
 
 def main():

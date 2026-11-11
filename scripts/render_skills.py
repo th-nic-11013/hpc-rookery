@@ -77,7 +77,7 @@ PLUGINS_DIR = ROOT / "plugins"
 _FALLBACK_NOTES = (
     "_No facility-specific notes yet for this workflow — see "
     "`get_facility(facility=\"{slug}\")` and `search_docs(facility=\"{slug}\", "
-    "query=...)` on the `hpc-docs` server for details._"
+    "query=...)` on the `hpc` server for details._"
 )
 
 

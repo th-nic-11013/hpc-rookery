@@ -97,6 +97,6 @@ endpoint when a key is available and otherwise fall back to BM25.
 - Settings are read fresh on every tool call, so a config file edit
   (including switching `ssh.host` to/from `"localhost"`) applies
   immediately — no server restart needed. A rebuilt docs index still needs
-  the `hpc-docs` server restarted to be picked up.
+  the `hpc` server restarted to be picked up.
 - Off-network or without a key, docs search transparently falls back to
   BM25 keyword search over the same content — the plugin still works.

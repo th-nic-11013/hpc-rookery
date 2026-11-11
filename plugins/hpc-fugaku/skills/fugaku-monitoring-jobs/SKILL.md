@@ -123,4 +123,4 @@ writing a reproducible notebook instead (see `fugaku-reproducing`), use
 rather than a hand-rolled polling loop.
 
 Don't guess facility-specific failure modes beyond what's noted above — use
-`search_docs(facility="fugaku", query=...)` on the `hpc-docs` server.
+`search_docs(facility="fugaku", query=...)` on the `hpc` server.

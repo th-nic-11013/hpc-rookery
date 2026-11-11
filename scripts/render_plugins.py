@@ -170,9 +170,8 @@ def portable_mcp() -> dict:
     return {
         "$schema": OPEN_PLUGIN_MCP_SCHEMA,
         "mcpServers": {
+            # hpc-mcp serves the scheduler, docs-search and code-pack tools
             "hpc": {"type": "stdio", "command": "uv", "args": [*args_prefix, "hpc-mcp"], "env": {}},
-            "hpc-docs": {"type": "stdio", "command": "uv", "args": [*args_prefix, "hpc-docs-mcp"], "env": {}},
-            "hpc-codes": {"type": "stdio", "command": "uv", "args": [*args_prefix, "hpc-codes-mcp"], "env": {}},
             # the [yagura] extra brings ASE for the CIF tools
             "yagura": {"type": "stdio", "command": "uv", "env": {},
                        "args": [*args_prefix[:-1], f"hpc-rookery[yagura] @ {args_prefix[-1]}", "yagura-mcp"]},

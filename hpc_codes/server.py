@@ -1,4 +1,9 @@
-"""Entry point for the code-pack MCP server (hpc-codes-mcp).
+"""The code-pack tools, served by the hpc server (hpc-mcp) through register().
+
+hpc_mcp/hpc_server.py calls register(its own MCPServer) inside a guard, so a
+fault here is logged and skips these tools without stopping the scheduler
+tools from starting. The standalone entry point (hpc-codes-mcp) still works
+for a harness that registered it separately.
 
 Registers every facility (via importing hpc_mcp), then exposes the tools
 the code-pack skills under codes/ call. Every tool takes the facility slug
@@ -16,8 +21,26 @@ from hpc_codes.cp2k import tools as cp2k
 
 mcp = MCPServer("hpc-codes-mcp")
 
+#: every tool below, in definition order, for register()
+TOOLS = []
 
-@mcp.tool()
+
+def _tool(fn):
+    """@mcp.tool(), also recording fn so register() can serve it elsewhere.
+    Decorate every new tool with @_tool, not @mcp.tool(): register() only
+    sees TOOLS, and tests/conformance.py fails on a tool hpc does not serve."""
+    TOOLS.append(fn)
+    return mcp.tool()(fn)
+
+
+def register(target: MCPServer) -> MCPServer:
+    """Add every code-pack tool to another server (the hpc server)."""
+    for fn in TOOLS:
+        target.add_tool(fn)
+    return target
+
+
+@_tool
 def records_query(facility: str, record_type: str, filters: dict | None = None,
                   fields: list[str] | None = None) -> list[dict]:
     """Read records of one type for a facility, from both scopes (the
@@ -37,7 +60,7 @@ def records_query(facility: str, record_type: str, filters: dict | None = None,
     return records.query(facility, record_type, filters, fields)
 
 
-@mcp.tool()
+@_tool
 def records_append(facility: str, record_type: str, record: dict) -> dict:
     """Validate one record against the schema and append it to this user's
     records. Never edits or removes a record: a correction is a new record
@@ -52,7 +75,7 @@ def records_append(facility: str, record_type: str, record: dict) -> dict:
     return records.append(facility, record_type, record)
 
 
-@mcp.tool()
+@_tool
 def records_check(facility: str) -> dict:
     """Validate every record of a facility in both scopes, and the links
     between them (each benchmark's build_id resolves or is marked
@@ -71,7 +94,7 @@ def records_check(facility: str) -> dict:
 # run_command_on_cluster, they need no preview-and-permission step.
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@_tool
 def cp2k_bench_parse(facility: str, stage_dirs: list[str]) -> dict:
     """Parse finished CP2K benchmark stage folders on the cluster (the
     runs/<jobid>/<stage>/ folders the cp2k-benchmark job writes). Read-only;
@@ -91,7 +114,7 @@ def cp2k_bench_parse(facility: str, stage_dirs: list[str]) -> dict:
     return cp2k.bench_parse(facility, stage_dirs)
 
 
-@mcp.tool()
+@_tool
 def cp2k_check_input(facility: str, input_path: str, build_id: str | None = None) -> dict:
     """Parse-check a CP2K input on the login node (`cp2k.psmp --check`,
     serial, 60 s limit) with a recorded build, from the input's own folder
@@ -119,7 +142,7 @@ def cp2k_check_input(facility: str, input_path: str, build_id: str | None = None
     return cp2k.check_input(facility, input_path, build_id)
 
 
-@mcp.tool()
+@_tool
 def cp2k_check_build(facility: str, build_id: str | None = None) -> dict:
     """Check that a recorded CP2K build still works on the cluster: its env
     script exists, cp2k.psmp is found after sourcing it, no shared library
@@ -136,7 +159,7 @@ def cp2k_check_build(facility: str, build_id: str | None = None) -> dict:
     return cp2k.check_build(facility, build_id)
 
 
-@mcp.tool()
+@_tool
 def cp2k_kinds(facility: str, elements: list[str], basis: str | None = None,
                build_id: str | None = None, family: str = "molopt",
                aux_basis: str | None = None) -> dict:
@@ -170,7 +193,7 @@ def cp2k_kinds(facility: str, elements: list[str], basis: str | None = None,
     return cp2k.kinds(facility, elements, basis, build_id, family, aux_basis)
 
 
-@mcp.tool()
+@_tool
 def cp2k_bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
                      build_id: str | None = None, steps: int = 10, smoke_steps: int = 3,
                      xc: str = "revPBE", d3: str = "zero", cutoff: int = 450,
@@ -212,7 +235,7 @@ def cp2k_bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
                             xc, d3, cutoff, rel_cutoff, basis, charge, overwrite)
 
 
-@mcp.tool()
+@_tool
 def cp2k_bench_dryrun(facility: str, bench_dir: str, ref_out: str,
                       settings: dict | None = None, cases: list[str] | None = None,
                       fail_layout: str | None = None, time_limit_s: int = 60,
@@ -259,7 +282,7 @@ def cp2k_bench_dryrun(facility: str, bench_dir: str, ref_out: str,
                              time_limit_s, job_script, nodes, keep_scratch)
 
 
-@mcp.tool()
+@_tool
 def cp2k_bench_records(facility: str, system: dict, method: dict, run_type: str,
                        parsed: dict | None = None, stage_dirs: list[str] | None = None,
                        input_name: str | None = None, nodes: int = 1,
@@ -304,7 +327,7 @@ def cp2k_bench_records(facility: str, system: dict, method: dict, run_type: str,
                               input_name, nodes, build_id, job_ids, date, node_type, tag)
 
 
-@mcp.tool()
+@_tool
 def cp2k_record_from_run(facility: str, parsed: dict, nodes: int, like: str | None = None,
                          system: dict | None = None, method: dict | None = None,
                          job_id: str | None = None, build_id: str | None = None,
@@ -363,7 +386,7 @@ def cp2k_record_from_run(facility: str, parsed: dict, nodes: int, like: str | No
 # Launch planning. Local: reads records and pack values, never the cluster.
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@_tool
 def launch_plan(facility: str, code: str, run_type: str, system: dict,
                 method: dict | None = None, build_id: str | None = None,
                 nodes: int | None = None, optimize: str = "cost",

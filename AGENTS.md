@@ -110,12 +110,15 @@ codes/                  Code packs: facility-neutral skills per simulation
                         codes/common/ (records, structure-making). Rendered
                         for facilities that opt in via
                         facilities/<slug>/codes/<code>/values.json.
-hpc_codes/              The code-pack MCP server (hpc-codes-mcp): records_*
+hpc_codes/              The code-pack tools, served by hpc-mcp: records_*
                         tools over the records adapter (records.py) and
                         schemas/records.yaml, the provisional schema of
-                        measured records (benchmarks, builds). Separate from
-                        hpc_mcp so a code tool can't stop the scheduler
-                        server from starting. Also launch_plan.
+                        measured records (benchmarks, builds), the cp2k_*
+                        tools and launch_plan. hpc_server.py registers them
+                        (and the docs tools) each inside its own guard, so a
+                        code tool can't stop the scheduler tools from
+                        starting. hpc-codes-mcp, the old standalone entry
+                        point, still works.
 yagura/                Structure checking and analysis (trajectories,
                         and GROMACS runs in yagura/gromacs/), its own MCP
                         server (yagura-mcp). Staged

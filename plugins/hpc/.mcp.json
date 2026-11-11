@@ -12,30 +12,6 @@
       ],
       "env": {}
     },
-    "hpc-docs": {
-      "command": "uv",
-      "args": [
-        "tool",
-        "run",
-        "--quiet",
-        "--from",
-        "git+https://github.com/william-dawson/hpc-rookery.git@main",
-        "hpc-docs-mcp"
-      ],
-      "env": {}
-    },
-    "hpc-codes": {
-      "command": "uv",
-      "args": [
-        "tool",
-        "run",
-        "--quiet",
-        "--from",
-        "git+https://github.com/william-dawson/hpc-rookery.git@main",
-        "hpc-codes-mcp"
-      ],
-      "env": {}
-    },
     "yagura": {
       "command": "uv",
       "args": [

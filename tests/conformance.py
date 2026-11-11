@@ -1789,7 +1789,7 @@ def check_repo() -> None:
         assert base_portable["$schema"].endswith("plugin.schema.json")
         portable_mcp = json.loads((root / "plugins" / "hpc" / "mcp.json").read_text())
         assert portable_mcp["$schema"].endswith("mcp.schema.json")
-        assert set(portable_mcp["mcpServers"]) == {"hpc", "hpc-docs", "hpc-codes", "yagura", "hyogo"}
+        assert set(portable_mcp["mcpServers"]) == {"hpc", "yagura", "hyogo"}
         # .mcp.json is hand-maintained (the harnesses load it); it must name
         # the same servers, or one harness silently lacks a server
         harness_mcp = json.loads((root / "plugins" / "hpc" / ".mcp.json").read_text())
@@ -2517,6 +2517,57 @@ def check_repo() -> None:
             # only those: every other error is a defect in the shipped file
             errs = [e for e in errs if "is not in software_registry" not in e]
             assert not errs, f"{fac.slug}: {errs[:5]}"
+
+    CODES_TOOLS = ['cp2k_bench_dryrun', 'cp2k_bench_input', 'cp2k_bench_parse', 'cp2k_bench_records',
+                   'cp2k_check_build', 'cp2k_check_input', 'cp2k_kinds', 'cp2k_record_from_run',
+                   'launch_plan', 'records_append', 'records_check', 'records_query']
+    DOCS_TOOLS = ['list_doc_sections', 'read_doc_section', 'search_docs']
+
+    def hpc_server_serves_docs_and_codes_tools():
+        """hpc-mcp took over the docs and code-pack tools: with an empty
+        HOME it lists every one of them next to the scheduler tools, and no
+        tool group is reported failed. It also serves every tool the
+        standalone hpc-codes server lists, so a code tool decorated with
+        @mcp.tool() instead of @_tool (which register() would not see) fails
+        here instead of going missing from hpc."""
+        root = pathlib.Path(__file__).resolve().parent.parent
+        probe = ("import asyncio, json; from hpc_mcp.hpc_server import mcp, FAILED_TOOL_GROUPS; "
+                 "from hpc_codes.server import mcp as codes; "
+                 "print(json.dumps([sorted(t.name for t in asyncio.run(mcp.list_tools())), FAILED_TOOL_GROUPS, "
+                 "sorted(t.name for t in asyncio.run(codes.list_tools()))]))")
+        with tempfile.TemporaryDirectory() as home:
+            env = {k: v for k, v in os.environ.items()
+                   if k not in ("HPC_RECORDS_USER_DIR", "HPC_RECORDS_ROOT")}
+            env["HOME"] = home
+            out = subprocess.run([sys.executable, "-c", probe], cwd=root, env=env,
+                                 capture_output=True, text=True, timeout=120)
+        assert out.returncode == 0, out.stderr[-2000:]
+        names, failed, codes_names = json.loads(out.stdout.strip().splitlines()[-1])
+        assert failed == {}, failed
+        assert not set(codes_names) - set(names), \
+            f"hpc-codes tools not on hpc (use @_tool): {sorted(set(codes_names) - set(names))}"
+        missing = sorted(set(CODES_TOOLS + DOCS_TOOLS + ["submit_job", "get_facilities"]) - set(names))
+        assert not missing, missing
+        assert len(names) == len(set(names))
+
+    def broken_tool_group_cannot_stop_the_scheduler_tools():
+        """The promise the separate hpc-codes server used to keep: a code
+        tool group that fails to import is reported (stderr and
+        FAILED_TOOL_GROUPS), and every scheduler and docs tool still loads."""
+        root = pathlib.Path(__file__).resolve().parent.parent
+        probe = ("import asyncio, json, sys; sys.modules['hpc_codes.server'] = None; "
+                 "from hpc_mcp.hpc_server import mcp, FAILED_TOOL_GROUPS; "
+                 "print(json.dumps([sorted(t.name for t in asyncio.run(mcp.list_tools())), FAILED_TOOL_GROUPS]))")
+        with tempfile.TemporaryDirectory() as home:
+            out = subprocess.run([sys.executable, "-c", probe], cwd=root,
+                                 env={**os.environ, "HOME": home},
+                                 capture_output=True, text=True, timeout=120)
+        assert out.returncode == 0, out.stderr[-2000:]
+        names, failed = json.loads(out.stdout.strip().splitlines()[-1])
+        assert list(failed) == ["codes"], failed
+        assert "the codes tools failed to load" in out.stderr, out.stderr[-1000:]
+        assert not set(CODES_TOOLS) & set(names)
+        assert {"submit_job", "fs_ls", "get_facilities", *DOCS_TOOLS} <= set(names)
 
     def gromacs_tools_are_split_between_hyogo_and_yagura():
         """classical-md's tools: setup and running in hyogo, analysis in
@@ -5562,6 +5613,9 @@ print(json.dumps(res))
     check("benchmarks take an MLIP method form (G37)", benchmarks_take_an_mlip_method)
     check("shipped records are valid", shipped_records_are_valid)
     check("hpc-codes server starts with an empty HOME", codes_server_starts_with_empty_home)
+    check("hpc server serves the docs and code-pack tools", hpc_server_serves_docs_and_codes_tools)
+    check("a broken tool group cannot stop the scheduler tools",
+          broken_tool_group_cannot_stop_the_scheduler_tools)
     check("GROMACS tools are split between hyogo and yagura", gromacs_tools_are_split_between_hyogo_and_yagura)
 
 

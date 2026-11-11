@@ -63,4 +63,4 @@ writing a reproducible notebook instead (see `cell2026-reproducing`), use
 rather than a hand-rolled polling loop.
 
 Don't guess facility-specific failure modes beyond what's noted above — use
-`search_docs(facility="cell2026", query=...)` on the `hpc-docs` server.
+`search_docs(facility="cell2026", query=...)` on the `hpc` server.

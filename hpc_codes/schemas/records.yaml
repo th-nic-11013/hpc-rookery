@@ -24,7 +24,7 @@ backing:
   user:     "~/.hpc-agent/records/<slug>/<record_type>.yaml (per user, next to ~/.hpc-agent/<slug>.json). Also holds facility-type records this user measured but has not shared."
   user_root: "HPC_RECORDS_ROOT=<dir> moves the user scope to <dir>/<slug>/<record_type>.yaml for every facility, e.g. into a lab-notebook repository that versions it. Unset, the default above applies"
   file_format: "a YAML mapping {schema_version: 1, records: [<record>, ...]}"
-  adapter: "hpc_codes/records.py behind the hpc-codes MCP tools records_query / records_append / records_check, the only component that knows these paths. The <slug>-records skill tells agents how to use them"
+  adapter: "hpc_codes/records.py behind the hpc server's MCP tools records_query / records_append / records_check, the only component that knows these paths. The <slug>-records skill tells agents how to use them"
 
 # The contract skills rely on. Any implementation (files today, the notebook
 # later) that honours it is a valid replacement.

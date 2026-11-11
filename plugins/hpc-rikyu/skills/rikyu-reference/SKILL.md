@@ -12,7 +12,7 @@ unavailable — not the authoritative source.
 
 ## Workflow
 
-1. `search_docs(facility="rikyu", query=...)` on the `hpc-docs` server,
+1. `search_docs(facility="rikyu", query=...)` on the `hpc` server,
    with the user's question. Cite the section breadcrumb it returns (e.g.
    "Running jobs"), not a URL.
 2. If results look incomplete,

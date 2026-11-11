@@ -16,9 +16,10 @@ worth citing), in which case results never mention a URL at all. This is a
 deliberate per-facility policy, not a bug: don't add a URL back in here
 without checking config.docs_cite_url(facility) first.
 
-server/hpc_mcp/docs_server.py imports every facilities/*/facility.py (to
-register them), constructs MCPServer("hpc-docs"), and calls build(mcp) below
-before serve(mcp) — one process, every facility.
+hpc_mcp/hpc_server.py calls build(mcp) below on the scheduler server, so
+hpc-mcp serves these tools too (inside a guard: a fault here can't stop the
+scheduler tools starting). hpc_mcp/docs_server.py, the old standalone
+hpc-docs-mcp entry point, does the same on a server of its own.
 """
 from functools import lru_cache
 

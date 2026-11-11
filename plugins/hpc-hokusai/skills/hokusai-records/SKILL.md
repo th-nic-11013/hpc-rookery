@@ -7,7 +7,7 @@ description: Read and write measured records for HOKUSAI BigWaterfall2 (HBW2): b
 
 Skills keep measured facts in records, never in their own prose. They name
 record types and fields, and read and write them through the three
-`records_*` tools of the `hpc-codes` server. **Only those tools know where
+`records_*` tools of the `hpc` server. **Only those tools know where
 the records are kept.** A lab-notebook backend will later replace them
 behind the same tool names; skills will not change.
 
@@ -18,9 +18,9 @@ behind the same tool names; skills will not change.
 - **Writes:** append only. A record is never edited or removed; a correction
   is a new record whose `supersedes` names the old id.
 - **Tools:** `records_query`, `records_append`, `records_check`,
-  `cp2k_record_from_run` (server `hpc-codes`), each with `facility="hokusai"`. They work on local files
+  `cp2k_record_from_run` (server `hpc`), each with `facility="hokusai"`. They work on local files
   and never contact the cluster.
-- **Preconditions:** the `hpc-codes` server is connected. If the tools are
+- **Preconditions:** the `hpc` server is connected. If the tools are
   missing, say so; don't read or write the record files by hand.
 - **Done when:** a query returned its matches, or an append returned
   `{"id", "scope": "user", ...}`. A refused append lists every reason; fix

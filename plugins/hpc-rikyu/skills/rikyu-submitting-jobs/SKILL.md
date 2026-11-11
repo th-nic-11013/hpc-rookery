@@ -130,7 +130,7 @@ decision at 300 yen/GPU-hour. `RIKYU_ACCOUNT` or `defaults.account` in
   Schedulers enter that directory before the script body and `pre_launch`
   runs, so a `mkdir` in `pre_launch` is too late.
 - Don't guess facility-specific details not covered by the notes above —
-  use `search_docs(facility="rikyu", query=...)` on the `hpc-docs`
+  use `search_docs(facility="rikyu", query=...)` on the `hpc`
   server. It searches a bundled guide, not a live site — never invent a URL
   to send the user to.
 - Don't call `cancel_job` without confirming with the user first.

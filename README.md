@@ -9,14 +9,13 @@ harnesses such as Claude Code, Codex, OpenCode, and Cline.
 
 https://github.com/user-attachments/assets/770e1f11-01c7-48f3-8c89-70efc3722e95
 
-The plugin starts five MCP servers: `hpc-mcp` provides facility information,
-filesystem operations, and scheduler tools; `hpc-docs-mcp` searches the
-bundled machine guides; `hpc-codes-mcp` reads and writes the measured records
-(benchmarks, software builds) the code-pack skills use and plans launches;
-`yagura-mcp` checks and fixes structures and analyses trajectories and
-GROMACS runs, and `hyogo-mcp` writes simulation inputs and builds and runs
-GROMACS equilibrations, both on this machine (staged here until each becomes its own
-repository). Every operation names its target explicitly — for
+The plugin starts three MCP servers: `hpc-mcp` provides facility information,
+filesystem operations and scheduler tools, searches the bundled machine guides,
+and reads and writes the measured records (benchmarks, software builds) the
+code-pack skills use and plans launches; `yagura-mcp` checks and fixes
+structures and analyses trajectories and GROMACS runs, and `hyogo-mcp` writes
+simulation inputs and builds and runs GROMACS equilibrations, both on this
+machine (staged here until each becomes its own repository). Every operation names its target explicitly — for
 example, `submit_job(facility="rikyu", ...)` or
 `search_docs(facility="fugaku", ...)`. The agent calls `get_facilities()`
 when it does not already know which machine you mean.
@@ -68,8 +67,8 @@ catalog. The user may name more than one facility, or choose none yet.
 
 ### Codex plugins
 
-Install the base plugin once. It owns the shared `hpc`, `hpc-docs`,
-`hpc-codes`, `yagura` and `hyogo` MCP servers and the facility-discovery skill:
+Install the base plugin once. It owns the shared `hpc`, `yagura`
+and `hyogo` MCP servers and the facility-discovery skill:
 
 ```sh
 codex plugin add hpc@hpc-marketplace
@@ -98,11 +97,14 @@ facility packs the user selected.
 ### Manual installation for any MCP-capable harness
 
 If the harness does not support plugins, register `hpc-mcp`,
-`hpc-docs-mcp`, `hpc-codes-mcp`, `yagura-mcp` and `hyogo-mcp` using its normal stdio-MCP configuration.
+`yagura-mcp` and `hyogo-mcp` using its normal stdio-MCP configuration.
 From an editable checkout, point them at `.venv/bin/hpc-mcp`,
-`.venv/bin/hpc-docs-mcp`, `.venv/bin/hpc-codes-mcp`, `.venv/bin/yagura-mcp` and `.venv/bin/hyogo-mcp`
+`.venv/bin/yagura-mcp` and `.venv/bin/hyogo-mcp`
 (after installing this project into that environment, with the `yagura` and
-`gromacs` extras for ASE). Then install only the
+`gromacs` extras for ASE). `hpc-docs-mcp` and `hpc-codes-mcp` still exist for
+configurations that registered them before `hpc-mcp` took over their tools;
+don't register them next to `hpc-mcp`, or the agent sees every docs and
+records tool twice. Then install only the
 selected skill directories:
 
 ```text

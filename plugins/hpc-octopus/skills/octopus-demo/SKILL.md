@@ -33,7 +33,7 @@ allocated/idle/total nodes, and point out where a job would start soonest.
 ## Step 3 — Documentation search
 
 Call `search_docs(facility="octopus", query="how do I submit a job")` on
-the `hpc-docs` server. Show the top result and cite its section breadcrumb.
+the `hpc` server. Show the top result and cite its section breadcrumb.
 
 ## Step 4 — Filesystem
 
