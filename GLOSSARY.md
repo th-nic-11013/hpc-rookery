@@ -63,3 +63,4 @@
 - **Multihead replay** — fine-tuning with two output heads at once: one for the new labels and one that keeps being trained on a sample of the foundation model's original data, so the model doesn't forget it.
 - **E0s** — the per-element energies of isolated atoms that MACE subtracts before learning; they must match the level of theory of the labels.
 - **Partial-node layout** — a run that uses only some of a node's cores (MLIP MD is fastest at 1 rank × 56 threads of 112); it is billed for the cores it uses and shares the node.
+- **Spin multiplicity** — 2S+1 for an atom's unpaired electrons (H 2, C/O/Zr 3); an isolated-atom reference must use the lowest-energy one.

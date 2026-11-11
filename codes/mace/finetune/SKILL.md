@@ -16,7 +16,8 @@ permission before each submit.
 - **Writes:** a run folder under `{{MACE_WORK_DIR}}/<name>/` on the
   cluster: the split data, `train.sh`, `select_replay.sh`, `e0s.json`,
   `manifest.json`, then `checkpoints/`, `logs/`, `results/` and the model.
-- **Tools:** `mlip_check_dataset`, `mace_make_finetune`, `mace_parse_log`
+- **Tools:** `mlip_check_dataset`, `mace_make_finetune`, `mace_parse_log`,
+  and for CP2K E0s `cp2k_make_subsys`, `cp2k_make_input`, `cp2k_make_e0s`
   (the hyogo server; all local), `launch_plan` (GPU job spec),
   `fs_upload` (takes a folder), `submit_job`, `get_job_status`,
   `fs_tail`, `fs_download`.
@@ -37,13 +38,43 @@ the labels include dispersion: a model trained on D3-free labels gets D3
 added when it runs (`lammps_make_input`'s `dispersion`), a model trained
 on labels with D3 does not. Never both.
 
-## 2. Choose with the user
+## 2. E0s at the labels' level of theory
+
+MACE subtracts one energy per element (E0) before it learns. They must
+come from the labelling code with the labels' exact settings: a
+foundation model's own E0s are on its training code's energy zero, and
+`"average"` is a fit, not an atom. With CP2K labels, per element:
+
+```text
+# one atom in a >= 15 A cubic box, written by hand as a 3-line extxyz
+cp2k_make_subsys(xyz_path="<El>-15/atom.xyz", kinds=<labels' cp2k_kinds>, periodic="NONE", ...)
+cp2k_make_input("sp", <labels' functional>, <that subsys>, <labels' kinds>,
+                purpose="atom", multiplicity=<m>, cutoff=<labels'>, rel_cutoff=<labels'>)
+```
+
+Run the free atom's ground-state multiplicity (H 2, C 3, N 4, O 3, Zr 3)
+and at least one other, and repeat the heaviest elements' lowest state in
+a 20 A box. `cp2k_check_input` each, run them in one CPU job (each is a
+few minutes), `fs_download` the `.out` files, then:
+
+```text
+cp2k_make_e0s(runs=[{"out": ..., "inp": ..., "subsys": ...}, ...],
+              out_path="<local>/e0s.json",
+              label={"inp": <a label run's .inp>, "subsys": <its subsys.inc>, "out": <its .out>})
+```
+
+It refuses atoms whose settings differ from each other or from the
+labels, and keeps the lowest multiplicity per element. Read the warnings
+to the user (ground state not reached, boxes differing by more than
+1 meV). Its `out` is the `e0s` path for step 4.
+
+## 3. Choose with the user
 
 | choice | default | notes |
 |---|---|---|
 | method | `multihead` | replay keeps the foundation model's behaviour; `naive` forgets it; `scratch` is the baseline; `lora` needs a newer mace-torch than some clusters have (the tool refuses) |
 | foundation model | ask | from the model table below; its level of theory should match the labels |
-| E0s | **must be stated** | isolated-atom energies at the labels' level of theory (same code, functional, basis and cutoff), as `{Z: eV}` or a json. `"foundation"` and `"average"` are stated shortcuts; both get a warning |
+| E0s | **must be stated** | step 2's `e0s.json`, or `{Z: eV}` computed the same way. `"foundation"` and `"average"` are stated shortcuts; both get a warning, and with labels from another code than the foundation model's they leave an energy offset of eV/atom |
 | replay | pool + 10,000 samples | multihead only; the pool is the foundation model's replay data on the cluster |
 | split | 10 % validation, per `config_type` | `test_fraction`, or `holdout=[config_types]` for a test set the model never sees |
 | GPUs | 1 | each GPU is billed as {{MACE_CORES_PER_GPU}} cores; `batch_size` is per process, so more GPUs means a larger effective batch |
@@ -52,7 +83,7 @@ Models installed on {{DISPLAY_NAME}} and what each was trained on are in
 the facility notes at the end. The mace-torch version is the `mace`
 build's `version` in `software_registry`.
 
-## 3. Write the run folder
+## 4. Write the run folder
 
 ```text
 plan = launch_plan(facility="{{SLUG}}", code="mace", run_type="train",
@@ -69,7 +100,7 @@ Nothing runs. Read `warnings` to the user: every value that is not from
 a finished reference run is named there. Then
 `fs_upload(local_path="<local>/<name>", remote_path="{{MACE_WORK_DIR}}/<name>")`.
 
-## 4. Select the replay data (multihead only)
+## 5. Select the replay data (multihead only)
 
 One GPU, usually minutes to an hour:
 
@@ -83,7 +114,7 @@ submit_job(spec = launch_plan(..., gpus=1)["job_spec"] + {
 It must leave `replay/selected_replay.xyz`. Skip this step when
 `replay={"selected": ...}` named a file that already exists.
 
-## 5. Train
+## 6. Train
 
 ```text
 submit_job(spec = plan["job_spec"] + {
@@ -100,7 +131,7 @@ say so, and prefer a short first job. While it runs,
 overwrite=true)` writes the same run with `--restart_latest`; upload only
 `train.sh` and submit again. It refuses to start without a checkpoint.
 
-## 6. Read the result
+## 7. Read the result
 
 ```text
 fs_download(remote_path="{{MACE_WORK_DIR}}/<name>/logs/<name>_run-<seed>.log", ...)

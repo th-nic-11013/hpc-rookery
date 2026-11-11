@@ -25,3 +25,7 @@
   float64 models. Pass `foundation.dtype="float64"`: a float32 run on
   them stops at the first evaluation ("both inputs should have same
   dtype").
+- **E0s:** with CP2K labels (GTH pseudopotentials), the models' own
+  VASP/PAW E0s and `"average"` both leave the energy about 5.6 eV/atom off
+  (job 9765431). Compute them with step 2 on `mpc`; no E0 set has been
+  run here yet.

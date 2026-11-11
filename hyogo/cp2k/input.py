@@ -21,6 +21,9 @@ DEFAULT_DURATION = {"geo_opt": "12:00:00", "cell_opt": "12:00:00", "md_nvt": "24
 # cell_opt below this CUTOFF gets a warning. The user's production PBE, HSE06
 # and r2SCAN cell optimisations of UiO-66 run at CUTOFF 1000 / REL_CUTOFF 60 Ry.
 CELL_OPT_STRESS_CUTOFF = 800
+# isolated atoms (purpose="atom"): refuse below, warn below good (A)
+ATOM_BOX_MIN = 12
+ATOM_BOX_GOOD = 15
 
 # &XC_FUNCTIONAL body per preset; ${HFX_RADIUS} is filled by @SET
 _XC = {
@@ -225,10 +228,17 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
     purpose="label" (G48) writes a single point for MLIP training labels:
     energy, forces and the analytical stress all printed in the .out (no
     separate files), with D3 stated explicitly (d3="none" when the model
-    adds D3 at inference)."""
-    if purpose not in ("result", "guess", "label"):
+    adds D3 at inference).
+
+    purpose="atom" (G52) writes the isolated-atom single point whose energy
+    is one element's E0 for MLIP training: the label settings unchanged
+    (functional, basis, potentials, cutoffs, precision), one atom in a
+    non-periodic box, the spin multiplicity stated, no stress and no D3 (an
+    atom has no dispersion energy). cp2k_make_e0s reads the outputs."""
+    if purpose not in ("result", "guess", "label", "atom"):
         raise ValueError('purpose is "result", "guess" (a wavefunction for a hybrid to restart '
-                         'from) or "label" (MLIP training labels: energy, forces, stress)')
+                         'from), "label" (MLIP training labels: energy, forces, stress) or '
+                         '"atom" (an isolated-atom E0 for MLIP training)')
     if print_level not in ("LOW", "MEDIUM"):
         raise ValueError('print_level is "LOW" (default; prints everything the parser and '
                          'cp2k_make_labels need) or "MEDIUM"')
@@ -239,6 +249,26 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
             raise ValueError('purpose="label" needs d3 stated: d3="none" if the model adds D3 at '
                              'inference (e.g. MACE-MATPES-r2SCAN-0 + LAMMPS D3), else "bj" or "zero"')
         stress = True
+    if purpose == "atom":
+        if run_type != "sp":
+            raise ValueError('purpose="atom" is a single point (run_type="sp")')
+        if stress:
+            raise ValueError('purpose="atom" has no stress: a non-periodic box has none')
+        if d3 not in (None, "none"):
+            raise ValueError('purpose="atom" runs without D3 (d3="none"): one atom has no '
+                             'dispersion energy, so the E0 is the same either way')
+        d3 = "none"
+        if multiplicity is None:
+            raise ValueError('purpose="atom" needs multiplicity stated: the ground state of the '
+                             'free atom (H 2, C 3, N 4, O 3, Zr 3, ...); run the other candidates '
+                             'too and let cp2k_make_e0s keep the lowest')
+        if isinstance(subsys, dict) and subsys.get("natoms") not in (None, 1):
+            raise ValueError(f'purpose="atom" is one atom; subsys.inc has {subsys["natoms"]}')
+        if isinstance(subsys, dict) and len(subsys.get("kinds") or {}) > 1:
+            raise ValueError('purpose="atom" is one atom; subsys.inc has several kinds')
+        if isinstance(subsys, dict) and subsys.get("periodic") not in (None, "NONE"):
+            raise ValueError('purpose="atom" needs a non-periodic box: call cp2k_make_subsys '
+                             'with periodic="NONE"')
     if run_type not in RUN_TYPES:
         raise ValueError(f"run_type is one of {list(RUN_TYPES)}")
     if functional not in PRESETS:
@@ -304,7 +334,7 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
     if d3 not in ("zero", "bj", "none"):
         raise ValueError('d3 is "zero", "bj" or "none" (no dispersion; for MLIP labels whose '
                          'model adds D3 at inference)')
-    if d3 == "none" and purpose != "guess":
+    if d3 == "none" and purpose not in ("guess", "atom"):
         warnings.append("no D3: dispersion is missing from this energy, forces and stress. Right for "
                         "MLIP labels whose model adds D3 at inference; wrong for structures or "
                         "energetics of a dispersion-bound system (MOF pores, layers, adsorption)")
@@ -316,8 +346,27 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
         multiplicity = 2 if electrons % 2 else 1
     if multiplicity < 1 or (electrons + multiplicity) % 2 == 0:
         raise ValueError(f"multiplicity {multiplicity} is impossible with {electrons} electrons")
-    if multiplicity > 1:
+    if multiplicity > 1 and purpose != "atom":
         warnings.append(f"open shell: UKS with multiplicity {multiplicity}")
+    atom = None
+    if purpose == "atom":
+        element = next(iter(subsys["kinds"]))
+        box = min(subsys["widths"])
+        if box < ATOM_BOX_MIN:
+            raise ValueError(f"the box is {box:.1f} A; an isolated atom needs at least "
+                             f"{ATOM_BOX_MIN} A (the MT Poisson solver wants about twice the "
+                             f"density's extent): use {ATOM_BOX_GOOD} A")
+        if box < ATOM_BOX_GOOD:
+            warnings.append(f"box {box:.1f} A is below {ATOM_BOX_GOOD} A: check the E0 against a "
+                            "larger box")
+        if hf:
+            warnings.append(f"{functional} in a non-periodic box: exact exchange for an isolated "
+                            "atom is untested here; check the E0 against a second box size")
+        project = project or f"e0-{element}-m{multiplicity}"
+        atom = {"element": element, "multiplicity": multiplicity, "box_A": box,
+                "project": project,
+                "next": "run every atom input, fs_download each .out, then cp2k_make_e0s "
+                        "with the .out, .inp and subsys.inc of each run"}
 
     cutoff = cutoff or (max(cutoff_default, 600) if run_type == "cell_opt" else cutoff_default)
     project = project or ("guess" if purpose == "guess" else RUN_TYPES[run_type][1])
@@ -421,9 +470,13 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
 
     width = max(len(k) for k in sets) + 2
     disp = " (no D3)" if d3 == "none" else f"-D3{'(BJ)' if d3 == 'bj' else ''}"
-    lines = [f"# CP2K {run_type}{' (MLIP labels)' if purpose == 'label' else ''}, {functional}{disp}, "
+    tag = {"label": " (MLIP labels)", "atom": " (isolated atom, E0 reference)"}.get(purpose, "")
+    lines = [f"# CP2K {run_type}{tag}, {functional}{disp}, "
              f"{subsys.get('formula', '?')}; written by cp2k_make_input",
              "# Edit the @SET values; the structure is in subsys.inc."]
+    if purpose == "atom":
+        lines.append(f"# E0 reference: {atom['element']}, multiplicity {multiplicity}; "
+                     "read the .out with cp2k_make_e0s.")
     if purpose == "guess":
         lines.append("# GUESS ONLY: the energy is not a result; the wavefunction seeds a hybrid.")
     if "RESTART" in sets:
@@ -536,7 +589,7 @@ def make_input(run_type: str, functional: str, subsys: dict, files: dict | None 
             "restart": ({"set": "RESTART", "file": f"{project}-1.restart",
                          "wfn": f"{project}-RESTART.wfn"} if "RESTART" in sets else None),
             "settings": {k: v for k, v in sets.items() if k != "PROJECT"},
-            "opt": o, "guess": guess_info,
+            "opt": o, "guess": guess_info, "atom": atom,
             "pdos": (f"{project}-k<n>-1.pdos, one per kind" if pdos is not None else None),
             "files": files["basis"] + [files["potential"]] + (["t_c_g.dat"] if hf == "truncated" else []),
             "warnings": warnings}

@@ -18,7 +18,7 @@ import signal
 import subprocess
 from pathlib import Path
 
-from hyogo.cp2k import input as cp2k_input, labels as cp2k_labels, output as cp2k_output, subsys
+from hyogo.cp2k import e0s as cp2k_e0s, input as cp2k_input, labels as cp2k_labels, output as cp2k_output, subsys
 from hyogo.lammps import input as lammps_input, log as lammps_log
 from hyogo.mace import dataset as mace_dataset, finetune as mace_finetune, log as mace_log
 from hyogo.plumed import input as plumed_input
@@ -117,6 +117,13 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
     For MLIP labels (energy, forces, stress in the .out): run_type="sp",
     purpose="label", d3="none" when the model adds D3 at inference.
 
+    For MLIP E0s (isolated-atom energies at the labels' settings): one atom
+    in a >= 15 A box from cp2k_make_subsys(periodic="NONE"), then
+    run_type="sp", purpose="atom", multiplicity=<the free atom's>, and the
+    labels' functional, kinds, cutoff and rel_cutoff. Written as
+    e0-<El>-m<multiplicity>.inp (PROJECT the same). Run the other plausible
+    multiplicities too; cp2k_make_e0s keeps the lowest.
+
     To start a hybrid from a GGA wavefunction in the hybrid's own basis:
     first cp2k_make_input("sp", "pbe", <the hybrid's subsys>, <its kinds>,
     purpose="guess"), run it, then the hybrid with guess_wfn set to that
@@ -136,7 +143,8 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
     <project>-1.restart and its own wavefunction.
 
     Returns {"out", "run_type", "functional", "d3", "scf", "purpose",
-    "print_level", "label" ({prints, in, next} for purpose="label"), "wfn"
+    "print_level", "label" ({prints, in, next} for purpose="label"), "atom"
+    ({element, multiplicity, box_A, project, next} for purpose="atom"), "wfn"
     (the restart file a sp writes, or null), "restart" ({set, file, wfn}
     for geo_opt/cell_opt/md_nvt, else null), "opt", "guess" ({wfn,
     from_project, checked, final_xyz} with guess_from, else null), "settings":
@@ -189,13 +197,15 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
         guess_wfn: wavefunction to start from (SCF_GUESS RESTART), a path
             on the cluster relative to the run folder or absolute; it must
             use the same basis. Start hybrids from a converged GGA run.
-        purpose: "result" (default), "guess" or "label". "guess": a GGA
+        purpose: "result" (default), "guess", "label" or "atom". "guess": a GGA
             single point (RUN_TYPE ENERGY, wavefunction saved) in a hybrid's
             basis and potentials, labelled as not a result; its only use is
             the hybrid's guess_wfn. "label": a single point for MLIP training
             labels, with energy, forces and analytical stress all printed in
             the .out (no separate files); d3 must be given (refused when
-            omitted). Read the outputs with cp2k_make_labels.
+            omitted). Read the outputs with cp2k_make_labels. "atom": an
+            isolated-atom E0 (one atom, periodic NONE, multiplicity
+            required, no stress, no D3); read with cp2k_make_e0s.
         print_level: GLOBAL PRINT_LEVEL, "LOW" (default; prints everything
             cp2k_parse_output and cp2k_make_labels read) or "MEDIUM".
         guess_from: a previous run's cp2k_parse_output result, unchanged;
@@ -214,6 +224,7 @@ def cp2k_make_input(run_type: str, functional: str, subsys: dict, kinds: dict | 
                                        print_gap, save_wfn, stress, precision, guess_wfn, purpose,
                                        guess_from, guess_dir, pdos, print_level)
     name = (f"{project}.inp" if project else "guess.inp" if purpose == "guess"
+            else f"{info['atom']['project']}.inp" if purpose == "atom"
             else cp2k_input.RUN_TYPES[run_type][3])
     dst = Path(out_path).expanduser() if out_path else Path(subsys["out"]).expanduser().with_name(name)
     if dst.exists() and not overwrite:
@@ -288,6 +299,95 @@ def cp2k_make_labels(frames: list, out_path: str, head: str | None = None,
     text, info = cp2k_labels.make_labels(items, head, require_stress, allow_untested_version)
     dst.write_text(text)
     return {"out": str(dst), **info}
+
+
+@mcp.tool()
+def cp2k_make_e0s(runs: list, out_path: str, label: dict | None = None,
+                  allow_untested_version: bool = False, overwrite: bool = False) -> dict:
+    """Write MLIP E0s (isolated-atom energies, eV) from CP2K single points:
+    {atomic number: eV} json for mace_make_finetune(e0s=<this path>), plus
+    <stem>.provenance.json beside it. Local only.
+
+    Before it: per element, cp2k_make_subsys(periodic="NONE") on one atom
+    in a >= 15 A box, cp2k_make_input("sp", <labels' functional>, ...,
+    purpose="atom", multiplicity=...) with the labels' kinds, cutoff and
+    rel_cutoff; run them, then fs_download each .out. The .inp and
+    subsys.inc are the local files you wrote (the .out at PRINT_LEVEL LOW
+    doesn't echo the functional, cutoffs or multiplicity).
+
+    Per element it keeps the lowest-energy multiplicity (the others are
+    listed with their energy above it) and, for a multiplicity run in two
+    boxes, the larger box (the difference is reported). Energies use the
+    Ha -> eV constant cp2k_make_labels uses.
+
+    Refuses: an unfinished or unconverged run, more than one atom, a
+    periodic box, smeared occupations, an input not written with
+    purpose="atom", runs whose functional block, basis or potential files,
+    cutoffs, precision or CP2K version differ, two bases for one element,
+    the same element/multiplicity/box twice, an untested CP2K version
+    (unless allow_untested_version=true), and, with label, any of those
+    settings or an element's basis/potential differing from the labels'.
+
+    Returns {"out", "provenance", "e0s" ({"Z": eV}), "per_element" ({El:
+    {Z, multiplicity, box_A, energy_ha, e0_ev, kind, source, sha256,
+    others, box_check_ev}}), "settings", "label_checked", "runs",
+    "warnings"}; read the warnings to the user (ground state not reached,
+    box difference > 1 meV, multiplicity not cross-checked, elements of the
+    labels without an E0).
+
+    Args:
+        runs: [{"out": local .out, "inp": local .inp, "subsys": local
+            subsys.inc}], one per isolated-atom run.
+        out_path: the .json to write (e.g. e0s.json).
+        label: {"inp", "subsys", "out"?} of one label run, to check the
+            atoms used its settings; strongly advised.
+        allow_untested_version: accept a CP2K version the tests don't
+            cover (warned).
+        overwrite: replace out_path (and its provenance) if they exist.
+    """
+    import hashlib
+    import json as _json
+    if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
+        raise ValueError('runs is a list of {"out": <.out>, "inp": <.inp>, "subsys": <subsys.inc>}')
+
+    def _local(path: str, what: str) -> Path:
+        p = Path(path).expanduser()
+        if not p.is_file():
+            raise ValueError(f"{p} ({what}) is not a file on this machine; "
+                             + ("download it first (fs_download)" if what == ".out" else
+                                "pass the local file cp2k_make_input/cp2k_make_subsys wrote"))
+        return p
+
+    items = []
+    for r in runs:
+        if set(r) != {"out", "inp", "subsys"}:
+            raise ValueError(f'each run is {{"out", "inp", "subsys"}}, got {sorted(r)}')
+        raw = _local(r["out"], ".out").read_bytes()
+        items.append({"out_text": raw.decode(errors="replace"), "source": r["out"],
+                      "sha256": hashlib.sha256(raw).hexdigest(),
+                      "inp_text": _local(r["inp"], ".inp").read_text(errors="replace"),
+                      "subsys_text": _local(r["subsys"], "subsys.inc").read_text(errors="replace")})
+    lab = None
+    if label is not None:
+        if not isinstance(label, dict) or not {"inp", "subsys"} <= set(label) \
+                or set(label) - {"inp", "subsys", "out"}:
+            raise ValueError('label is {"inp", "subsys", "out"?} of one label run')
+        lab = {"inp_text": _local(label["inp"], ".inp").read_text(errors="replace"),
+               "subsys_text": _local(label["subsys"], "subsys.inc").read_text(errors="replace")}
+        if label.get("out"):
+            lab["out_text"] = _local(label["out"], ".out").read_text(errors="replace")
+    dst = Path(out_path).expanduser()
+    if dst.suffix != ".json":
+        raise ValueError("out_path ends in .json")
+    prov = dst.with_name(dst.stem + ".provenance.json")
+    for x in (dst, prov):
+        if x.exists() and not overwrite:
+            raise ValueError(f"{x} exists; pass overwrite=true to replace it")
+    _, info = cp2k_e0s.make_e0s(items, lab, allow_untested_version)
+    dst.write_text(_json.dumps(info["e0s"], indent=1) + "\n")
+    prov.write_text(_json.dumps({k: v for k, v in info.items() if k != "warnings"},
+                                indent=1) + "\n")
+    return {"out": str(dst), "provenance": str(prov), **info}
 
 
 @mcp.tool()
