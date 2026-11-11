@@ -18,7 +18,7 @@ lists. It may be empty or missing in a fresh clone; that's fine.
 - Read the whole source: the SKILL.md and every script, template and
   reference it points at. A skill's `Contract` and step list show which
   steps are deterministic.
-- Read `hyogo/INVENTORY.md` and `hyogo/server.py`. Search `notes/` for
+- Read `hyogo/INVENTORY.md` and the code's `hyogo/mcp_tools/<code>.py`. Search `notes/` for
   gaps already logged against the source (`grep -rn "gap G" notes/`).
 
 ## 2. Split it into units
@@ -63,8 +63,10 @@ Logic and wrapper are separate:
 
 - `hyogo/<code>/<module>.py`: pure functions on text and dicts. No MCP,
   no file I/O beyond what's unavoidable, no network.
-- `hyogo/server.py`: a thin `@mcp.tool()` wrapper that resolves paths,
-  refuses bad input, calls the logic and writes the file.
+- `hyogo/mcp_tools/<code>.py`: a thin `@mcp.tool()` wrapper that resolves
+  paths, refuses bad input, calls the logic and writes the file. A new code
+  is a new module there (`from hyogo.mcp_tools import mcp`); `hyogo/server.py`
+  loads every module in the folder and is not edited.
 
 hyogo's rules (conformance enforces the first):
 

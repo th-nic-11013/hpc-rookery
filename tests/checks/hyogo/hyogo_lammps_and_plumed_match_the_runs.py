@@ -14,6 +14,7 @@ def hyogo_lammps_and_plumed_match_the_runs():
     import importlib.util
     import re
     from hyogo import server as hsrv
+    from hyogo.plumed import input as plumed_input
     root = ROOT
     fx = root / "tests" / "fixtures"
     bench = fx / "lammps" / "hokusai_bench"
@@ -236,8 +237,8 @@ def hyogo_lammps_and_plumed_match_the_runs():
         r = rs[4]
         assert r["outputs"] == ["COLVAR", "DELTAFS"] and any("25000 steps" in w for w in r["warnings"]), r
         # 1 GPa in kJ/mol/nm^3 (PLUMED's default units): 10^9 Pa x 1e-27 m^3 x N_A / 1000
-        assert abs(hsrv.plumed_input.bar_to_plumed(1e4, None) - 602.214076) < 1e-6
-        assert abs(hsrv.plumed_input.bar_to_plumed(1, {"length": "A", "energy": "eV"}) - 6.241509e-7) < 1e-12
+        assert abs(plumed_input.bar_to_plumed(1e4, None) - 602.214076) < 1e-6
+        assert abs(plumed_input.bar_to_plumed(1, {"length": "A", "energy": "eV"}) - 6.241509e-7) < 1e-12
         # OPES_METAD and _EXPLORE, and the single-temperature ECV
         r = hsrv.plumed_make_input([{"label": "v", "type": "VOLUME"}], str(pathlib.Path(d) / "om.dat"),
                                    bias=[{"label": "o", "type": "OPES_METAD_EXPLORE", "arg": "v",

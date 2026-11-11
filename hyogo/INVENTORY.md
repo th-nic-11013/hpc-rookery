@@ -51,7 +51,7 @@ Each tool has one **method**, one **stage** and one **code**.
 Naming and place: `<code>_<verb>_<object>` (`cp2k_make_subsys`), or
 `<method>_<verb>_<object>` when code is `none`. Logic lives in
 `hyogo/<code>/<module>.py` (or `hyogo/<method>/` when code-neutral); the
-MCP wrapper lives in `hyogo/server.py`.
+MCP wrapper lives in `hyogo/mcp_tools/<code>.py`.
 
 ## Tools
 
