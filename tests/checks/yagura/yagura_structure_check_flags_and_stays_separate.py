@@ -74,7 +74,7 @@ def yagura_structure_check_flags_and_stays_separate():
                              capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr[-2000:]
     assert out.stdout.strip() == ("['analyze_density', 'cif_inspect', 'colvar_fes', 'export_frames', "
-                                  "'gap_compare', 'labels_compare', 'pdos_read', 'stage_energies', 'structure_check', "
+                                  "'gap_compare', 'labels_compare', 'pdos_read', 'sites_by_environment', 'stage_energies', 'structure_check', "
                                   "'structure_stretch_xh', 'structure_to_extxyz', "
                                   "'structure_to_lammps_data', 'trajectory_msd', "
                                   "'trajectory_rdf', 'trajectory_vdos']"), out.stdout
@@ -111,7 +111,7 @@ def yagura_structure_check_flags_and_stays_separate():
     out = subprocess.run([sys.executable, "-c", no_ase], cwd=root, capture_output=True,
                          text=True, timeout=120)
     shutil.rmtree(walk.parent)
-    assert out.stdout.split() == ["15", "True", "10", "4", "4", "True", "True"], (out.stdout, out.stderr[-2000:])
+    assert out.stdout.split() == ["16", "True", "10", "4", "4", "True", "True"], (out.stdout, out.stderr[-2000:])
 
     def imports(folder):
         for f in (root / folder).rglob("*.py"):
