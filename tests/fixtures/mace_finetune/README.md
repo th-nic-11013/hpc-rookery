@@ -1,8 +1,14 @@
 # MACE fine-tuning fixtures (G49)
 
 The user's own fine-tuning campaigns on another cluster, copied 2026-11-11
-from a backup. Home-directory paths were replaced with `/home/user` and the
-cluster's name removed; nothing else in `reference/` was edited.
+from a backup. Home-directory paths were replaced with `/home/user`, the
+cluster's name removed, and the site's own names in the job scripts replaced
+by placeholders: `<gpu_partition>` and `<debug_partition>` (the `#SBATCH
+--partition` lines) and `<conda_module>` (the `module load` lines). The real
+values stay with that cluster's private port, whose tests check that putting
+them back reproduces the original scripts byte for byte. Nothing else in
+`reference/` was edited; the conformance check reads only the
+`mace_run_train` arguments and the replay-selection flags.
 
 `reference/` (the sources `hyogo/mace/` was built from):
 - `02_finetune.slurm`, `03_restart.slurm`, `04_train_from_scratch.slurm`:

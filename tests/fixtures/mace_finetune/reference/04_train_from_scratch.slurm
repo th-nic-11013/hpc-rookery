@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=mace-scratch
-#SBATCH --partition=gpu-small
+#SBATCH --partition=<gpu_partition>
 #SBATCH --nodes=10
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:1
@@ -15,7 +15,7 @@ set -euo pipefail
 # Environment
 # ============================================================
 
-module load miniconda/26.7.0
+module load <conda_module>
 eval "$(conda shell.bash hook)"
 conda activate mace
 
@@ -84,7 +84,7 @@ srun \
     --ntasks-per-node=1 \
     --gres=gpu:1 \
     bash -c '
-        module load miniconda/26.7.0
+        module load <conda_module>
         eval "$(conda shell.bash hook)"
         conda activate mace
         echo "HOST=$(hostname)"
@@ -137,7 +137,7 @@ srun \
     --cpus-per-task=48 \
     --cpu-bind=cores \
     bash -c '
-        module load miniconda/26.7.0
+        module load <conda_module>
         eval "$(conda shell.bash hook)"
         conda activate mace
 
