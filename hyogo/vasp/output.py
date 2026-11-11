@@ -410,3 +410,78 @@ def parse(raw: bytes | str, oszicar: str | None = None, poscar: str | None = Non
     r["messages"] = [{"kind": k, "text": t, "count": n} for (k, t), n in boxes.items()]
     r["warnings"] = w
     return r
+
+
+# ---------------------------------------------------------------------------
+# Per-site blocks (G37): moments and charges per atom and orbital channel,
+# written as a one-frame extxyz for yagura's sites_by_environment.
+# ---------------------------------------------------------------------------
+
+SITE_BLOCKS = (("magnetization (x)", "REF_magmoms", "magmoms"), ("total charge", "charges", "charges"))
+
+
+def site_blocks(raw: bytes | str) -> dict:
+    """The last "magnetization (x)" and "total charge" blocks (LORBIT >= 10)
+    and the last direct lattice vectors: {"magmoms" / "charges": {column:
+    [one value per atom]} with VASP's columns (s, p, d, [f,] tot), absent
+    when the OUTCAR has no such block; "cell": 3 rows in A, or None}."""
+    if isinstance(raw, bytes):
+        raw = raw.replace(b"\x00", b"").decode("latin-1")
+    lines = raw.splitlines()
+    out = {}
+    for title, _, name in SITE_BLOCKS:
+        starts = [i for i, l in enumerate(lines) if l.strip() == title]
+        if not starts:
+            continue
+        i = starts[-1] + 1
+        while i < len(lines) and not lines[i].lstrip().startswith("# of ion"):
+            i += 1
+        if i >= len(lines):
+            continue
+        cols = lines[i].split()[3:]
+        rows = []
+        for l in lines[i + 1:]:
+            p = l.split()
+            if p and p[0].isdigit() and len(p) == 1 + len(cols):
+                rows.append([_f(x) for x in p[1:]])
+            elif rows or (p and not set(p[0]) <= {"-"}):
+                break
+        if rows:
+            out[name] = {c: [r[k] for r in rows] for k, c in enumerate(cols)}
+    cell = None
+    for i, l in enumerate(lines):
+        if "direct lattice vectors" in l and i + 3 < len(lines):
+            try:
+                cell = [[_f(x) for x in lines[i + k].split()[:3]] for k in (1, 2, 3)]
+            except (ValueError, IndexError):
+                pass
+    out["cell"] = cell
+    return out
+
+
+def sites_extxyz(elements: list[str], positions: list, cell: list, forces: list | None,
+                 blocks: dict, info: dict) -> str:
+    """One extxyz frame: species, pos, REF_forces, REF_magmoms (tot) and
+    magmoms_<channel>, charges (tot) and charges_<channel>; info as given."""
+    n = len(elements)
+    cols, data = [], []
+    if forces is not None:
+        cols.append("REF_forces:R:3")
+        data.append([f"{v[0]:.8f} {v[1]:.8f} {v[2]:.8f}" for v in forces])
+    for _, tot_name, name in SITE_BLOCKS:
+        b = blocks.get(name)
+        if not b:
+            continue
+        for c, values in b.items():
+            if len(values) != n:
+                raise ValueError(f"the OUTCAR's {name} block has {len(values)} rows for {n} atoms")
+            key = tot_name if c == "tot" else f"{name}_{c}"
+            cols.append(f"{key}:R:1")
+            data.append([f"{v:.4f}" for v in values])
+    head = [f'Lattice="{" ".join(f"{x:.9f}" for row in cell for x in row)}"',
+            "Properties=" + ":".join(["species:S:1", "pos:R:3", *cols])]
+    head += [f"{k}={v}" for k, v in info.items() if v is not None]
+    head.append('pbc="T T T"')
+    body = [" ".join([f"{el:<2}", *(f"{x:.8f}" for x in p), *(d[i] for d in data)])
+            for i, (el, p) in enumerate(zip(elements, positions))]
+    return f"{n}\n{' '.join(head)}\n" + "\n".join(body) + "\n"

@@ -37,7 +37,7 @@ TOOL_META = {
         "module": "`hyogo/vasp/output.py`",
         "status": "live",
         "source": "campaign `outcar_to_extxyz.py`, `audit_completed.py`, `compare_magmom_test.py` (G32)",
-        "notes": "OUTCAR (.gz ok) + OSZICAR + POSCAR beside it: finished, SCF per ionic step with VASP's EDIFF-reached line (NELM hits exit 0), converged = every SCF converged + TOTEN + full force block, energies, E_F, total and per-site moments (LORBIT >= 10) with flipped-site counts, forces, stress, layout (ranks, KPAR, NCORE, band groups, NBANDS), timing, VASP's message boxes; NUL holes stripped, POSCAR fills a lost header; agreed with the campaign converter on 1524/1525 real OUTCARs. Physics diagnostics (where a moment sits) stay yagura's (G37); comparing two results (G38) is not here",
+        "notes": "OUTCAR (.gz ok) + OSZICAR + POSCAR beside it: finished, SCF per ionic step with VASP's EDIFF-reached line (NELM hits exit 0), converged = every SCF converged + TOTEN + full force block, energies, E_F, total and per-site moments (LORBIT >= 10) with flipped-site counts, forces, stress, layout (ranks, KPAR, NCORE, band groups, NBANDS), timing, VASP's message boxes; NUL holes stripped, POSCAR fills a lost header; agreed with the campaign converter on 1524/1525 real OUTCARs. sites_out (G37): the final frame as extxyz with per-site moments and charges per channel, forces and cell, for yagura's sites_by_environment and labels_compare",
     },
 }
 
@@ -199,7 +199,8 @@ def vasp_check_incar(incar_path: str, vasp_version: str | None = None) -> dict:
 
 @mcp.tool()
 def vasp_parse_output(outcar_path: str, oszicar_path: str | None = None,
-                      poscar_path: str | None = None, arrays: bool = False) -> dict:
+                      poscar_path: str | None = None, arrays: bool = False,
+                      sites_out: str | None = None, overwrite: bool = False) -> dict:
     """Read a VASP OUTCAR on this machine (plain or .gz): did the run
     finish and converge, what did it print, what layout did it run with
     and what did it cost. Writes nothing. Use it instead of grepping.
@@ -231,6 +232,16 @@ def vasp_parse_output(outcar_path: str, oszicar_path: str | None = None,
     max_memory_mb}, "oszicar": {steps, F, E0, mag}, "messages" (VASP's
     warning, advice and error boxes), "warnings"}. With arrays: also
     "positions", "forces.vectors" and "magnetization.site_moments".
+    With sites_out: "sites": {"out", "natoms", "columns"}.
+
+    sites_out (G37) writes the final frame as a one-frame extxyz: species,
+    positions, REF_forces, the per-site moments (REF_magmoms = VASP's
+    "tot", magmoms_s/p/d) and charges (charges = "tot", charges_s/p/d)
+    from the last "magnetization (x)" and "total charge" blocks, with the
+    cell, REF_energy (TOTEN), e_fermi, magnetization and converged on the
+    comment line. yagura's sites_by_environment summarises those columns
+    by environment (water O, slab O, metal); labels_compare compares two
+    such files. Needs LORBIT >= 10.
 
     "opposed" counts sites of an element whose moment (>= 0.5 uB) points
     against that element's net moment: a flipped site.
@@ -244,12 +255,48 @@ def vasp_parse_output(outcar_path: str, oszicar_path: str | None = None,
         oszicar_path: default the OSZICAR (or .gz) beside the OUTCAR, if any.
         poscar_path: default the POSCAR beside the OUTCAR, if any.
         arrays: include per-atom positions, forces and moments.
+        sites_out: write the per-site extxyz here (e.g. "sites.extxyz").
+        overwrite: replace sites_out if it exists.
     """
     src, raw = _read_local(outcar_path, "OUTCAR")
     osz = Path(oszicar_path).expanduser() if oszicar_path else _beside(src, "OSZICAR")
     pos = Path(poscar_path).expanduser() if poscar_path else _beside(src, "POSCAR")
     osz_text = _read_local(str(osz), "OSZICAR")[1].decode("latin-1") if osz else None
     pos_text = _read_local(str(pos), "POSCAR")[1].decode("latin-1") if pos else None
-    r = vasp_output.parse(raw, osz_text, pos_text, arrays)
+    sites_dst = Path(sites_out).expanduser() if sites_out else None
+    if sites_dst is not None:
+        if sites_dst.exists() and not overwrite:
+            raise ValueError(f"{sites_dst} exists; pass overwrite=true to replace it")
+        if sites_dst.resolve() == src.resolve():
+            raise ValueError("sites_out would overwrite the OUTCAR")
+    r = vasp_output.parse(raw, osz_text, pos_text, arrays or sites_dst is not None)
+    if sites_dst is not None:
+        blocks = vasp_output.site_blocks(raw)
+        if "magmoms" not in blocks and "charges" not in blocks:
+            raise ValueError("the OUTCAR has no per-site moments or charges: they need "
+                             "LORBIT >= 10 in the run's INCAR")
+        if not blocks["cell"] or not r.get("positions"):
+            raise ValueError("the OUTCAR has no lattice vectors or no final positions "
+                             "(a cut or unfinished run)")
+        elements = [el for el, n in (r.get("species") or []) for _ in range(n)]
+        if len(elements) != len(r["positions"]):
+            raise ValueError(f"{len(elements)} atoms in the species counts, "
+                             f"{len(r['positions'])} positions")
+        mags = r.get("magnetization") or {}
+        info = {"REF_energy": (r.get("energy") or {}).get("toten"), "e_fermi": r.get("e_fermi"),
+                "magnetization": mags.get("total"), "converged": "T" if r.get("converged") else "F",
+                "source": f'"{src.name}"'}
+        sites_dst.write_text(vasp_output.sites_extxyz(
+            elements, r["positions"], blocks["cell"], (r.get("forces") or {}).get("vectors"),
+            blocks, info))
+        head = sites_dst.read_text().split("\n", 2)[1]
+        r["sites"] = {"out": str(sites_dst), "natoms": len(elements),
+                      "columns": head.split("Properties=")[1].split()[0].split(":")[::3]}
+        if not arrays:
+            r.pop("positions", None)
+            if r.get("forces"):
+                r["forces"].pop("vectors", None)
+            if r.get("magnetization"):
+                r["magnetization"].pop("site_moments", None)
     return {"path": str(src), "oszicar_path": str(osz) if osz else None,
             "poscar_path": str(pos) if pos else None, **r}
