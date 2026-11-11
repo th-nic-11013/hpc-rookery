@@ -115,8 +115,10 @@ unconfigured-tool behaviour pass locally and fail in CI. Reproduce with:
   the Codex manifest.** Regenerating after a description change rewrites
   the manifest without a version bump, so clients cache stale skills; and a
   version bumped in `.claude-plugin/plugin.json` is overwritten with
-  Codex's value on the next render. This conflicts with the repo
-  convention that every plugin edit bumps the version.
+  Codex's value on the next render. The bump half is addressed (2026-11-11):
+  gap branches no longer bump, and `render_plugins.py --bump [REF]`, run once
+  per merge, minor-bumps every plugin whose files changed since REF. The
+  Codex manifest is still the only version source.
 - **`_parse_group_point` calls `int()` unguarded.** Four CSV cells are
   converted without a `try`, and `_group_point_or_none` catches only
   `RuntimeError`, so one odd row would take down `get_projects` for every

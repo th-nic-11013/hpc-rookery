@@ -8,9 +8,18 @@ same ``facilities/*/facility.json`` source as the skill generator.
 
     python scripts/render_plugins.py
     python scripts/render_plugins.py --check
+    python scripts/render_plugins.py --bump [REF]   # once per merge, see below
+
+Plugin versions are cache-busters: an installed plugin updates only when its
+version changes. Gap branches never edit them (that made every branch
+conflict on the same lines). Once per merge into the integration branch, run
+--bump with that branch as it was before the merge (default origin/main): it
+raises the minor version of every plugin whose files differ from REF, unless
+its version already differs from REF's, so a second run bumps nothing.
 """
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -30,6 +39,38 @@ def facilities() -> list[dict]:
     )
 
 
+#: plugin name -> version set by --bump for this run
+BUMPED: dict[str, str] = {}
+MANIFESTS = ("plugin.json", ".codex-plugin/plugin.json", ".claude-plugin/plugin.json")
+
+
+def git(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True)
+
+
+def bump_versions(ref: str, names: list[str]) -> dict[str, str]:
+    """Minor-bump each plugin in names whose files changed since ref."""
+    if git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode:
+        raise SystemExit(f"--bump: {ref!r} is not a commit (fetch it, or pass the branch to compare with)")
+    bumped = {}
+    for name in names:
+        base = f"plugins/{name}"
+        old = git("show", f"{ref}:{base}/.codex-plugin/plugin.json")
+        if old.returncode:
+            continue  # new plugin: keeps its initial version
+        old_version = json.loads(old.stdout)["version"]
+        current = manifest_version(PLUGINS / name / ".codex-plugin" / "plugin.json", old_version)
+        if current != old_version:
+            continue  # already bumped since ref
+        changed = git("diff", "--name-only", ref, "--", base).stdout.split()
+        changed += git("ls-files", "--others", "--exclude-standard", "--", base).stdout.split()
+        changed = [f for f in changed if not any(f == f"{base}/{m}" for m in MANIFESTS)]
+        if changed:
+            major, minor, *_ = (old_version.split(".") + ["0", "0"])[:3]
+            bumped[name] = f"{major}.{int(minor) + 1}.0"
+    return bumped
+
+
 def manifest_version(path: Path, initial: str) -> str:
     """Keep an explicit plugin cache-buster when regenerating metadata.
 
@@ -37,6 +78,9 @@ def manifest_version(path: Path, initial: str) -> str:
     renderer owns the rest of the manifest but must not silently reset a
     version bumped for an update.
     """
+    name = path.parent.parent.name
+    if name in BUMPED:
+        return BUMPED[name]
     if path.exists():
         try:
             value = json.loads(path.read_text()).get("version")
@@ -197,8 +241,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true",
                         help="Exit 1 when generated plugin files are stale.")
+    parser.add_argument("--bump", nargs="?", const="origin/main", metavar="REF",
+                        help="minor-bump plugins changed since REF (default origin/main); once per merge")
     args = parser.parse_args()
     facs = facilities()
+    if args.bump and args.check:
+        parser.error("--bump and --check do not go together")
+    if args.bump:
+        BUMPED.update(bump_versions(args.bump, ["hpc", *(f"hpc-{f['slug']}" for f in facs)]))
+        for name, version in sorted(BUMPED.items()):
+            print(f"bumped {name} to {version}")
+        if not BUMPED:
+            print(f"no plugin changed since {args.bump}, or each is already bumped")
     stale: list[Path] = []
     manifests: list[dict] = []
     base_dir = PLUGINS / "hpc"
