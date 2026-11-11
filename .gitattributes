@@ -1,0 +1,25 @@
+# Generated files: never edit or hand-merge them. Each comes from the script
+# named above it; after a merge, re-render and commit the output.
+#
+# merge=binary: when both sides changed one, git keeps ours and reports a
+# conflict without inserting markers; resolve it by re-rendering (a file only
+# one side changed merges as usual). linguist-generated folds it in GitHub diffs.
+
+# scripts/render_skills.py
+plugins/hpc-*/skills/** linguist-generated=true merge=binary
+# scripts/render_plugins.py (versions: --bump, once per merge)
+plugins/*/plugin.json linguist-generated=true merge=binary
+plugins/*/.codex-plugin/plugin.json linguist-generated=true merge=binary
+plugins/*/.claude-plugin/plugin.json linguist-generated=true merge=binary
+plugins/hpc/mcp.json linguist-generated=true merge=binary
+.agents/plugins/marketplace.json linguist-generated=true merge=binary
+.claude-plugin/marketplace.json linguist-generated=true merge=binary
+# scripts/render_glossary.py, from glossary/<term>.md
+GLOSSARY.md linguist-generated=true merge=binary
+
+# Partly generated (only the marked region; the rest is hand-written, so these
+# merge as text: on a conflict inside the region, take either side and re-render):
+#   hyogo/INVENTORY.md       TOOL_TABLE      scripts/render_inventory.py (TOOL_META)
+#   README.md, PORTING.md, docs/facilities.md,
+#   plugins/hpc/skills/hpc-facilities/SKILL.md
+#                            FACILITY_TABLE  scripts/render_facility_tables.py
