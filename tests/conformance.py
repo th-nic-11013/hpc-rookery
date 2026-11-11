@@ -2518,6 +2518,40 @@ def check_repo() -> None:
             errs = [e for e in errs if "is not in software_registry" not in e]
             assert not errs, f"{fac.slug}: {errs[:5]}"
 
+    def gromacs_tools_are_split_between_hyogo_and_yagura():
+        """classical-md's tools: setup and running in hyogo, analysis in
+        yagura; both start with an empty HOME; the default protocol renders;
+        and the deliberate copies of the gmx helpers stay identical."""
+        root = pathlib.Path(__file__).resolve().parent.parent
+        probe = ("import asyncio, json; from hyogo.server import mcp as h; from yagura.server import mcp as y; "
+                 "print(json.dumps([sorted(t.name for t in asyncio.run(m.list_tools())) for m in (h, y)]))")
+        with tempfile.TemporaryDirectory() as home:
+            out = subprocess.run([sys.executable, "-c", probe], cwd=root,
+                                 env={**os.environ, "HOME": home},
+                                 capture_output=True, text=True, timeout=120)
+        assert out.returncode == 0, out.stderr[-2000:]
+        hyo, yag = json.loads(out.stdout.strip().splitlines()[-1])
+        assert {"build_system", "system_info", "start_equilibration", "job_status", "stop_job"} <= set(hyo), hyo
+        assert {"analyze_density", "stage_energies", "export_frames"} <= set(yag), yag
+        assert not {"analyze_density", "stage_energies", "export_frames"} & set(hyo)
+        assert not {"build_system", "start_equilibration"} & set(yag)
+
+        from hyogo.gromacs import mdp
+        stages = mdp.default_protocol(nvt1_ps=10, npt_ps=10, nvt2_ps=10)
+        assert [st["name"] for st in stages] == ["em", "nvt0", "nvt1", "npt", "nvt2"]
+        npt = mdp.render(stages[3])
+        assert "pcoupl    = C-rescale" in npt and "nsteps    = 5000" in npt, npt
+
+        def fn(path, name):
+            text = (root / path).read_text()
+            start = text.index(f"def {name}(")
+            nxt = text.find("\ndef ", start + 1)
+            return text[start:nxt if nxt != -1 else None].strip()
+        assert fn("hyogo/gromacs/energy.py", "energy_series").replace("env.", "") == \
+            fn("yagura/gromacs/gmx.py", "energy_series"), "energy_series copies differ"
+        assert fn("hyogo/gromacs/env.py", "gmx_env") == fn("yagura/gromacs/gmx.py", "gmx_env"), \
+            "gmx_env copies differ"
+
     def codes_server_starts_with_empty_home():
         """The never-fail invariant for the second server: a brand-new user
         with no ~/.hpc-agent at all still gets all its tools listed."""
@@ -5322,7 +5356,8 @@ print(json.dumps(bad)); sys.exit(1 if bad else 0)
                                  env={**os.environ, "HOME": home},
                                  capture_output=True, text=True, timeout=120)
         assert out.returncode == 0, out.stderr[-2000:]
-        assert out.stdout.strip() == ("['cif_inspect', 'colvar_fes', 'gap_compare', 'pdos_read', 'structure_check', "
+        assert out.stdout.strip() == ("['analyze_density', 'cif_inspect', 'colvar_fes', 'export_frames', "
+                                      "'gap_compare', 'pdos_read', 'stage_energies', 'structure_check', "
                                       "'structure_stretch_xh', 'structure_to_extxyz', "
                                       "'structure_to_lammps_data', 'trajectory_msd', "
                                       "'trajectory_rdf', 'trajectory_vdos']"), out.stdout
@@ -5351,11 +5386,15 @@ print(json.dumps(bad)); sys.exit(1 if bad else 0)
                   "try:\n"
                   f"    server.cif_inspect({str(fx / 'disordered.cif')!r})\n"
                   "except RuntimeError as e:\n"
+                  "    print('needs ASE' in str(e))\n"
+                  "try:\n"
+                  "    server.export_frames('/nonexistent')\n"
+                  "except RuntimeError as e:\n"
                   "    print('needs ASE' in str(e))\n")
         out = subprocess.run([sys.executable, "-c", no_ase], cwd=root, capture_output=True,
                              text=True, timeout=120)
         shutil.rmtree(walk.parent)
-        assert out.stdout.split() == ["11", "True", "10", "4", "4", "True"], (out.stdout, out.stderr[-2000:])
+        assert out.stdout.split() == ["14", "True", "10", "4", "4", "True", "True"], (out.stdout, out.stderr[-2000:])
 
         def imports(folder):
             for f in (root / folder).rglob("*.py"):
@@ -5523,6 +5562,7 @@ print(json.dumps(res))
     check("benchmarks take an MLIP method form (G37)", benchmarks_take_an_mlip_method)
     check("shipped records are valid", shipped_records_are_valid)
     check("hpc-codes server starts with an empty HOME", codes_server_starts_with_empty_home)
+    check("GROMACS tools are split between hyogo and yagura", gromacs_tools_are_split_between_hyogo_and_yagura)
 
 
 def main() -> int:

@@ -176,7 +176,9 @@ def portable_mcp() -> dict:
             # the [yagura] extra brings ASE for the CIF tools
             "yagura": {"type": "stdio", "command": "uv", "env": {},
                        "args": [*args_prefix[:-1], f"hpc-rookery[yagura] @ {args_prefix[-1]}", "yagura-mcp"]},
-            "hyogo": {"type": "stdio", "command": "uv", "args": [*args_prefix, "hyogo-mcp"], "env": {}},
+            # the [gromacs] extra brings ASE for build_system
+            "hyogo": {"type": "stdio", "command": "uv", "env": {},
+                      "args": [*args_prefix[:-1], f"hpc-rookery[gromacs] @ {args_prefix[-1]}", "hyogo-mcp"]},
         },
     }
 

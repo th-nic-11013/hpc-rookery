@@ -116,15 +116,18 @@ hpc_codes/              The code-pack MCP server (hpc-codes-mcp): records_*
                         measured records (benchmarks, builds). Separate from
                         hpc_mcp so a code tool can't stop the scheduler
                         server from starting. Also launch_plan.
-yagura/                Structure checking (and later building and
-                        analysis), its own MCP server (yagura-mcp). Staged
+yagura/                Structure checking and analysis (trajectories,
+                        and GROMACS runs in yagura/gromacs/), its own MCP
+                        server (yagura-mcp). Staged
                         here before it becomes its own repository: it
                         imports nothing from the packages above and they
                         import nothing from it (conformance enforces it).
 hyogo/                 Running simulation methods and writing their
-                        inputs (cp2k_make_subsys so far), its own MCP
+                        inputs (CP2K, VASP; GROMACS build and local
+                        equilibration in hyogo/gromacs/), its own MCP
                         server (hyogo-mcp). Staged like yagura; the three
-                        groups import nothing from each other.
+                        groups import nothing from each other, so the few
+                        GROMACS helpers both need are deliberate copies.
 scripts/                render_facility_tables.py (facility table codegen),
                         render_skills.py (per-facility skill codegen), and
                         render_plugins.py (marketplace/manifest codegen).

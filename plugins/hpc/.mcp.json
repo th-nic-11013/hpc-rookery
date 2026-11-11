@@ -55,7 +55,7 @@
         "run",
         "--quiet",
         "--from",
-        "git+https://github.com/william-dawson/hpc-rookery.git@main",
+        "hpc-rookery[gromacs] @ git+https://github.com/william-dawson/hpc-rookery.git@main",
         "hyogo-mcp"
       ],
       "env": {}
