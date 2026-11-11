@@ -1,0 +1,3 @@
+pair_style      hybrid/overlay metatomic ${model} device cpu uncertainty_threshold off dispersion/d3 bj ${func} ${rc} ${rcn}
+pair_coeff      * * metatomic 1 6 8 40
+pair_coeff      * * dispersion/d3 H C O Zr

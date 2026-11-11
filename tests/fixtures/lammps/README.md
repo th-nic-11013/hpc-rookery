@@ -14,3 +14,8 @@ Copies of runs that happened, for `tests/conformance.py`
   coupling smoke test (`in.melt_plumed`, `plumed.dat`, its log and COLVAR).
 - `lugano-6a/`: `~/Downloads/research/plumed_tutorial/lugano-6a/` (PLUMED masterclass
   LJ mixture with a moving restraint, run locally): inputs and `log.lammps`.
+- `uio66_d3/`: the hand-written MACE + D3(BJ) inputs of the UiO-66 MLMD runs on
+  HOKUSAI (`~/agent/work/mlmd-uio66/`): A2 `npt.in` and `pair_both.in` (jobs
+  9748357/9748358, run with `-var func pbe -var rc 10.5835442 -var rcn 10.5835442`)
+  and A3 `prod.in` (chunked production from a restart). `lammps_make_input`'s
+  `dispersion` option (gap G41) must write the same pair and neighbour lines.

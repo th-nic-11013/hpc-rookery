@@ -58,3 +58,7 @@
 - **Label run (CP2K)** — a single point written with `cp2k_make_input(purpose="label")`: energy, forces and analytical stress all printed in the `.out`, with the D3 choice stated explicitly.
 - **AppleDouble (`._*` files)** — hidden companion files macOS adds when it copies or tars a file, holding its Finder metadata; junk on a Linux cluster, so folder uploads skip them.
 - **PMIx psec** — the PMIx security plugin that checks which process is talking to the MPI launcher; on HOKUSAI `PMIX_MCA_psec=native` picks the built-in one and stops the "munge component not found" log noise.
+- **RAG (retrieval-augmented generation)** — indexing documents so the agent looks up the relevant passage and quotes it, instead of answering from memory.
+- **LoRA (fine-tuning)** — training only small added low-rank matrices while the foundation model's own weights stay frozen; cheap, and it forgets less than retraining everything.
+- **Multihead replay** — fine-tuning with two output heads at once: one for the new labels and one that keeps being trained on a sample of the foundation model's original data, so the model doesn't forget it.
+- **E0s** — the per-element energies of isolated atoms that MACE subtracts before learning; they must match the level of theory of the labels.

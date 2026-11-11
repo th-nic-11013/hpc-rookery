@@ -1,0 +1,24 @@
+# A3 production chunk: MACE-MP-0 medium f32 + D3(BJ, PBE) NPT (iso, 1 bar) from a restart.
+# Runs until global step ${total} or the ${tlimit} timer, then writes chunk_${chunk}.restart.
+# Variables: restart_in, first (1 = start of production: step reset to 0), newvel (1 = new
+#   velocities at temp, for a start from another temperature),
+#   pair, model, func, rc, rcn, temp, seed, every, total, tlimit (HH:MM:SS), chunk
+read_restart    ${restart_in}
+include         ${pair}                                 # pair_style metatomic is not kept in restarts
+neighbor        1.0 bin
+neigh_modify    every 1 delay 0 check yes one 10000 page 200000
+timestep        0.0005
+if "${first} == 1" then "reset_timestep 0"
+if "${newvel} == 1" then "velocity all create ${temp} ${seed} mom yes rot no dist gaussian"
+fix             md all npt temp ${temp} ${temp} 0.05 iso 1.0 1.0 0.5
+thermo_style    custom step time temp pe ke etotal press vol lx cpuremain
+thermo_modify   norm no flush yes format float %.8f
+thermo          ${every}
+variable        d0 equal $(step+1)                      # no frame at the start step: the previous chunk wrote it
+dump            frames all custom ${every} frames_c${chunk}.dump id type x y z
+dump_modify     frames sort id format float %.8f delay ${d0}
+restart         10000 restart.a restart.b
+timer           timeout ${tlimit} every 10
+run             ${total} upto
+write_restart   chunk_${chunk}.restart
+print           "A3CHUNK ${chunk} ended at step $(step) of ${total}"

@@ -1,0 +1,21 @@
+# A2/A3 MLMD: MACE-MP-0 medium (f32) + D3(BJ, PBE) via hybrid/overlay, NPT isotropic 1 bar.
+# Variables: data, pair, model, func, rc, rcn, temp (K), nsteps, seed, every (frame stride)
+units           metal
+atom_style      atomic
+boundary        p p p
+read_data       ${data}
+include         ${pair}
+neighbor        1.0 bin
+neigh_modify    every 1 delay 0 check yes one 10000 page 200000
+timestep        0.0005                                  # 0.5 fs
+velocity        all create ${temp} ${seed} mom yes rot no dist gaussian
+# Nose-Hoover chains: Tdamp 100 steps (50 fs), Pdamp 1000 steps (0.5 ps)
+fix             md all npt temp ${temp} ${temp} 0.05 iso 1.0 1.0 0.5
+thermo_style    custom step time temp pe ke etotal press vol lx cpuremain
+thermo_modify   norm no flush yes format float %.8f
+thermo          ${every}
+dump            frames all custom ${every} frames.dump id type x y z
+dump_modify     frames sort id format float %.8f
+restart         10000 restart.a restart.b
+run             ${nsteps}
+write_restart   final.restart
