@@ -93,8 +93,9 @@ three facilities depend on it is not.
 repo pays for it with a shared conformance test rather than shared code:
 `tests/conformance.py` runs the same behavioral assertions against *every*
 registered facility (defaults actually get filled in, an unknown facility
-errors clearly, a mandatory-field failure names the fix, ...). Add a case
-there when your facility establishes a behavior others should also honor —
+errors clearly, a mandatory-field failure names the fix, ...). Each check is
+one file under `tests/checks/` (per-facility ones in `tests/checks/facility/`).
+Add a case there when your facility establishes a behavior others should also honor —
 that's how a genuinely important change propagates, without collapsing
 readable per-facility code into a shared abstraction.
 
@@ -821,10 +822,12 @@ of your notes, not something you hand-edit directly (an edit there is
 overwritten the next time anyone runs `render_skills.py`) — edit the
 `skill_notes/` source instead and regenerate.
 
-`tests/conformance.py` is the one shared file you may **add** to: when your
-facility establishes a behavior every facility should honor, put the
-assertion there so it applies to machines onboarded later too (§0a,
-"making duplication safe"). Don't weaken an existing case to make your
+`tests/checks/facility/` is the one shared place you may **add** to: when
+your facility establishes a behavior every facility should honor, add a file
+there (`LABEL` and a function `<file name>(slug, fac, backend)`; the runner
+`tests/conformance.py` finds it) so it applies to machines onboarded later
+too (§0a, "making duplication safe"). A check only for your machine sets
+`FACILITIES = ("<slug>",)`. Don't weaken an existing case to make your
 facility pass — if a check doesn't fit your scheduler, that is usually the
 check telling you something.
 

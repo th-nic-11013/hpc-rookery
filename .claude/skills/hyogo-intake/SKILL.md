@@ -85,9 +85,10 @@ Docstring, as in `cp2k_make_subsys`: what it writes and where it goes;
 
 ## 6. Test
 
-Add a check in `tests/conformance.py` next to
-`hyogo_make_subsys_matches_the_script_and_stays_separate`, registered with
-`check(...)` beside it:
+Add a check as its own file, `tests/checks/hyogo/<name>.py`, like
+`hyogo_make_subsys_matches_the_script_and_stays_separate.py`: a `LABEL` and a
+function `<name>()`. The runner finds it; nothing else is edited. Run it alone
+with `tests/conformance.py --only <name>`:
 
 - the tool's output matches the source's on the same input: byte for byte
   for a script, apart from a provenance comment. Templates full of
