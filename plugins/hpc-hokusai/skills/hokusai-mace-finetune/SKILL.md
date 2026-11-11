@@ -18,7 +18,8 @@ permission before each submit.
   `manifest.json`, then `checkpoints/`, `logs/`, `results/` and the model.
 - **Tools:** `mlip_check_dataset`, `mace_make_finetune`, `mace_parse_log`,
   and for CP2K E0s `cp2k_make_subsys`, `cp2k_make_input`, `cp2k_make_e0s`
-  (the hyogo server; all local), `launch_plan` (GPU job spec),
+  (the hyogo server; all local), `labels_compare` (yagura; local),
+  `launch_plan` (GPU job spec),
   `fs_upload` (takes a folder), `submit_job`, `get_job_status`,
   `fs_tail`, `fs_download`.
 - **Preconditions:** a labelled extxyz on this machine (CP2K labels:
@@ -37,6 +38,18 @@ Stop on `ok: false` and read the problems to the user. `d3` says whether
 the labels include dispersion: a model trained on D3-free labels gets D3
 added when it runs (`lammps_make_input`'s `dispersion`), a model trained
 on labels with D3 does not. Never both.
+
+When some frames were labelled twice (a relabel at other settings, another
+starting MAGMOM, +U), compare the two sets before choosing:
+
+```text
+labels_compare(a_path="labels.extxyz", b_path="relabel.extxyz")
+```
+
+A flagged frame sits in another state in one of the sets (spin state, SCF
+solution): its force difference, its distance from the median energy
+shift or a moment that changed sign says why. Show the user the flagged
+frames; drop or relabel them before training, never average the two.
 
 ## 2. E0s at the labels' level of theory
 
