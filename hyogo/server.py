@@ -658,7 +658,9 @@ def mace_make_finetune(paths: list[str], out_dir: str, name: str, mace_version: 
             theory, or the path of such a json, or "foundation" / "average".
         method: "multihead" (replay, default), "naive", "lora", "scratch".
         foundation: {"model": path on the cluster or model name, "head": the
-            head to start from when the model has several}.
+            head to start from when the model has several, "dtype": the
+            model's precision ("float32" | "float64"; the run must use the
+            same)}. The facility's model table (the mace pack) has all three.
         replay: {"pool": path on the cluster of the foundation model's
             replay data, "num_samples": 10000} or {"selected": file already
             written by select_replay.sh}.

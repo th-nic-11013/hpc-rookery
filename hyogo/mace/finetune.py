@@ -121,15 +121,31 @@ def split(frames: list[dict], valid_fraction: float = 0.1, test_fraction: float 
     return {k: sorted(v) for k, v in parts.items()}
 
 
+#: flags that take their boolean as a word (`--multiheads_finetuning True`), not as a switch
+VALUE_BOOLS = ("multiheads_finetuning", "force_mh_ft_lr", "pseudolabel_replay")
+
+
+def _word(v) -> str:
+    """One shell word. A cluster path given as ~/x or $HOME/x keeps its
+    home directory expandable ("$HOME"/x); everything else is quoted whole."""
+    v = str(v)
+    for home in ("~/", "$HOME/", "${HOME}/"):
+        if v.startswith(home):
+            return '"$HOME"/' + shlex.quote(v[len(home):])
+    return shlex.quote(v)
+
+
 def _flag_lines(args: dict) -> list[str]:
     out = []
     for k, v in args.items():
-        if v is True:
+        if k in VALUE_BOOLS and isinstance(v, bool):
+            out.append(f"--{k} {v}")
+        elif v is True:
             out.append(f"--{k}")
         elif v is False or v is None:
             continue
         else:
-            out.append(f"--{k} {shlex.quote(str(v))}")
+            out.append(f"--{k} {_word(v)}")
     return out
 
 
@@ -153,7 +169,7 @@ def make(frames: list[dict], name: str, method: str, mace_version: str, e0s,
     frames are dataset.read_frames() output, split_parts split()'s. e0s is
     "foundation", "average" or {Z: eV}. foundation = {"model": path on the
     cluster or a MACE model name, "head": its head to start from (multi-head
-    models)}. replay = {"pool": path on the cluster, "num_samples": N} or
+    models), "dtype": the model's precision, float32 or float64}. replay = {"pool": path on the cluster, "num_samples": N} or
     {"selected": path of an already selected file}.
     """
     if method not in METHODS:
@@ -229,12 +245,36 @@ def make(frames: list[dict], name: str, method: str, mace_version: str, e0s,
     preset = dict(PRESETS[method])
     args["E0s"] = e0s_arg
     args.update(preset)
+    # The model's precision decides the run's: a float64 model trained with
+    # --default_dtype float32 dies in the first evaluation ("both inputs should
+    # have same dtype"; HOKUSAI job 9765417, MACE-MATPES-r2SCAN-0, 0.3.14).
+    if method != "scratch":
+        dtype = (foundation or {}).get("dtype")
+        if dtype is None:
+            w.append(f"default_dtype {args['default_dtype']} (the reference runs'): it must equal the "
+                     "foundation model's own precision, or the run stops at the first evaluation with "
+                     "'both inputs should have same dtype'; pass foundation.dtype")
+        elif dtype not in ("float32", "float64"):
+            raise ValueError(f"foundation dtype {dtype!r} must be float32 or float64")
+        else:
+            if dtype != args["default_dtype"]:
+                w.append(f"default_dtype {dtype}, the foundation model's (the reference runs used "
+                         f"{args['default_dtype']} with a {args['default_dtype']} model)")
+            args["default_dtype"] = dtype
     if keys["stress_key"]:
         if stress_weight is None:
             stress_weight = 1.0
-            w.append("stress_weight 1.0 (MACE's default): the reference runs trained without stress "
-                     "(weight 0), so this value is untested; watch RMSE_stress")
         args["stress_weight"] = stress_weight
+        if stress_weight:
+            # MACE's default "weighted" loss is energy and forces only: with it the stress weight
+            # is ignored and no stress error is reported (job 9765417)
+            args.setdefault("loss", "universal")
+            if args["loss"] == "weighted":
+                args["loss"] = "universal"
+            args["error_table"] = "PerAtomRMSEstressvirials"
+            w.append(f"stress is trained: loss {args['loss']}, stress_weight {stress_weight}, error table "
+                     "with stress. None of this is from the reference runs (they trained without "
+                     "stress, on the default energy+forces loss); watch RMSE_stress")
     else:
         args["stress_weight"] = 0.0
     if lr is not None:
@@ -243,6 +283,11 @@ def make(frames: list[dict], name: str, method: str, mace_version: str, e0s,
         args["lr"] = lr
     elif method == "multihead":
         w.append("multihead: MACE sets the learning rate to 1e-4 itself (pass lr to change it)")
+    elif method == "naive":
+        # without --lr MACE uses its from-scratch default, 0.01 (job 9765417's log)
+        args["lr"] = 1e-4
+        w.append("naive: lr 1e-4, the value MACE sets for multihead fine-tuning (its own default, "
+                 "0.01, is for training from scratch); no reference run")
     args["seed"] = seed
     if distributed:
         args["distributed"] = True

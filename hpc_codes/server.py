@@ -285,7 +285,8 @@ def cp2k_bench_records(facility: str, system: dict, method: dict, run_type: str,
             periodic, kpoints (electrons, cell_volume_A3 if known).
         method: the `method` block: functional, basis, cutoff_ry, hybrid,
             scf (dispersion, rel_cutoff_ry if known), as in the input.
-        run_type: aimd_step, single_point, geo_opt or cell_opt.
+        run_type: aimd_step, md_step (MLIP or classical MD), single_point,
+            geo_opt, cell_opt or train (GPU packs).
         parsed: a cp2k_bench_parse result; or give stage_dirs instead.
         stage_dirs: stage folders on the cluster, parsed with cp2k_bench_parse.
         input_name: the input to record (e.g. "scan.inp") when the stages
@@ -366,7 +367,8 @@ def cp2k_record_from_run(facility: str, parsed: dict, nodes: int, like: str | No
 def launch_plan(facility: str, code: str, run_type: str, system: dict,
                 method: dict | None = None, build_id: str | None = None,
                 nodes: int | None = None, optimize: str = "cost",
-                steps: int | None = None, hfx_memory_mb: int | None = None) -> dict:
+                steps: int | None = None, hfx_memory_mb: int | None = None,
+                gpus: int | None = None) -> dict:
     """How to launch a run of `code` on this facility: the build, the
     ranks x threads layout and node count, a job-spec fragment for
     submit_job, and a cost estimate, from the recorded builds and
@@ -400,6 +402,18 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
     then computes the rest on the fly and the estimate is too low).
     Rough: it assumes the integrals total about the same at any layout.
 
+    Packs differ (the facility's pack values say which kind):
+    - cp2k fills every core of every node (R x T = cores per node).
+    - a partial-node pack (lammps: MLIP MD) may use fewer cores than the
+      node has; the cost counts the cores used, optimize="cost" picks the
+      fewest core-seconds per step, and a warning says the node is shared.
+      With nothing recorded it returns the pack's default layout.
+    - a GPU pack (mace: training, replay selection) takes `gpus`: one
+      process per GPU on one node, each with the cores a GPU is billed
+      as. No timing is recorded for GPU runs, so `estimate` is null and
+      the walltime is yours to set. `layout.distributed` is true for more
+      than one GPU: pass it to mace_make_finetune's `distributed`.
+
     Returns {"build", "layout", "basis": {match, run_type, why, record_ids,
     options: [per node count: layout, value, core_hours_per_unit,
     efficiency, memory (hybrids)]}, "job_spec", "estimate" | null,
@@ -410,7 +424,8 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
     Args:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
         code: code pack, e.g. "cp2k".
-        run_type: aimd_step, single_point, geo_opt or cell_opt.
+        run_type: aimd_step, md_step (MLIP or classical MD), single_point,
+            geo_opt, cell_opt or train (GPU packs).
         system: {"atoms": int} at least; "label" (e.g. "UiO-66-conv")
             finds an exact record, "electrons" sharpens "similar".
         method: optional exact filters on the recorded method, e.g.
@@ -423,9 +438,10 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
         hfx_memory_mb: the HFX MAX_MEMORY per MPI rank the input will use
             (cp2k_make_input's hfx.memory_mb, 3000 by default there), to
             check the integrals fit in it.
+        gpus: GPUs for a GPU pack (default 1); refused for a CPU pack.
     """
     return launch.plan(facility, code, run_type, system, method, build_id, nodes,
-                       optimize, steps, hfx_memory_mb)
+                       optimize, steps, hfx_memory_mb, gpus)
 
 
 def main():

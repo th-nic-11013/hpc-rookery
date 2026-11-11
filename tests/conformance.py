@@ -3643,6 +3643,24 @@ def check_repo() -> None:
                               replay={"selected": "replay/sel.xyz"}, **common)
         same_as("02_finetune.slurm", mh["arguments"], renamed=[("weight_pt", "weight_pt_head")])
         assert mh["arguments"]["atomic_numbers"] == "[1, 3, 6, 7, 8, 9, 16]"
+        # the flag takes its boolean as a word, as the reference script writes it
+        mh_files, _ = finetune.make(frames, "mh", "multihead", foundation=found,
+                                    replay={"selected": "replay/sel.xyz"}, **common)
+        assert "--multiheads_finetuning True \\\n" in mh_files["train.sh"], mh_files["train.sh"]
+        nv_files, nv = finetune.make(frames, "nv", "naive", foundation=found, **common)
+        # without --lr MACE would train a fine-tune at its from-scratch 0.01
+        assert nv["arguments"]["lr"] == 1e-4 and "--lr 0.0001" in nv_files["train.sh"]
+        assert any("pass foundation.dtype" in w for w in nv["warnings"]), nv["warnings"]
+        assert mh["arguments"]["default_dtype"] == "float32" and "loss" not in mh["arguments"]
+        assert "--multiheads_finetuning False \\\n" in nv_files["train.sh"], nv_files["train.sh"]
+        assert "--ema \\\n" in mh_files["train.sh"] and "--ema True" not in mh_files["train.sh"]
+        # a cluster path under the home directory must still expand there
+        hm, _ = finetune.make(frames, "hm", "multihead", mace_version="0.3.16", e0s=e0s,
+                              foundation={"model": "~/models/my model.model"},
+                              replay={"pool": "$HOME/models/replay.xyz"})
+        assert "--foundation_model \"$HOME\"/'models/my model.model'" in hm["train.sh"], hm["train.sh"]
+        assert "--configs_pt \"$HOME\"/models/replay.xyz" in hm["select_replay.sh"], hm["select_replay.sh"]
+        assert "--model \"$HOME\"/'models/my model.model'" in hm["select_replay.sh"]
         # restart = 03_restart.slurm: the same call plus --restart_latest and a checkpoint check
         files, rs = finetune.make(frames, "mh", "multihead", foundation=found,
                                   replay={"selected": "replay/sel.xyz"}, restart=True, **common)
@@ -3745,6 +3763,15 @@ def check_repo() -> None:
         # the LoRA run used E0s "average": its 4.6 eV/atom initial error is flagged
         lora = hsrv.mace_parse_log(str(fx / "p3_lora.log"))
         assert any("head Default: initial energy RMSE 4623" in w for w in lora["warnings"]), lora["warnings"]
+        # a run this tool wrote, on mace-torch 0.3.14 with stress in the loss (HOKUSAI job 9765431)
+        hk = hsrv.mace_parse_log(str(fx / "hokusai_naive_stress_0.3.14.log"))
+        assert (hk["version"], hk["finished"], hk["evaluated"], hk["last_epoch"], hk["best_epoch"]) == \
+            ("0.3.14", True, True, 1, 1), hk
+        assert hk["stop"] == {"reason": "max_epochs"} and hk["configurations"] == {"train": 4, "valid": 2}
+        assert hk["summary"]["Default"]["last"]["rmse_stress_meV_A3"] == 3.22
+        assert {t["set"]: t["rmse_stress_meV_A3"] for t in hk["error_table"]["rows"]} == \
+            {"train_Default": 3.4, "valid_Default": 3.2}
+        assert any("initial energy RMSE 5664" in w for w in hk["warnings"]), hk["warnings"]
         cut = (fx / "meoh_v2_multihead.log").read_text().split("Stopping optimization")[0]
         running = mlog.parse(cut)
         assert not running["finished"] and running["stop"] is None and running["last_epoch"] == 58
@@ -3773,17 +3800,22 @@ def check_repo() -> None:
             run = hsrv.mace_make_finetune(
                 [str(tmp / "labels.extxyz")], str(tmp / "run"), "uio66_r2scan", "0.3.14",
                 {1: -13.6, 6: -1029.0, 8: -2041.0, 40: -1270.0},
-                foundation={"model": "models/MACE-matpes-r2scan-omat-ft.model"},
+                foundation={"model": "models/MACE-matpes-r2scan-omat-ft.model", "dtype": "float64"},
                 replay={"pool": "models/matpes-r2scan-replay-data.extxyz", "num_samples": 10000},
                 valid_fraction=0.34, distributed=True)
             a = run["arguments"]
             assert (a["energy_key"], a["forces_key"], a["stress_key"]) == ("REF_energy", "REF_forces", "REF_stress")
             assert a["atomic_numbers"] == "[1, 6, 8, 40]" and a["stress_weight"] == 1.0
+            # stress in the labels: a loss that includes it and an error table that reports it
+            # (MACE's default loss is energy+forces only), and the model's own precision
+            assert (a["loss"], a["error_table"]) == ("universal", "PerAtomRMSEstressvirials"), a
+            assert a["default_dtype"] == "float64", a
             assert "foundation_head" not in a and a["weight_pt_head"] == 1.0 and a["E0s"] == "e0s.json"
             assert run["split"] == {"train": 4, "valid": 2, "test": 0,
                                     "by_config_type": {"o1": {"train": 2, "valid": 1, "test": 0},
                                                        "o2": {"train": 2, "valid": 1, "test": 0}}}, run["split"]
-            assert any("stress_weight 1.0" in w for w in run["warnings"])
+            assert any("stress is trained: loss universal, stress_weight 1.0" in w for w in run["warnings"])
+            assert any("default_dtype float64, the foundation model's" in w for w in run["warnings"])
             assert set(run["files"]) == {"train.sh", "select_replay.sh", "e0s.json", "manifest.json",
                                          "data/train.extxyz", "data/valid.extxyz"}, run["files"]
             for sh in ("train.sh", "select_replay.sh"):
@@ -4348,6 +4380,106 @@ print(json.dumps(bad)); sys.exit(1 if bad else 0)
                     assert text in str(e), e
                 else:
                     raise AssertionError(f"launch_plan did not refuse ({text})")
+
+    def launch_plan_plans_partial_node_and_gpu_packs():
+        """G38: an MLIP MD run is fastest on part of a node (1 rank x 56
+        threads of 112) and training runs on GPUs with no timing at all;
+        launch_plan refused both shapes. The lammps pack (partial node) and
+        the mace pack (GPUs) declare their shape in their values; CP2K's
+        fill-the-node rule is untouched. Records are made here, in a
+        temporary user folder: nothing is read from the user's own."""
+        from hpc_codes import server
+        from hpc_codes.cp2k import tools
+
+        def must_not_run(*_):
+            raise AssertionError("launch_plan reached run_command")
+        env = {k: v for k, v in os.environ.items() if k not in ("HOKUSAI_HOST", "HPC_RECORDS_ROOT")}
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.dict(os.environ, env, clear=True), no_user_config("hokusai"), \
+                patch.dict(os.environ, {"HPC_RECORDS_USER_DIR": tmp}), \
+                patch.object(tools, "run_command", must_not_run):
+            uio = {"label": "UiO-66-conv", "atoms": 456}
+            base = {"facility": "hokusai", "toolchain": "gcc", "install_path": "software/mlip/2026.10",
+                    "env_script": "~/software/mlip/2026.10/mlip_env.sh",
+                    "test_status": {"level": "none", "result": "pass"}, "default": True,
+                    "date": "2026-10-15"}
+            lmp_build = {**base, "build_id": "lammps-4jul2026-metatomic-mpi-cpu-gcc", "code": "lammps",
+                         "version": "4 Jul 2026", "variant": {"exe": "other", "target": "cpu"}}
+            # nothing recorded: the pack's default layout, no estimate, no refusal
+            server.records_append("hokusai", "software_registry", lmp_build)
+            bare = server.launch_plan("hokusai", "lammps", "md_step", uio)
+            assert bare["layout"] == {"nodes": 1, "ranks_per_node": 1, "threads_per_rank": 56}, bare["layout"]
+            assert bare["estimate"] is None and "LAMMPS_DEFAULT_LAYOUT" in bare["basis"]["why"], bare["basis"]
+
+            def bench(R, T, value, precision="f64"):
+                return {"facility": "hokusai", "partition": "mpc", "node_type": "MPC (bwmpc), 112 cores",
+                        "code": "lammps", "version": "4 Jul 2026", "build_id": lmp_build["build_id"],
+                        "system": {"label": "UiO-66-conv", "atoms": 456,
+                                   "elements": {"Zr": 24, "O": 128, "C": 192, "H": 112},
+                                   "periodic": "xyz", "kpoints": "none"},
+                        "method": {"model": "MACE-MP-0 medium", "precision": precision,
+                                   "interface": "LAMMPS pair_style metatomic", "device": "cpu"},
+                        "run_type": "md_step", "nodes": 1, "ranks_per_node": R, "threads_per_rank": T,
+                        "job_id": None, "date": "2026-10-20", "valid": True,
+                        "id": f"hokusai-lammps-2026-10-20-uio66conv-mdstep-macemp0m-{precision}-1n-{R}x{T}",
+                        "metric": {"name": "s_per_step", "value": value}}
+            # the measured scan (bench/results.csv, 2026-10-20)
+            for R, T, v in ((1, 112, 0.8408), (1, 56, 0.449), (1, 28, 0.6065), (1, 14, 0.98), (2, 56, 0.4766)):
+                server.records_append("hokusai", "benchmarks", bench(R, T, v))
+            server.records_append("hokusai", "benchmarks", bench(1, 56, 0.2688, "f32"))
+
+            fast = server.launch_plan("hokusai", "lammps", "md_step", uio, method={"precision": "f64"},
+                                      optimize="time", steps=20000)
+            assert fast["basis"]["match"] == "exact", fast["basis"]
+            assert fast["layout"] == {"nodes": 1, "ranks_per_node": 1, "threads_per_rank": 56}, fast["layout"]
+            est = fast["estimate"]
+            # cost is counted on the 56 cores used, not the node's 112
+            assert est["value"] == 0.449 and est["core_hours_per_unit"] == round(0.449 * 56 / 3600, 4), est
+            assert est["total_core_hours"] == round(0.449 * 20000 * 56 / 3600, 2), est
+            assert any("uses 56 of 112 cores" in w for w in fast["warnings"]), fast["warnings"]
+            js = fast["job_spec"]
+            assert js["launcher"] == "srun --mpi=pmix --ntasks=1 --cpus-per-task=56 --cpu-bind=cores", js
+            assert js["environment"]["OMP_NUM_THREADS"] == "56" and js["environment"]["PMIX_MCA_psec"] == "native"
+            assert js["resources"] == {"node_count": 1, "processes_per_node": 1, "cpu_cores_per_process": 56}
+            # optimize="cost" picks the fewest core-seconds per step: 14 threads (13.7) beat 56 (25.1)
+            cheap = server.launch_plan("hokusai", "lammps", "md_step", uio, method={"precision": "f64"})
+            assert cheap["layout"]["threads_per_rank"] == 14 and "cheapest layout" in cheap["basis"]["why"], cheap
+            f32 = server.launch_plan("hokusai", "lammps", "md_step", uio, method={"precision": "f32"})
+            assert f32["estimate"]["value"] == 0.2688 and f32["layout"]["threads_per_rank"] == 56, f32
+
+            # a GPU pack: one process per GPU, the cores a GPU is billed as, no timing needed
+            server.records_append("hokusai", "software_registry", {
+                **base, "build_id": "mace-0.3.14-venv-gpu-uv", "code": "mace", "version": "0.3.14",
+                "variant": {"exe": "other", "target": "gpu"}})
+            one = server.launch_plan("hokusai", "mace", "train", {"atoms": 456})
+            assert one["build"]["version"] == "0.3.14" and one["estimate"] is None
+            assert one["layout"] == {"nodes": 1, "ranks_per_node": 1, "threads_per_rank": 28, "gpus": 1,
+                                     "distributed": False}, one["layout"]
+            two = server.launch_plan("hokusai", "mace", "train", {"atoms": 456}, gpus=2)
+            assert two["layout"]["distributed"] is True
+            assert two["job_spec"]["resources"] == {"node_count": 1, "processes_per_node": 2,
+                                                    "cpu_cores_per_process": 28, "gpus": 2}, two["job_spec"]
+            assert two["job_spec"]["launcher"] == "srun --ntasks=2 --cpus-per-task=28 --gpus-per-task=1"
+            assert two["job_spec"]["attributes"] == {"queue_name": "gpu"}
+            assert any("billed as 56 cores" in w for w in two["warnings"]), two["warnings"]
+            for call, text in ((lambda: server.launch_plan("hokusai", "mace", "train", uio, gpus=5), "gpus must be 1 to 4"),
+                               (lambda: server.launch_plan("hokusai", "mace", "train", uio, nodes=2), "one node per job"),
+                               (lambda: server.launch_plan("hokusai", "lammps", "md_step", uio, gpus=1), "CPU pack"),
+                               (lambda: server.launch_plan("hokusai", "cp2k", "aimd_step", uio, gpus=1), "CPU pack")):
+                try:
+                    call()
+                except ValueError as e:
+                    assert text in str(e), f"{text!r} not in: {e}"
+                else:
+                    raise AssertionError(f"launch_plan did not refuse ({text})")
+            # the model table names files and where each came from
+            from hpc_codes import packs
+            models = packs.pack_values("hokusai", "mace")["MACE_MODELS"]
+            for name, m in models.items():
+                assert len(m["sha256"]) == 64 and m["model"].endswith(".model") and m["theory"], name
+                assert "path" in m["replay"] and m["replay"]["source"], name
+            exes = packs.pack_values("hokusai", "lammps")["LAMMPS_EXE"]
+            assert lmp_build["build_id"] in exes and all(v.endswith("/lmp_mpi") for v in exes.values())
 
     def launch_plan_falls_back_and_names_the_method():
         """G17: an optimisation with no geo_opt/cell_opt record borrows the
@@ -5372,6 +5504,8 @@ print(json.dumps(res))
     check("cp2k_record_from_run records a parsed production run (G24)",
           cp2k_record_from_run_records_a_parsed_run)
     check("launch_plan picks from the shipped records", launch_plan_picks_from_the_shipped_records)
+    check("launch_plan plans partial-node and GPU packs (G38)",
+          launch_plan_plans_partial_node_and_gpu_packs)
     check("launch_plan falls back to single points and names the method",
           launch_plan_falls_back_and_names_the_method)
     check("yagura structure_check flags and stays separate", yagura_structure_check_flags_and_stays_separate)

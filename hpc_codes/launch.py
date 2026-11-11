@@ -7,8 +7,18 @@ software_registry, the benchmarks records and the facility's pack values.
 Local only: it reads records and values and never contacts the cluster.
 
 The launch line is the pack value <CODE>_LAUNCH, a mapping of templates
-({R}, {T}, {N}, {env_script} and any other pack value by name), so a PBS
-or PJM facility, or another code, brings its own.
+({R}, {T}, {N}, {G}, {env_script} and any other pack value by name), so a
+PBS or PJM facility, or another code, brings its own.
+
+Three optional pack values widen the CP2K-shaped default (fill every core
+of every node, timings required), each only for the pack that sets it (G38):
+- <CODE>_PARTIAL_NODE true: a layout may use fewer cores than the node has
+  (an MLIP MD run is fastest at 1 rank x 56 threads of 112), and cost is
+  counted on the cores the layout uses;
+- <CODE>_DEFAULT_LAYOUT "RxT": the layout when nothing is recorded yet,
+  instead of refusing;
+- <CODE>_GPUS_PER_NODE (with <CODE>_CORES_PER_GPU): a GPU pack. The plan
+  takes `gpus`, runs one process per GPU on one node, and needs no timing.
 """
 import math
 from collections import Counter
@@ -16,7 +26,7 @@ from collections import Counter
 from hpc_agent_core import config
 from hpc_codes import packs, records
 
-RUN_TYPES = ("aimd_step", "single_point", "geo_opt", "cell_opt")
+RUN_TYPES = ("aimd_step", "md_step", "single_point", "geo_opt", "cell_opt", "train")
 SIMILAR_ATOMS = 0.30      # a "similar" system has atoms within +-30 %
 MIN_EFFICIENCY = 0.7      # optimize="time" won't buy speed below this
 MEM_HEADROOM = 0.9        # a rank may use this share of its slice of node memory
@@ -49,23 +59,31 @@ def _duration(seconds: float) -> str:
     return f"{s // 3600:02d}:{s % 3600 // 60:02d}:00"
 
 
-def _per_node(group: list[dict]) -> dict[int, dict]:
-    """The fastest record at each node count."""
+def _used(r: dict) -> int:
+    """Cores per node a record's layout occupies (the whole node for a
+    full-node pack, fewer for a partial-node one)."""
+    return r["ranks_per_node"] * r["threads_per_rank"]
+
+
+def _per_node(group: list[dict], by_cost: bool = False) -> dict[int, dict]:
+    """The best record at each node count: the fastest, or with by_cost
+    (a partial-node pack asked for cost) the fewest core-seconds per unit."""
+    score = (lambda r: r["metric"]["value"] * _used(r)) if by_cost else (lambda r: r["metric"]["value"])
     best = {}
     for r in group:
         n = r["nodes"]
-        if n not in best or r["metric"]["value"] < best[n]["metric"]["value"]:
+        if n not in best or score(r) < score(best[n]):
             best[n] = r
     return best
 
 
-def _options(best: dict[int, dict], cores: int) -> list[dict]:
+def _options(best: dict[int, dict]) -> list[dict]:
     one = best.get(1)
     out = []
     for n, r in sorted(best.items()):
         v = r["metric"]["value"]
         out.append({"nodes": n, "layout": f"{r['ranks_per_node']}x{r['threads_per_rank']}",
-                    "value": v, "core_hours_per_unit": round(v * n * cores / 3600, 4),
+                    "value": v, "core_hours_per_unit": round(v * n * _used(r) / 3600, 4),
                     "efficiency": round(one["metric"]["value"] / (n * v), 2) if one else None,
                     "record_id": r["id"]})
     return out
@@ -110,9 +128,38 @@ def _memory_at(info: dict, nodes: int, rpn: int, node_mib: float | None) -> dict
             "fits": None if limit is None else peak <= limit}
 
 
+def _gpu_plan(facility, code, prefix, vals, launch, run_type, build_id, nodes, gpus) -> dict:
+    """A GPU pack's plan: one process per GPU on one node, no timing needed."""
+    per_node, per_gpu = int(vals[f"{prefix}_GPUS_PER_NODE"]), int(vals[f"{prefix}_CORES_PER_GPU"])
+    gpus = 1 if gpus is None else gpus
+    if not 1 <= gpus <= per_node:
+        raise ValueError(f"gpus must be 1 to {per_node} on {facility} ({per_node} GPUs per node, "
+                         "one node per job)")
+    if nodes not in (None, 1):
+        raise ValueError(f"{facility}'s {code} pack runs on one node per job; nodes={nodes} is not possible")
+    build = packs.resolve_build(facility, code, build_id)
+    partition = vals.get(f"{prefix}_PARTITION")
+    subs = {k: v for k, v in vals.items() if not isinstance(v, (dict, list))}
+    subs.update(R=gpus, T=per_gpu, N=1, G=gpus, env_script=build["env_script"])
+    job_spec = {**_fill(launch, subs),
+                "resources": {"node_count": 1, "processes_per_node": gpus,
+                              "cpu_cores_per_process": per_gpu, "gpus": gpus},
+                "attributes": {"queue_name": partition} if partition else {}}
+    why = (f"{gpus} GPU(s), one process each with {per_gpu} cores (what a GPU is billed as); "
+           "no timing is recorded for GPU runs, so there is no estimate")
+    return {"build": {k: build.get(k) for k in ("build_id", "version", "env_script", "data_dir")},
+            "layout": {"nodes": 1, "ranks_per_node": gpus, "threads_per_rank": per_gpu, "gpus": gpus,
+                       "distributed": gpus > 1},
+            "basis": {"match": "none", "run_type": None, "record_ids": [], "options": [], "why": why},
+            "job_spec": job_spec, "estimate": None, "memory": None,
+            "warnings": [f"no {run_type} timing on GPUs is recorded: set the walltime yourself; "
+                         f"{gpus} GPU(s) are billed as {gpus * per_gpu} cores per hour"]}
+
+
 def plan(facility: str, code: str, run_type: str, system: dict, method: dict | None = None,
          build_id: str | None = None, nodes: int | None = None, optimize: str = "cost",
-         steps: int | None = None, hfx_memory_mb: int | None = None) -> dict:
+         steps: int | None = None, hfx_memory_mb: int | None = None,
+         gpus: int | None = None) -> dict:
     if run_type not in RUN_TYPES:
         raise ValueError(f"run_type must be one of {', '.join(RUN_TYPES)}")
     if optimize not in ("cost", "time"):
@@ -128,14 +175,20 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
     launch = vals.get(f"{prefix}_LAUNCH")
     if not isinstance(launch, dict):
         raise ValueError(f"{facility}'s {code} pack values have no {prefix}_LAUNCH template")
+    if vals.get(f"{prefix}_GPUS_PER_NODE"):
+        return _gpu_plan(facility, code, prefix, vals, launch, run_type, build_id, nodes, gpus)
+    if gpus:
+        raise ValueError(f"{facility}'s {code} pack is a CPU pack (no {prefix}_GPUS_PER_NODE); drop gpus")
     cores = int(vals[f"{prefix}_CORES_PER_NODE"])
+    partial = bool(vals.get(f"{prefix}_PARTIAL_NODE"))
     partition = vals.get(f"{prefix}_PARTITION")
     build = packs.resolve_build(facility, code, build_id)
     warnings = []
 
     replaced = records.superseded(facility, "benchmarks")   # G33: corrected records
     every = [r for r in records.query(facility, "benchmarks", {"code": code})
-             if r.get("valid") and r["id"] not in replaced and r["ranks_per_node"] * r["threads_per_rank"] == cores
+             if r.get("valid") and r["id"] not in replaced
+             and (_used(r) <= cores if partial else _used(r) == cores)
              and (partition is None or r["partition"] == partition)]
     label = system.get("label")
     newest = lambda g: max(str(r["date"]) for r in g)
@@ -184,8 +237,8 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
 
     memory = None
     if group:
-        best = _per_node(group)
-        options = _options(best, cores)
+        best = _per_node(group, by_cost=partial and optimize == "cost")
+        options = _options(best)
         # G7: a hybrid's exchange integrals must fit in each rank's memory
         hfx = _hfx_info(group) if match == "exact" else None
         node_mib = _node_mib(facility, partition) if hfx else None
@@ -223,7 +276,9 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
         from_sp = timing_run_type != run_type
         basis = {"match": match, "run_type": timing_run_type, "system": s["label"], "atoms": s["atoms"],
                  "method": chosen["method"], "record_ids": [chosen["id"]], "options": options,
-                 "why": (f"fastest layout at {n} node(s) of the recorded {s['label']} "
+                 "why": ((f"cheapest layout (fewest core-seconds per unit) at {n} node(s)"
+                          if partial and optimize == "cost" else f"fastest layout at {n} node(s)")
+                         + f" of the recorded {s['label']} "
                          f"({s['atoms']} atoms, {chosen['method'].get('functional') or chosen['method'].get('model')})"
                          + ("" if match == "exact" else "; a similar system, so the time is rough")
                          + (f"; no {run_type} record, so its single_point time stands in for one "
@@ -265,44 +320,58 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
         estimate = None
         if nodes == n:
             v = chosen["metric"]["value"]
-            unit_ch = v * n * cores / 3600
+            used = _used(chosen)
+            unit_ch = v * n * used / 3600
             total = v if run_type == "single_point" else (v * steps if steps else None)
+            if partial and used < cores:
+                warnings.append(f"layout {R}x{T} uses {used} of {cores} cores per node: the job is "
+                                f"billed for {used}, and the other cores may go to another job")
             estimate = {"metric": "s_per_step" if from_sp else chosen["metric"]["name"], "value": v,
                         "rough": match != "exact" or from_sp,
                         "core_hours_per_unit": round(unit_ch, 4),
                         "total_wall_s": round(total, 1) if total is not None else None,
-                        "total_core_hours": round(total * n * cores / 3600, 2) if total is not None else None,
+                        "total_core_hours": round(total * n * used / 3600, 2) if total is not None else None,
                         "suggested_duration": _duration(total) if total is not None else None}
     else:
         fallback = [r for r in every if r["run_type"] == run_type] or every
-        if not fallback:
+        default = vals.get(f"{prefix}_DEFAULT_LAYOUT")
+        if not fallback and default:
+            R, T = (int(x) for x in str(default).split("x"))
+            nodes = nodes or 1
+            fallback = None
+        elif not fallback:
             raise ValueError(f"No {code} timings at all on {facility}; run {facility}-{code}-benchmark "
                              "first, it is what fills these records.")
-        firsts = Counter()
-        for g in {_method_key(r) + (r["nodes"],): None for r in fallback}:
-            rows = [r for r in fallback if _method_key(r) + (r["nodes"],) == g]
-            f = min(rows, key=lambda r: r["metric"]["value"])
-            firsts[(f["ranks_per_node"], f["threads_per_rank"])] += 1
-        (R, T), wins = firsts.most_common(1)[0]
-        nodes = nodes or 1
-        common = (f"{R}x{T} is the fastest layout in {wins} of {sum(firsts.values())} "
-                  "recorded cases")
-        rts = (run_type, "single_point") if run_type in ("geo_opt", "cell_opt") else (run_type,)
-        labelled = [r for r in every if label and r["run_type"] in rts
-                    and _same(r["system"]["label"], label)]
-        if labelled and method:
-            wanted = ", ".join(f"{k}={v}" for k, v in method.items())
-            recorded = "; ".join(
-                f"{k}: " + ", ".join(sorted({str(r["method"].get(k)) for r in labelled}))
-                for k in method)
-            why = (f"{label} is recorded, but not with {wanted}; recorded for {label}: "
-                   f"{recorded}. No timing is scaled across methods; {common}")
-            warnings.append(f"no timing for {label} with {wanted}; run {facility}-{code}-benchmark "
-                            "first if the job is long")
+        if fallback is None:
+            why = (f"no {code} timing is recorded on {facility}; {R}x{T} is the pack's default layout "
+                   f"({prefix}_DEFAULT_LAYOUT)")
+            warnings.append(f"no {code} timing recorded; layout from the pack default, no estimate")
         else:
-            why = f"no recorded system like this; {common}"
-            warnings.append(f"no timing for a system like this; run {facility}-{code}-benchmark "
-                            "first if the job is long")
+            firsts = Counter()
+            for g in {_method_key(r) + (r["nodes"],): None for r in fallback}:
+                rows = [r for r in fallback if _method_key(r) + (r["nodes"],) == g]
+                f = min(rows, key=lambda r: r["metric"]["value"])
+                firsts[(f["ranks_per_node"], f["threads_per_rank"])] += 1
+            (R, T), wins = firsts.most_common(1)[0]
+            nodes = nodes or 1
+            common = (f"{R}x{T} is the fastest layout in {wins} of {sum(firsts.values())} "
+                      "recorded cases")
+            rts = (run_type, "single_point") if run_type in ("geo_opt", "cell_opt") else (run_type,)
+            labelled = [r for r in every if label and r["run_type"] in rts
+                        and _same(r["system"]["label"], label)]
+            if labelled and method:
+                wanted = ", ".join(f"{k}={v}" for k, v in method.items())
+                recorded = "; ".join(
+                    f"{k}: " + ", ".join(sorted({str(r["method"].get(k)) for r in labelled}))
+                    for k in method)
+                why = (f"{label} is recorded, but not with {wanted}; recorded for {label}: "
+                       f"{recorded}. No timing is scaled across methods; {common}")
+                warnings.append(f"no timing for {label} with {wanted}; run {facility}-{code}-benchmark "
+                                "first if the job is long")
+            else:
+                why = f"no recorded system like this; {common}"
+                warnings.append(f"no timing for a system like this; run {facility}-{code}-benchmark "
+                                "first if the job is long")
         basis = {"match": "none", "run_type": None, "record_ids": [], "options": [], "why": why}
         estimate = None
 

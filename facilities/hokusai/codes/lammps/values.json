@@ -1,0 +1,21 @@
+{
+  "LAMMPS_PARTITION": "mpc",
+  "LAMMPS_CORES_PER_NODE": 112,
+  "LAMMPS_PARTIAL_NODE": true,
+  "LAMMPS_DEFAULT_LAYOUT": "1x56",
+  "LAMMPS_EXE": {
+    "lammps-4jul2026-metatomic-mpi-cpu-gcc": "~/software/mlip/2026.10/lammps-cpu/bin/lmp_mpi",
+    "lammps-4jul2026-metatomic-d3-mpi-cpu-gcc": "~/software/mlip/2026.10/lammps-cpu-d3/bin/lmp_mpi"
+  },
+  "LAMMPS_LAUNCH": {
+    "pre_launch": "source {env_script}",
+    "launcher": "srun --mpi=pmix --ntasks={R} --cpus-per-task={T} --cpu-bind=cores",
+    "environment": {
+      "OMP_NUM_THREADS": "{T}",
+      "MKL_NUM_THREADS": "{T}",
+      "OMP_PLACES": "cores",
+      "OMP_PROC_BIND": "close",
+      "PMIX_MCA_psec": "native"
+    }
+  }
+}

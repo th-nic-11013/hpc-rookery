@@ -1,0 +1,14 @@
+{
+  "code": "mace",
+  "stages": [
+    "finetune"
+  ],
+  "values": {
+    "MACE_PARTITION": "Slurm partition MACE training and replay selection run in (a GPU partition)",
+    "MACE_GPUS_PER_NODE": "GPUs per node there; launch_plan takes gpus from 1 to this, one node per job",
+    "MACE_CORES_PER_GPU": "cores that come with (and are billed for) one GPU",
+    "MACE_WORK_DIR": "where fine-tuning run folders go on the cluster",
+    "MACE_MODELS": "foundation models installed on the cluster: name -> {model (path), sha256, source (URL), theory, heads, r_max, dtype, replay: {path | null, source}, lammps: {precision: exported metatomic file}}",
+    "MACE_LAUNCH": "launch_plan's job-spec templates: {pre_launch, launcher, environment}, with {G} GPUs (= processes), {T} cores per process, {env_script} and other values by name"
+  }
+}

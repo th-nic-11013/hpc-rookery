@@ -62,3 +62,4 @@
 - **LoRA (fine-tuning)** — training only small added low-rank matrices while the foundation model's own weights stay frozen; cheap, and it forgets less than retraining everything.
 - **Multihead replay** — fine-tuning with two output heads at once: one for the new labels and one that keeps being trained on a sample of the foundation model's original data, so the model doesn't forget it.
 - **E0s** — the per-element energies of isolated atoms that MACE subtracts before learning; they must match the level of theory of the labels.
+- **Partial-node layout** — a run that uses only some of a node's cores (MLIP MD is fastest at 1 rank × 56 threads of 112); it is billed for the cores it uses and shares the node.

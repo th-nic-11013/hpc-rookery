@@ -1,0 +1,48 @@
+{
+  "MACE_PARTITION": "gpu",
+  "MACE_GPUS_PER_NODE": 4,
+  "MACE_CORES_PER_GPU": 28,
+  "MACE_WORK_DIR": "~/agent/work/mace-finetune",
+  "MACE_MODELS": {
+    "mace-matpes-r2scan-0": {
+      "model": "~/software/mlip/2026.10/models/mace-matpes-r2scan-0/MACE-matpes-r2scan-omat-ft.model",
+      "sha256": "8f147ecffa1d06a696e5648b13b81abda9c96fda9d0fb3faba3cd3fb27d9bba9",
+      "source": "https://github.com/ACEsuit/mace-foundations/releases (mace_matpes_0: MACE-matpes-r2scan-omat-ft.model)",
+      "theory": "r2SCAN (MatPES), no dispersion",
+      "heads": ["default"],
+      "r_max": 6.0,
+      "dtype": "float64",
+      "replay": {
+        "path": null,
+        "source": "mace_matpes_0 release: matpes-r2scan-replay-data.extxyz (1.18 GB); not on the cluster yet"
+      },
+      "lammps": {
+        "f32": "~/software/mlip/2026.10/models/mace-matpes-r2scan-0/mace-matpes-r2scan-0-f32.pt"
+      }
+    },
+    "mace-mp-0-medium": {
+      "model": "~/software/mlip/2026.10/models/mace-mp-0-medium/2023-12-03-mace-128-L1_epoch-199.model",
+      "sha256": "01bfe22100139f424713cf921144e5509cbe353d67aa9fa1be9c6e1e0ed35845",
+      "source": "https://github.com/ACEsuit/mace-foundations/releases (mace_mp_0: 2023-12-03-mace-128-L1_epoch-199.model)",
+      "theory": "PBE / PBE+U (Materials Project), no dispersion",
+      "heads": ["default"],
+      "r_max": 6.0,
+      "dtype": "float64",
+      "replay": {
+        "path": null,
+        "source": "pt_train_file \"mp\" (MACE downloads its own MP replay subset)"
+      },
+      "lammps": {
+        "f64": "~/software/mlip/2026.10/models/mace-mp-0-medium/mace-mp-0-medium.pt",
+        "f32": "~/software/mlip/2026.10/bench/models/mace-mp-0-medium-f32.pt"
+      }
+    }
+  },
+  "MACE_LAUNCH": {
+    "pre_launch": "source {env_script}",
+    "launcher": "srun --ntasks={G} --cpus-per-task={T} --gpus-per-task=1",
+    "environment": {
+      "OMP_NUM_THREADS": "8"
+    }
+  }
+}

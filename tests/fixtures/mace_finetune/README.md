@@ -23,3 +23,7 @@ table, ERROR lines). A run of identical consecutive messages is cut to 3.
   extract forces" ERROR lines (the replay frames); 3 of each are kept.
 - `p3_multihead_restarts.log`: 6 sessions (restarts), 150 epochs, best 118.
 - `p3_lora.log`: one head, 2 sessions, 150 epochs.
+- `hokusai_naive_stress_0.3.14.log`: untrimmed, mace-torch 0.3.14 on one H100
+  (HOKUSAI job 9765431, 2026-11-11): a 2-epoch run written by
+  `mace_make_finetune` (naive, six UiO-66 frames, stress in the loss, E0s
+  `average`). The only log here with stress errors and from 0.3.14.

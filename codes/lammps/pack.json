@@ -1,0 +1,12 @@
+{
+  "code": "lammps",
+  "stages": [],
+  "values": {
+    "LAMMPS_PARTITION": "Slurm partition MLIP molecular dynamics runs in",
+    "LAMMPS_CORES_PER_NODE": "cores per node of that partition",
+    "LAMMPS_PARTIAL_NODE": "true when a run may use fewer cores than the node has (launch_plan then accepts R x T below the node's cores and counts cost on the cores used)",
+    "LAMMPS_DEFAULT_LAYOUT": "R x T launch_plan returns when no md_step timing is recorded, e.g. 1x56",
+    "LAMMPS_EXE": "build_id -> the lmp binary of that software_registry build (several builds can share one env_script)",
+    "LAMMPS_LAUNCH": "launch_plan's job-spec templates: {pre_launch, launcher, environment}, with {R} ranks/node, {T} threads/rank, {N} nodes, {env_script} and other values by name"
+  }
+}
