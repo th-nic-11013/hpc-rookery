@@ -2,6 +2,7 @@
 *.pyc
 .claude/*
 !.claude/skills/
+!.claude/settings.json
 .pytest_cache/
 .venv/
 __pycache__/

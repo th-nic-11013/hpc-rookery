@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Run every check the repo requires before a commit and print only what
+an agent needs: one line per failure with the tail of its output, then one
+summary line. Exit status 0 only when everything passed.
+
+    python3 scripts/check                 # all checks
+    python3 scripts/check --only conf     # names containing "conf"
+    python3 scripts/check --list          # the check names
+    python3 scripts/check --tail 60       # more output per failure
+
+Uses the repo's .venv when there is one, else this interpreter.
+"""
+import argparse
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PY = str(ROOT / ".venv" / "bin" / "python") if (ROOT / ".venv" / "bin" / "python").exists() else sys.executable
+
+CHECKS = [
+    ("conformance", [PY, "tests/conformance.py"]),
+    ("conformance --empty-home", [PY, "tests/conformance.py", "--empty-home"]),
+    ("notebook_client", [PY, "tests/notebook_client.py"]),
+    ("notebook_client --empty-home", [PY, "tests/notebook_client.py", "--empty-home"]),
+    ("render_facility_tables --check", [PY, "scripts/render_facility_tables.py", "--check"]),
+    ("render_skills --check", [PY, "scripts/render_skills.py", "--check"]),
+    ("render_plugins --check", [PY, "scripts/render_plugins.py", "--check"]),
+    ("check_wheel_data", [PY, "scripts/check_wheel_data.py"]),
+    ("output_guard", [PY, "tests/test_output_guard.py"]),
+    ("git diff --check", ["git", "diff", "--check", "HEAD"]),
+]
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--only", help="run only checks whose name contains this")
+    ap.add_argument("--tail", type=int, default=25, help="output lines shown per failure")
+    ap.add_argument("--list", action="store_true", help="print the check names and exit")
+    a = ap.parse_args()
+    if a.list:
+        print("\n".join(n for n, _ in CHECKS))
+        return 0
+    todo = [(n, c) for n, c in CHECKS if not a.only or a.only in n]
+    if not todo:
+        print(f"no check matches {a.only!r}; --list shows them")
+        return 2
+    failed, t0 = [], time.time()
+    for name, cmd in todo:
+        r = subprocess.run(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if r.returncode:
+            failed.append(name)
+            lines = r.stdout.rstrip().splitlines()
+            # conformance prints a ✓ per check; keep failures, tracebacks and the end
+            keep = [ln for ln in lines if not ln.lstrip().startswith("✓")]
+            print(f"FAIL {name} (exit {r.returncode})")
+            print("\n".join("  " + ln for ln in keep[-a.tail:]))
+    dt = time.time() - t0
+    if failed:
+        print(f"{len(failed)}/{len(todo)} checks failed in {dt:.0f} s: {', '.join(failed)}")
+        return 1
+    print(f"all {len(todo)} checks passed in {dt:.0f} s")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -64,3 +64,5 @@
 - **E0s** — the per-element energies of isolated atoms that MACE subtracts before learning; they must match the level of theory of the labels.
 - **Partial-node layout** — a run that uses only some of a node's cores (MLIP MD is fastest at 1 rank × 56 threads of 112); it is billed for the cores it uses and shares the node.
 - **Spin multiplicity** — 2S+1 for an atom's unpaired electrons (H 2, C/O/Zr 3); an isolated-atom reference must use the lowest-energy one.
+- **Gap card** — one small file per gap saying what it may edit, what it depends on and which few files to load; the unit one session claims.
+- **Joint file** — a shared file many gaps must edit (one big test file, a central server, a version number); joints are what make parallel work collide.
