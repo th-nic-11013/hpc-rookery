@@ -1,0 +1,1 @@
+**GTH pseudopotential** — replaces each atom's core electrons and nucleus with a smooth effective potential, so only valence electrons are computed; each is fitted to one functional (GTH-PBE, GTH-PBE0, GTH-SCAN).

@@ -1,0 +1,1 @@
+**OPES** — On-the-fly Probability Enhanced Sampling: a successor to metadynamics that builds the bias from a running estimate of the probability distribution, so it converges faster and has fewer knobs; `OPES_METAD_EXPLORE` favours exploration, and `OPES_EXPANDED` samples a range of temperatures/pressures in one run.

@@ -1,0 +1,1 @@
+**Multihead replay** — fine-tuning with two output heads at once: one for the new labels and one that keeps being trained on a sample of the foundation model's original data, so the model doesn't forget it.

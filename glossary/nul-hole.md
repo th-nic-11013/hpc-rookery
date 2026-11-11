@@ -1,0 +1,1 @@
+**NUL hole** — a run of zero bytes left in a file that was being written when the disk filled up; text tools may treat it as binary. `vasp_parse_output` strips and counts them, then checks every block is complete.

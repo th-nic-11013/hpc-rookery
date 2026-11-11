@@ -8,6 +8,31 @@ from hyogo.lammps import input as lammps_input, log as lammps_log
 from hyogo.mcp_tools import mcp
 
 
+#: this module's rows of hyogo/INVENTORY.md (scripts/render_inventory.py renders the
+#: table; a live row must be a tool served here). Plain literals only: the renderer
+#: reads it without importing this module.
+TOOL_META = {
+    "lammps_make_input": {
+        "method": "md",
+        "stage": "input",
+        "code": "lammps",
+        "module": "`hyogo/lammps/input.py`",
+        "status": "live",
+        "source": "HOKUSAI `mlip/2026.10/bench/inputs/*.in`, `tests/smoke/in.melt_plumed`",
+        "notes": "MLMD input with `pair_style metatomic` (MACE); modes nvt, npt, valid (NVT→NVE), time; dump/restart strides; optional `fix plumed` (written before the thermostat, as LAMMPS requires); optional D3 via `hybrid/overlay … dispersion/d3` (G41, reproduces the UiO-66 A2 inputs). Data file and element order come from yagura `structure_to_lammps_data`",
+    },
+    "lammps_parse_log": {
+        "method": "md",
+        "stage": "parse",
+        "code": "lammps",
+        "module": "`hyogo/lammps/log.py`",
+        "status": "live",
+        "source": "HOKUSAI `bench/parse_mlmd.py` (`parse_log`, `run_info`)",
+        "notes": "finished/error, thermo blocks, Loop time → s/step and ns/day, NVE drift and fluctuation, T range, step-0 PE. Layout planning and records stay rookery's (G38)",
+    },
+}
+
+
 @mcp.tool()
 def lammps_make_input(data: dict, model: str, mode: str, steps: dict,
                       temperature: float = 300.0, timestep_fs: float = 0.5,

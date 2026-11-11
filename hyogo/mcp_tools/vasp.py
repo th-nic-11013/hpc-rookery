@@ -8,6 +8,40 @@ from hyogo.vasp import incar as vasp_incar, litsearch_check, output as vasp_outp
 from hyogo.mcp_tools import _read_local, mcp
 
 
+#: this module's rows of hyogo/INVENTORY.md (scripts/render_inventory.py renders the
+#: table; a live row must be a tool served here). Plain literals only: the renderer
+#: reads it without importing this module.
+TOOL_META = {
+    "vasp_make_incar": {
+        "method": "any",
+        "stage": "input",
+        "code": "vasp",
+        "module": "`hyogo/vasp/incar.py`",
+        "status": "live",
+        "source": "MXene+water labelling campaign `make_magmom_test2.py` (G32)",
+        "notes": "edits a base INCAR in place (layout and comments kept, so a comment can go stale): MAGMOM per element in POSCAR order plus per-site overrides, NUPDOWN, NCORE/KPAR, NBANDS pinned (or read from a reference OUTCAR) and refused when it isn't a multiple of the band groups, constrain-then-release `INCAR.pre`; refuses MAGMOM/NUPDOWN with ISPIN 1 and a MAGMOM that doesn't count every atom; matched the script's settings on all 23 MAGMOM test 2 runs",
+    },
+    "vasp_check_incar": {
+        "method": "any",
+        "stage": "check",
+        "code": "vasp",
+        "module": "`hyogo/vasp/litsearch_check.py`",
+        "status": "live",
+        "source": "G41",
+        "notes": "an INCAR against the VASP documentation, by calling lit-search (`reference check VASP --json`, the VASP wiki's INCAR tags kept as verified records) as a separate program: unknown tags with close matches, values outside a tag's type or words, tags newer than `vasp_version`, tags set twice; `vasp_make_incar` runs it on every INCAR it writes. Skipped, and says so, without lit-search (`HYOGO_LITSEARCH`, `HYOGO_LITSEARCH_LIBRARY`). `[string]` tags (ALGO) have no word list",
+    },
+    "vasp_parse_output": {
+        "method": "any",
+        "stage": "parse",
+        "code": "vasp",
+        "module": "`hyogo/vasp/output.py`",
+        "status": "live",
+        "source": "campaign `outcar_to_extxyz.py`, `audit_completed.py`, `compare_magmom_test.py` (G32)",
+        "notes": "OUTCAR (.gz ok) + OSZICAR + POSCAR beside it: finished, SCF per ionic step with VASP's EDIFF-reached line (NELM hits exit 0), converged = every SCF converged + TOTEN + full force block, energies, E_F, total and per-site moments (LORBIT >= 10) with flipped-site counts, forces, stress, layout (ranks, KPAR, NCORE, band groups, NBANDS), timing, VASP's message boxes; NUL holes stripped, POSCAR fills a lost header; agreed with the campaign converter on 1524/1525 real OUTCARs. Physics diagnostics (where a moment sits) stay yagura's (G37); comparing two results (G38) is not here",
+    },
+}
+
+
 def _beside(src: Path, name: str) -> Path | None:
     """name (or name.gz) next to src, if it exists."""
     for cand in (src.with_name(name), src.with_name(name + ".gz")):

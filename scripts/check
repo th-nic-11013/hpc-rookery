@@ -27,6 +27,8 @@ CHECKS = [
     ("render_facility_tables --check", [PY, "scripts/render_facility_tables.py", "--check"]),
     ("render_skills --check", [PY, "scripts/render_skills.py", "--check"]),
     ("render_plugins --check", [PY, "scripts/render_plugins.py", "--check"]),
+    ("render_inventory --check", [PY, "scripts/render_inventory.py", "--check"]),
+    ("render_glossary --check", [PY, "scripts/render_glossary.py", "--check"]),
     ("check_wheel_data", [PY, "scripts/check_wheel_data.py"]),
     ("output_guard", [PY, "tests/test_output_guard.py"]),
     ("git diff --check", ["git", "diff", "--check", "HEAD"]),

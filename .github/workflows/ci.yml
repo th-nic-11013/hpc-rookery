@@ -49,6 +49,8 @@ jobs:
           python scripts/render_facility_tables.py
           python scripts/render_skills.py
           python scripts/render_plugins.py
+          python scripts/render_inventory.py
+          python scripts/render_glossary.py
 
       - name: Commit them back
         run: |
@@ -63,7 +65,7 @@ jobs:
           # what to run instead of failing with a bare permission error.
           if [ "${{ github.event_name }}" = "pull_request" ] && \
              [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
-            echo "::error::Generated files are out of date, and CI cannot update a fork's branch for you. Run 'python scripts/render_facility_tables.py && python scripts/render_skills.py' and commit the result."
+            echo "::error::Generated files are out of date, and CI cannot update a fork's branch for you. Run 'python scripts/render_facility_tables.py && python scripts/render_skills.py && python scripts/render_plugins.py && python scripts/render_inventory.py && python scripts/render_glossary.py' and commit the result."
             exit 1
           fi
           git config user.name  "github-actions[bot]"

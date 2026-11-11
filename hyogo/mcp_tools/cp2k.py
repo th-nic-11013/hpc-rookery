@@ -8,6 +8,67 @@ from hyogo.cp2k import e0s as cp2k_e0s, input as cp2k_input, labels as cp2k_labe
 from hyogo.mcp_tools import mcp
 
 
+#: this module's rows of hyogo/INVENTORY.md (scripts/render_inventory.py renders the
+#: table; a live row must be a tool served here). Plain literals only: the renderer
+#: reads it without importing this module.
+TOOL_META = {
+    "cp2k_make_subsys": {
+        "method": "any",
+        "stage": "input",
+        "code": "cp2k",
+        "module": "`hyogo/cp2k/subsys.py`",
+        "status": "live",
+        "source": "`codes/common/structure-making/cp2k/make_subsys.py`",
+        "notes": "split of `make_subsys.py`: kinds and data files → rookery `cp2k_kinds`, checks → yagura `structure_check`, `&SUBSYS` writing → here",
+    },
+    "cp2k_make_input": {
+        "method": "any",
+        "stage": "input",
+        "code": "cp2k",
+        "module": "`hyogo/cp2k/input.py`",
+        "status": "live",
+        "source": "`codes/cp2k/*/templates/`, UiO-66 `make_inputs.sh`",
+        "notes": "templates and UiO-66 functional presets as one tool; includes the HFX radius check",
+    },
+    "cp2k_make_labels": {
+        "method": "mlip",
+        "stage": "input",
+        "code": "cp2k",
+        "module": "`hyogo/cp2k/labels.py`",
+        "status": "live",
+        "source": "scratch `prep_frames.py` (UiO-66 T1, 2026-11-10); G43",
+        "notes": "CP2K `.out` + its subsys.inc → one MACE extxyz (REF_energy eV, REF_forces eV/Å, REF_stress eV/Å³ in ASE sign, Voigt 6; config_type, head, source path + sha256, CP2K version, dispersion_eV). Refuses unfinished/unconverged runs, atom-count mismatches, missing stress, untested CP2K versions, and frames mixing D3 with no-D3. No D3 subtraction (forces/stress lack the D3 share). Companion changes: `cp2k_make_input` d3=\"none\", print_level, purpose=\"label\" (G48); `cp2k_parse_output` dispersion_ha (G39) and vectors=True",
+    },
+    "cp2k_make_e0s": {
+        "method": "mlip",
+        "stage": "input",
+        "code": "cp2k",
+        "module": "`hyogo/cp2k/e0s.py`",
+        "status": "live",
+        "source": "G52; the Rudra campaign's `dft_e0/` (VASP)",
+        "notes": "isolated-atom CP2K `.out` files → `e0s.json` ({Z: eV}, `HA_EV` as `cp2k_make_labels`) for `mace_make_finetune`. Refuses unfinished/unconverged, multi-atom or periodic runs and outputs whose functional, cutoffs, basis, potential or CP2K version differ from each other or from a given label output. Keeps the lowest-energy multiplicity per element (others listed), warns off the known ground state and on box-size differences > 1 meV. Companion: `cp2k_make_input` purpose=\"atom\" (one atom, periodic NONE, multiplicity stated, no stress, label settings otherwise)",
+    },
+    "cp2k_parse_output": {
+        "method": "any",
+        "stage": "parse",
+        "code": "cp2k",
+        "module": "`hyogo/cp2k/output.py`",
+        "status": "live",
+        "source": "hand greps of HOKUSAI UiO-66 outputs (sp, cell_opt); patterns shared with `hpc_codes/cp2k/parse_bench.py`",
+        "notes": "G15: reads a local .out (fs_download first) into run-control facts (finished, SCF/opt convergence and criteria, walltime stop), printed results (energy, gap, forces, stress, final cell) and cost facts (timers, peak and HFX memory); writes nothing. Turning cost into a benchmark record stays rookery's",
+    },
+    "cp2k_restart_md": {
+        "method": "md",
+        "stage": "restart",
+        "code": "cp2k",
+        "module": "`hyogo/cp2k/restart.py`",
+        "status": "candidate",
+        "source": "`codes/cp2k/aimd/SKILL.md` (24-hour restarts)",
+        "notes": "",
+    },
+}
+
+
 @mcp.tool()
 def cp2k_make_subsys(xyz_path: str, kinds: dict, out_path: str | None = None,
                      periodic: str = "XYZ", charge: int = 0, symmetry: str | None = None,

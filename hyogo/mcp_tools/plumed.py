@@ -8,6 +8,22 @@ from hyogo.plumed import input as plumed_input
 from hyogo.mcp_tools import mcp
 
 
+#: this module's rows of hyogo/INVENTORY.md (scripts/render_inventory.py renders the
+#: table; a live row must be a tool served here). Plain literals only: the renderer
+#: reads it without importing this module.
+TOOL_META = {
+    "plumed_make_input": {
+        "method": "sampling",
+        "stage": "input",
+        "code": "plumed",
+        "module": "`hyogo/plumed/input.py`",
+        "status": "live",
+        "source": "HOKUSAI `tests/smoke/plumed.dat`; `plumed_tutorial/` (lugano-6a, master-ISDD-1/2); UiO-66 O1 `plumed.dat` (OPES)",
+        "notes": "CVs DISTANCE, TORSION, COORDINATION, GYRATION, ENERGY, VOLUME; bias RESTRAINT, MOVINGRESTRAINT, well-tempered METAD, OPES_METAD, OPES_METAD_EXPLORE, OPES_EXPANDED with ECV_MULTITHERMAL / ECV_MULTITHERMAL_MULTIBARIC (pressures in bar, converted to the PLUMED units; G40); PRINT; reweight mode for `plumed driver` (METAD). FES analysis → yagura `colvar_fes`",
+    },
+}
+
+
 @mcp.tool()
 def plumed_make_input(cvs: list[dict], out_path: str, bias: list[dict] | None = None,
                       print_stride: int = 10, print_file: str = "COLVAR",

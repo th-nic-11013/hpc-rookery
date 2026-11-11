@@ -1,0 +1,1 @@
+**Gap (G1, G2, …)** — a numbered entry in a personal "tool audit" note (local `notes/`, not committed): a step the repo's tools couldn't do, with its owner and proposed fix; numbers run on across notes.

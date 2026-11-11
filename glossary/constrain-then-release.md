@@ -1,0 +1,1 @@
+**Constrain-then-release** — a short VASP pre-run with the total moment fixed (NUPDOWN), whose wavefunction (WAVECAR) starts a second run with the moment free: it steers the SCF into a spin state without biasing the final result.

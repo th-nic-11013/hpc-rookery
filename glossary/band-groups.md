@@ -1,0 +1,1 @@
+**Band groups (VASP)** — the MPI ranks split into teams that each work on a share of the bands: ranks / (KPAR × NCORE). VASP silently rounds NBANDS up to a multiple of it, so a new NCORE can change the band count; `vasp_make_incar` checks it.

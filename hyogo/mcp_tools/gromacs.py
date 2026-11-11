@@ -16,6 +16,58 @@ from hyogo.gromacs import build as gmx_build, env as gmx_env, mdp as gmx_mdp
 from hyogo.mcp_tools import mcp
 
 
+#: this module's rows of hyogo/INVENTORY.md (scripts/render_inventory.py renders the
+#: table; a live row must be a tool served here). Plain literals only: the renderer
+#: reads it without importing this module.
+TOOL_META = {
+    "build_system": {
+        "method": "md",
+        "stage": "input",
+        "code": "gromacs",
+        "module": "`hyogo/gromacs/build.py`",
+        "status": "live",
+        "source": "`~/tools/classical-md-mcp` (classical-md server, merged in)",
+        "notes": "LiTFSI/MeOH box from one extxyz frame: whole molecules, NxNxN replicate, AM1-BCC GAFF (AmberTools), symmetrised and scaled charges, tleap, ParmEd to GROMACS top/gro. Needs `CMD_AMBER_ENV` and ASE (`[gromacs]` extra). Name kept from classical-md, not `<code>_<verb>_<object>`",
+    },
+    "start_equilibration": {
+        "method": "md",
+        "stage": "run",
+        "code": "gromacs",
+        "module": "`hyogo/gromacs/driver.py`, `mdp.py`",
+        "status": "live",
+        "source": "`~/tools/classical-md-mcp` (classical-md server, merged in)",
+        "notes": "detached, resumable em → nvt0 → nvt1 → npt → nvt2 (box averaged over the NPT tail), or a custom `protocol_json`; runs gmx on this machine (`CMD_GMX`, `CMD_MDRUN_ARGS`). Analysis of the run is yagura's (`analyze_density`, `stage_energies`, `export_frames`)",
+    },
+    "job_status": {
+        "method": "md",
+        "stage": "run",
+        "code": "gromacs",
+        "module": "`hyogo/mcp_tools/gromacs.py`",
+        "status": "live",
+        "source": "`~/tools/classical-md-mcp` (classical-md server, merged in)",
+        "notes": "state of the local equilibration (status.json, current step and ETA from the mdrun log)",
+    },
+    "stop_job": {
+        "method": "md",
+        "stage": "run",
+        "code": "gromacs",
+        "module": "`hyogo/mcp_tools/gromacs.py`",
+        "status": "live",
+        "source": "`~/tools/classical-md-mcp` (classical-md server, merged in)",
+        "notes": "stops driver and mdrun; finished stages are kept and `start_equilibration` resumes",
+    },
+    "system_info": {
+        "method": "md",
+        "stage": "parse",
+        "code": "gromacs",
+        "module": "`hyogo/mcp_tools/gromacs.py`",
+        "status": "live",
+        "source": "`~/tools/classical-md-mcp` (classical-md server, merged in)",
+        "notes": "composition, molality, box and density of the built or latest (npt.gro) structure",
+    },
+}
+
+
 _REPO = str(Path(__file__).resolve().parents[2])
 
 

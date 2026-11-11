@@ -1,0 +1,1 @@
+**Job dependency (afterok)** — `sbatch --dependency=afterok:<id>` holds a job until job `<id>` ends with exit 0; a clean CP2K WALLTIME stop also counts, so the job script must check the earlier run converged.

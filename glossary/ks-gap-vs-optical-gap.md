@@ -1,0 +1,1 @@
+**KS gap vs optical gap** — the Kohn–Sham HOMO–LUMO gap is an orbital-energy difference; the optical gap is a measured absorption edge, and exciton effects lower it, so the two are not strictly the same quantity.

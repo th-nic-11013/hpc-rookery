@@ -1,0 +1,1 @@
+**PMIx psec** — the PMIx security plugin that checks which process is talking to the MPI launcher; on HOKUSAI `PMIX_MCA_psec=native` picks the built-in one and stops the "munge component not found" log noise.

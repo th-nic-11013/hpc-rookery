@@ -8,6 +8,40 @@ from hyogo.mace import dataset as mace_dataset, finetune as mace_finetune, log a
 from hyogo.mcp_tools import _read_local, mcp
 
 
+#: this module's rows of hyogo/INVENTORY.md (scripts/render_inventory.py renders the
+#: table; a live row must be a tool served here). Plain literals only: the renderer
+#: reads it without importing this module.
+TOOL_META = {
+    "mlip_check_dataset": {
+        "method": "mlip",
+        "stage": "check",
+        "code": "none",
+        "module": "`hyogo/mace/dataset.py`",
+        "status": "live",
+        "source": "the user's fine-tuning tools: `mcp_tools/data_tools.py` (profile, validate), `combine_relabelled.py` checks; G49",
+        "notes": "labelled extxyz → profile (frames, species, keys, config_types) and fitness: label keys in every frame, D3 and D3-free labels not mixed (`dispersion_eV` from `cp2k_make_labels`), stress needs a cell, repeated `source_sha256`. Own small extxyz reader (no ASE); frames stay their own text",
+    },
+    "mace_make_finetune": {
+        "method": "mlip",
+        "stage": "input",
+        "code": "mace",
+        "module": "`hyogo/mace/finetune.py`",
+        "status": "live",
+        "source": "the user's finished campaigns: `split_train_valid.py`, `select_replay.py`, `02_finetune` / `03_restart` / `04_train_from_scratch` job arguments, the LoRA yml; G49",
+        "notes": "a run folder: split (seeded; per config_type; held-out types; byte-identical frames), `train.sh` (`mace_run_train`, presets multihead replay / naive / LoRA / scratch, restart), `select_replay.sh` (`fine_tuning_select`, elements from the data), `e0s.json`, `manifest.json`. E0s must be stated. Arguments checked against mace-torch 0.3.14's `--help` (no LoRA there). Launch lines (GPUs, srun, env) stay the facility's (G38)",
+    },
+    "mace_parse_log": {
+        "method": "mlip",
+        "stage": "parse",
+        "code": "mace",
+        "module": "`hyogo/mace/log.py`",
+        "status": "live",
+        "source": "the user's `parse_mace.py`; G49",
+        "notes": "training log → finished, early stop or max epochs, restarts, per-head validation errors (initial, last, at the saved checkpoint), best epoch, final error table, counted ERROR lines; warns when the initial energy error points at wrong E0s. Mean training loss from `*_train.txt` not carried",
+    },
+}
+
+
 def _read_frames(paths: list[str]) -> list[dict]:
     """Every frame of the given local extxyz files, in order."""
     if isinstance(paths, str):

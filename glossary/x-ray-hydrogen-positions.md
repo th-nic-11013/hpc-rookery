@@ -1,0 +1,1 @@
+**X-ray hydrogen positions** — H atoms placed by X-ray refinement sit too close to their parent atom (C–H ~0.95 Å vs ~1.08 Å true), because X-rays see the electron density, which is pulled into the bond.

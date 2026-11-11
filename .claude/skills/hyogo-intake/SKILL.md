@@ -52,9 +52,11 @@ existing one. The name and module follow from the categories
 
 Write `notes/<tool-or-topic>.md` (local, not committed): the split table (unit, what it is, owner),
 the tool signatures with their returns, the agent flow across servers,
-the tests, and the commits (one per owning folder). Add the rows to
-INVENTORY.md as `planned`, with the plan's content summarised in the
-`notes` column (the note itself stays local). Point the user at the note and wait for a yes
+the tests, and the commits (one per owning folder). Add the tools to
+`TOOL_META` in `hyogo/mcp_tools/<code>.py` (a new code: a new module) as
+`planned`, with the plan's content summarised in `notes` (the note itself
+stays local), and run `python3 scripts/render_inventory.py`; INVENTORY.md's
+table is generated, never edited by hand. Point the user at the note and wait for a yes
 before writing code.
 
 ## 5. Build
@@ -105,16 +107,20 @@ with `tests/conformance.py --only <name>`:
 - fixtures go in `tests/fixtures/`.
 
 The server-start probe in that check compares the served tools with the
-`live` rows of INVENTORY.md, so set the new rows to `live` now.
+`live` rows of INVENTORY.md, so set the new `TOOL_META` entries to `live`
+and re-render now.
 
 ## 7. Wire it back
 
 - Change the source skill's `Contract` "Tools:" line and the steps to call
   the tool. Keep a by-hand script as the documented fallback if the skill
   had one; delete a template only when the tool fully replaces it.
-- Re-render: `scripts/render_skills.py` and `scripts/render_plugins.py`
-  (and check `git status` for the regenerated plugin skills).
-- Add new terms to `GLOSSARY.md`.
+- Re-render: `scripts/render_skills.py`, `scripts/render_plugins.py` and
+  `scripts/render_inventory.py` (and check `git status` for the regenerated
+  files).
+- Add each new term as its own file, `glossary/<term>.md` (one line,
+  `**Term** — meaning`), and run `scripts/render_glossary.py`; never edit
+  `GLOSSARY.md`.
 
 ## 8. Verify and hand over
 
