@@ -5,7 +5,24 @@ import shlex
 from abc import ABC, abstractmethod
 from datetime import datetime
 
+from hpc_agent_core.middleware import norm_path
 from hpc_agent_core.models import Job, JobSpec
+
+
+def home_relative(path: str | None) -> str | None:
+    """A spec's job path relative to $HOME, or None when it is absolute or unset.
+
+    In a JobSpec a relative path, or one starting ~/, $HOME/ or ${HOME}/,
+    means relative to the user's home on the cluster, not to
+    spec.directory (norm_path strips the prefix because submission starts
+    in $HOME). Schedulers resolve a relative stdin/stdout/stderr path
+    against the job's working directory instead, so a backend that sets
+    one from spec.directory has to re-anchor these paths (gap G71).
+    """
+    if not path:
+        return None
+    normalized = norm_path(path)
+    return None if normalized.startswith("/") else normalized
 
 
 def duration_to_hms(duration: int | str) -> str:

@@ -44,5 +44,7 @@ def home_shorthand_is_normalized_for_scheduler_paths():
     ge = GridEngineBackend("test")
     ge_script = ge.render_script(spec)
     assert "#$ -wd agent/work/run" in ge_script
-    assert "#$ -o outputs/out.log" in ge_script
-    assert "#$ -e outputs/err.log" in ge_script
+    # Grid Engine resolves these against -wd too; its $HOME pseudo
+    # variable keeps their meaning (G71).
+    assert "#$ -o $HOME/outputs/out.log" in ge_script
+    assert "#$ -e $HOME/outputs/err.log" in ge_script

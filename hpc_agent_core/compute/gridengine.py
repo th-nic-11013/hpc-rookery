@@ -39,9 +39,41 @@ from __future__ import annotations
 import re
 import shlex
 
-from hpc_agent_core.compute.base import SchedulerBackend, duration_to_hms, render_body, to_epoch
+from hpc_agent_core.compute.base import (
+    SchedulerBackend,
+    duration_to_hms,
+    home_relative,
+    render_body,
+    to_epoch,
+)
 from hpc_agent_core.middleware import norm_path, run_command, write_remote_file
 from hpc_agent_core.models import Job, JobSpec, JobState, JobStatus, map_ge_state
+
+
+def ge_job_path(path: str, directory: str | None, quote: bool = False) -> str:
+    """A spec's stdin/stdout/stderr path as a Grid Engine -i/-o/-e must spell it.
+
+    A relative path in a spec means $HOME-relative (home_relative), but qsub
+    resolves a relative -o/-e/-i path against the job's working directory,
+    which -wd sets to spec.directory, so ~/logs/x.out landed in
+    <directory>/logs/x.out (gap G71). Grid Engine expands the pseudo
+    environment variable $HOME ("home directory on execution machine",
+    alongside $USER, $JOB_ID, $JOB_NAME, $HOSTNAME and $TASK_ID) in these
+    path names when the job starts, so with a run directory such a path is
+    written as $HOME/logs/x.out. Unlike Slurm's '../..' spelling this holds
+    through a symlinked or absolute run directory and needs nothing on the
+    qsub command line, so the saved script resubmitted by hand behaves the
+    same. Without a run directory the job starts in the submit directory
+    ($HOME for submit_job, -cwd) and the path is left relative, as before;
+    absolute paths are never touched. quote shell-quotes the path part (not
+    the $HOME) for backends that quote their directives.
+    """
+    relative = home_relative(path)
+    if not directory or relative is None:
+        return shlex.quote(norm_path(path)) if quote else norm_path(path)
+    if relative == ".":
+        return "$HOME"
+    return "$HOME/" + (shlex.quote(relative) if quote else relative)
 
 
 class GridEngineBackend(SchedulerBackend):
@@ -125,8 +157,10 @@ class GridEngineBackend(SchedulerBackend):
         else:
             lines.append("#$ -cwd")
 
-        stdout = norm_path(spec.stdout_path or f"~/{self._jobs_dir}/{spec.name}.o")
-        stderr = norm_path(spec.stderr_path or f"~/{self._jobs_dir}/{spec.name}.e")
+        # qsub resolves a relative -o/-e against -wd, not $HOME (G71); the
+        # default under ~/<jobs_dir> is $HOME-relative too.
+        stdout = ge_job_path(spec.stdout_path or f"~/{self._jobs_dir}/{spec.name}.o", spec.directory)
+        stderr = ge_job_path(spec.stderr_path or f"~/{self._jobs_dir}/{spec.name}.e", spec.directory)
         lines.append(f"#$ -o {stdout}")
         lines.append(f"#$ -e {stderr}")
 

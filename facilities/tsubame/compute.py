@@ -13,6 +13,7 @@ import time
 
 from hpc_agent_core import config
 from hpc_agent_core.compute.base import SchedulerBackend, command_line
+from hpc_agent_core.compute.gridengine import ge_job_path
 from hpc_agent_core.middleware import norm_path, run_command, write_remote_file
 from hpc_agent_core.models import Job, JobSpec, JobState, JobStatus
 
@@ -219,10 +220,12 @@ class TsubameBackend(SchedulerBackend):
             lines.append(f"#$ -hold_jid {shlex.quote(custom['hold_jid'])}")
         if attrs.reservation_id:
             lines.append(f"#$ -ar {shlex.quote(attrs.reservation_id)}")
+        # Grid Engine resolves a relative -o/-e against -wd, not $HOME; see
+        # ge_job_path (G71).
         if spec.stdout_path:
-            lines.append(f"#$ -o {shlex.quote(norm_path(spec.stdout_path))}")
+            lines.append(f"#$ -o {ge_job_path(spec.stdout_path, spec.directory, quote=True)}")
         if spec.stderr_path:
-            lines.append(f"#$ -e {shlex.quote(norm_path(spec.stderr_path))}")
+            lines.append(f"#$ -e {ge_job_path(spec.stderr_path, spec.directory, quote=True)}")
         if spec.inherit_environment:
             lines.append("#$ -V")
         if custom.get("gpu_compute_mode") is not None:

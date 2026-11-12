@@ -55,7 +55,14 @@ import time
 
 from hpc_agent_core.middleware import norm_path, run_command, write_remote_file
 from hpc_agent_core.models import Job, JobSpec, JobState, JobStatus, map_slurm_state
-from .base import SchedulerBackend, duration_to_hms, parse_exit_code, render_body, to_epoch
+from .base import (
+    SchedulerBackend,
+    duration_to_hms,
+    home_relative,
+    parse_exit_code,
+    render_body,
+    to_epoch,
+)
 
 _SACCT_FIELDS = "JobID,JobName,Partition,State,Elapsed,Start,End,ExitCode,NodeList,WorkDir"
 _SQUEUE_FIELDS = "%i|%T|%R|%P|%Z|%S"  # id|state|reason|partition|workdir(cwd at submit)|start
@@ -189,9 +196,9 @@ def _from_run_directory(path: str, directory: str | None) -> str:
     passes every $HOME-relative path as "$HOME"/<path> on the sbatch
     command line, which overrides the header.
     """
-    normalized = norm_path(path)
-    if not directory or normalized.startswith("/"):
-        return normalized
+    normalized = home_relative(path)
+    if not directory or normalized is None:
+        return norm_path(path)
     run_dir = posixpath.normpath(norm_path(directory))
     if run_dir.startswith("/") or run_dir == ".." or run_dir.startswith("../"):
         return normalized
@@ -377,10 +384,10 @@ class SlurmBackend(SchedulerBackend):
             # at the login node's $HOME, so it holds where the header's
             # spelling cannot (see _from_run_directory).
             anchored = "".join(
-                f' --{flag}="$HOME"/{shlex.quote(norm_path(path))}'
+                f' --{flag}="$HOME"/{shlex.quote(home_relative(path))}'
                 for flag, path in (("input", spec.stdin_path), ("output", spec.stdout_path),
                                    ("error", spec.stderr_path))
-                if path and not norm_path(path).startswith("/")
+                if home_relative(path) is not None
             )
             command = (
                 f"cd {shlex.quote(directory)} 2>/dev/null || "
