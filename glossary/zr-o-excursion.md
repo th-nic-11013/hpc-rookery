@@ -1,0 +1,1 @@
+**Zr–O excursion** — a Zr–O bond that stretches past the cutoff (2.7 Å) for a few consecutive frames and comes back: thermal, kept as training data; one that stays long longer than `max_transient_frames` is called persistent.

@@ -1,0 +1,1 @@
+**Affine-scaled reference** — the reference structure stretched with the cell, keeping each atom's fractional coordinates, so a frame's displacement from it shows atoms moving, not the box changing size.

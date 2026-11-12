@@ -1,0 +1,1 @@
+**Shared H** — an H still nearest its own atom but also within bond distance of a second one (a very short hydrogen bond, e.g. the μ3-OH proton half-way to another O in a collapsed cell); reported, not treated as a proton transfer.
