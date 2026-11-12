@@ -18,6 +18,8 @@
 # nothing) is laid over the field's own spec, replacing its `type` or
 # `fields` (variant.exe: each code's binary flavours; benchmarks.layout: each
 # code's parallelisation keys).
+# `entries: {<name>: <spec>, ...}` makes a field a mapping from a string key
+# to a nested block of those fields (campaign.frames: frame id -> its state).
 
 schema_version: 1
 status: provisional
@@ -202,4 +204,52 @@ record_types:
       id:           {type: str, required: true, doc: "usually equal to benchmark_id"}
       benchmark_id: {type: str, required: true, doc: "benchmarks.id"}
       job_ids:      {type: "list[str]", required: true}
+      notes:        {type: str, required: false}
+
+  campaign:
+    scope: user          # a campaign's folders and job IDs are one user's
+    id_field: id
+    doc: >-
+      A snapshot of a many-frame campaign (a restartable "fleet" job working
+      through frame folders) as campaign_status rebuilt it from the folder
+      tree on the cluster: every frame's state and counters at one time. One
+      record per snapshot, not per frame: a frame's state changes every run,
+      and append-only per-frame records would need a supersedes chain per
+      frame per change. A later snapshot is a new record (no supersedes); the
+      newest taken_at of a campaign is its latest state, and comparing two
+      shows what moved. Written by campaign_status(record=true).
+    fields:
+      id:           {type: str, required: true, doc: "<campaign>-<YYYYMMDDTHHMMSS> (UTC of taken_at)"}
+      facility:     {type: str, required: true, doc: "facility slug"}
+      campaign:     {type: str, required: true, doc: "the campaign's label; by default the root folder's name"}
+      root:         {type: str, required: true, doc: "the campaign root folder on the cluster, as given (with ~ for home)"}
+      taken_at:     {type: str, required: true, doc: "when the tree was read, ISO 8601 UTC, e.g. 2026-11-12T08:30:00Z (the cluster's clock)"}
+      date:         {type: date, required: true, doc: "the date of taken_at"}
+      layout:       {type: map, required: false, doc: "the campaign_status layout keys that differ from the defaults (state folders, marker names); absent or empty: the default fleet layout"}
+      total:        {type: int, required: true, doc: "frames found"}
+      counts:       {type: "map[str,int]", required: true, doc: "frames per state: pending, running, stale, done, failed, held"}
+      by_group:
+        required: false
+        doc: "per group folder (e.g. composition): frames per state"
+        entries:
+          pending:  {type: int, required: true}
+          running:  {type: int, required: true}
+          stale:    {type: int, required: true}
+          done:     {type: int, required: true}
+          failed:   {type: int, required: true}
+          held:     {type: int, required: true}
+      frames:
+        required: true
+        doc: "every frame, keyed <group>/<frame> (e.g. Mo2CO2/f003)"
+        entries:
+          state:    {type: "enum[pending|running|stale|done|failed|held]", required: true, doc: "stale: claimed by a job that is no longer in the queue"}
+          attempts: {type: int, required: false, doc: "tries so far, from the frame's attempts file"}
+          job_id:   {type: str, required: false, doc: "the job that tried it last (lastjob file)"}
+          nscf:     {type: int, required: false, doc: "SCF steps in the last try (scf file)"}
+          nelm:     {type: int, required: false, doc: "the SCF step limit of its input"}
+          wall_s:   {type: float, required: false, doc: "last try, from file times: end file's mtime - lastjob file's mtime"}
+          flags:    {type: "list[str]", required: false, doc: "marker files present, e.g. NEEDS_POTCAR"}
+          reason:   {type: str, required: false, doc: "first line of the reason file (failed frames)"}
+          log_tail: {type: str, required: false, doc: "last non-empty line of the log of a frame that is not done"}
+      supersedes:   {type: str, required: false, doc: "only to correct a wrong snapshot; a newer snapshot needs none"}
       notes:        {type: str, required: false}

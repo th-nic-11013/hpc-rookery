@@ -16,7 +16,8 @@ def records_query(facility: str, record_type: str, filters: dict | None = None,
 
     Args:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
-        record_type: software_registry, benchmarks or benchmarks_provenance.
+        record_type: software_registry, benchmarks, benchmarks_provenance
+            or campaign.
         filters: exact matches on field values; dotted keys reach nested
             fields, e.g. {"code": "cp2k", "default": true} or
             {"system.label": "H2O-64", "nodes": 1}. A number or a version
@@ -36,7 +37,8 @@ def records_append(facility: str, record_type: str, record: dict) -> dict:
 
     Args:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
-        record_type: software_registry, benchmarks or benchmarks_provenance.
+        record_type: software_registry, benchmarks, benchmarks_provenance
+            or campaign.
         record: the record as a mapping, with every required field.
     """
     return records.append(facility, record_type, record)

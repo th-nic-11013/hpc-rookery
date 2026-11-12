@@ -116,6 +116,8 @@ def _type_errors(t: str, v, where: str) -> list[str]:
           "date": lambda: isinstance(v, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", v)}
     if t in ok:
         return [] if ok[t]() else [f"{where}: {v!r} is not {t}"]
+    if t == "map":
+        return [] if isinstance(v, dict) else [f"{where}: not a mapping"]
     if t.startswith("enum["):
         return [] if v in t[5:-1].split("|") else [f"{where}: {v!r} not in {t}"]
     if t.startswith("list["):
@@ -149,6 +151,14 @@ def _field_errors(spec: dict, rec: dict, where: str, code=None) -> list[str]:
         elif "fields" in f:
             errs += (_field_errors(f["fields"], v, at, code) if isinstance(v, dict)
                      else [f"{at}: not a mapping"])
+        elif "entries" in f:
+            if not isinstance(v, dict):
+                errs.append(f"{at}: not a mapping")
+                continue
+            for key, x in v.items():
+                errs += _type_errors("str", key, f"{at} key")
+                errs += (_field_errors(f["entries"], x, f"{at}[{key}]", code) if isinstance(x, dict)
+                         else [f"{at}[{key}]: not a mapping"])
         else:
             errs += _type_errors(f["type"], v, at)
     return errs
