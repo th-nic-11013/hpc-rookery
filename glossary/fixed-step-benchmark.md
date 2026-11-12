@@ -1,0 +1,1 @@
+**Fixed-step benchmark (VASP)** — a layout timing in which every run does exactly N SCF steps (NELMIN = NELM = N) with NBANDS pinned, so only the parallel split differs; its `wall_s` record is for those N steps (`extra.scf_steps`), not for a converged single point.

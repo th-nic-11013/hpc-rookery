@@ -26,9 +26,9 @@ from hpc_agent_core.client import connect_sync, pinned_params
 CACHE_DIR = "./.hpc_cache/<short-name-for-this-notebook>"
 hpc = connect_sync(
     pinned_params(
-        "https://github.com/william-dawson/hpc-rookery.git",
+        "{{REPO_GIT_URL}}",
         "hpc-mcp",
-        ref="main",
+        ref="{{INSTALL_REF}}",
     ),
     mode="lazy",
     cache_dir=CACHE_DIR,

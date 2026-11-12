@@ -2,6 +2,7 @@
   "code": "common",
   "skill_prefix": "",
   "stages": [
+    "campaign",
     "records",
     "structure-making"
   ],

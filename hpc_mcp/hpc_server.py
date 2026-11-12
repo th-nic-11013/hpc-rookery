@@ -39,6 +39,13 @@ from facilities.registry import get_backend
 
 mcp = MCPServer("hpc-mcp")
 
+#: Seconds an fs_* tool whose run time grows with the data (tar, cp, mv
+#: across filesystems, rm -r, sha256sum) lets its command run, instead of the
+#: transport's ~30 s default: packing a few thousand small files on a
+#: parallel filesystem takes minutes (G44). A command that outlives even
+#: this gets run_command's "may still be running" message, not a failure.
+LONG_FS_TIMEOUT_S = 600
+
 _TAR_FLAGS = {
     CompressionType.NONE: "cf",
     CompressionType.GZIP: "czf",
@@ -441,6 +448,7 @@ def fs_rm(facility: str, path: str, recursive: bool = False) -> str:
     return run_command(
         facility,
         f"rm {flag}-- {quoted} && echo removed: {quoted}",
+        timeout=LONG_FS_TIMEOUT_S,
     )
 
 
@@ -448,7 +456,7 @@ def fs_rm(facility: str, path: str, recursive: bool = False) -> str:
 @_configured_facility_tool
 def fs_checksum(facility: str, path: str) -> str:
     """SHA-256 checksum of a remote file. (IRI: GET /api/v1/filesystem/checksum/{resource_id})"""
-    return run_command(facility, f"sha256sum {quote_path(path)}")
+    return run_command(facility, f"sha256sum {quote_path(path)}", timeout=LONG_FS_TIMEOUT_S)
 
 
 @mcp.tool()
@@ -457,14 +465,16 @@ def fs_cp(facility: str, source: str, dest: str, recursive: bool = False) -> str
     """Copy a file or (with recursive=True) a directory tree on the
     cluster. (IRI: POST /api/v1/filesystem/cp/{resource_id})"""
     flag = "-r " if recursive else ""
-    return run_command(facility, f"cp {flag}{quote_path(source)} {quote_path(dest)}")
+    return run_command(facility, f"cp {flag}{quote_path(source)} {quote_path(dest)}",
+                       timeout=LONG_FS_TIMEOUT_S)
 
 
 @mcp.tool()
 @_configured_facility_tool
 def fs_mv(facility: str, source: str, dest: str) -> str:
     """Move or rename a file/directory on the cluster. (IRI: POST /api/v1/filesystem/mv/{resource_id})"""
-    return run_command(facility, f"mv {quote_path(source)} {quote_path(dest)}")
+    return run_command(facility, f"mv {quote_path(source)} {quote_path(dest)}",
+                       timeout=LONG_FS_TIMEOUT_S)
 
 
 @mcp.tool()
@@ -500,19 +510,37 @@ def fs_compress(facility: str, paths: list[str], archive_path: str,
     """Create a tar archive from one or more remote paths.
     (IRI: POST /api/v1/filesystem/compress/{resource_id})
 
-    match_pattern: a regex passed to `find -regex` to archive only the
-        matching files beneath `paths`, instead of everything.
+    match_pattern: archive only the files beneath `paths` that match this
+        POSIX extended regex (GNU `find -regextype posix-extended -regex`).
+        It must match the WHOLE path as find prints it, which starts with
+        the path given, so begin it with `.*/`: `.*/(INCAR|POSCAR)` takes
+        every INCAR and POSCAR; a bare `INCAR` matches nothing. If nothing
+        matches, the call fails and no archive is written.
     dereference: follow symlinks (tar -h) rather than storing the links.
     """
     deref = "h" if dereference else ""
     flag = f"-{deref}{_TAR_FLAGS[compression]}"
     quoted_paths = " ".join(quote_path(p) for p in paths)
     if match_pattern:
-        cmd = (f"find {quoted_paths} -regex {shlex.quote(match_pattern)} -print0 | "
-               f"tar {flag} {quote_path(archive_path)} --null -T -")
+        # find's default regex syntax is emacs, where `(a|b)` is literal text,
+        # and tar given an empty list writes an empty archive without a word
+        # (G43). So name the syntax, and refuse an empty match before tar
+        # runs; -print -quit stops at the first match. A find without
+        # -regextype (not GNU) fails here too, loudly, with its own error.
+        find = (f"find {quoted_paths} -regextype posix-extended "
+                f"-regex {shlex.quote(match_pattern)}")
+        nothing = (f"fs_compress: no file under {' '.join(paths)} matches match_pattern "
+                   f"{match_pattern!r}, so no archive was written. It is a POSIX extended "
+                   "regex matched against the whole path, which starts with the path "
+                   "given: begin it with '.*/', e.g. '.*/(INCAR|POSCAR)'.")
+        cmd = (f'm=$({find} -print -quit); rc=$?; if [ -z "$m" ]; then '
+               f'[ "$rc" -ne 0 ] && echo "fs_compress: find failed (exit $rc); '
+               f'match_pattern needs GNU find (-regextype posix-extended)" >&2; '
+               f"echo {shlex.quote(nothing)} >&2; exit 3; fi; "
+               f"{find} -print0 | tar {flag} {quote_path(archive_path)} --null -T -")
     else:
         cmd = f"tar {flag} {quote_path(archive_path)} {quoted_paths}"
-    return run_command(facility, cmd)
+    return run_command(facility, cmd, timeout=LONG_FS_TIMEOUT_S)
 
 
 @mcp.tool()
@@ -523,6 +551,7 @@ def fs_extract(facility: str, archive_path: str, dest_dir: str = ".") -> str:
     return run_command(
         facility,
         f"mkdir -p {quote_path(dest_dir)} && tar -xf {quote_path(archive_path)} -C {quote_path(dest_dir)}",
+        timeout=LONG_FS_TIMEOUT_S,
     )
 
 

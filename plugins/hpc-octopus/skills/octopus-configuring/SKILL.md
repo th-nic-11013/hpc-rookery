@@ -81,14 +81,14 @@ endpoint when a key is available and otherwise fall back to BM25.
    key. Never commit it or echo the key back in conversation.
 4. **Validate**:
    ```bash
-   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-rookery.git@main hpc-doctor octopus
+   uv tool run --quiet --from git+https://github.com/th-nic-11013/hpc-rookery.git@hokusai-probed-facts hpc-doctor octopus
    ```
    (From a checkout of this repo: `.venv/bin/python -m hpc_mcp.doctor
    octopus` also works.)
 5. **If the embedding endpoint was added or changed**, rebuild this
    facility's docs index:
    ```bash
-   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-rookery.git@main python -m hpc_mcp.ingest octopus
+   uv tool run --quiet --from git+https://github.com/th-nic-11013/hpc-rookery.git@hokusai-probed-facts python -m hpc_mcp.ingest octopus
    ```
    Then run the doctor again — it should report "chunks with embeddings".
 

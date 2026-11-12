@@ -1,5 +1,4 @@
-from hpc_agent_core import config
-from checks._common import ROOT
+from checks._common import ROOT, public_facilities
 
 LABEL = 'facility data ships in a wheel'
 
@@ -23,7 +22,7 @@ def facility_data_is_declared_as_package_data():
     with open(root / "pyproject.toml", "rb") as fh:
         globs = tomllib.load(fh)["tool"]["setuptools"]["package-data"]["*"]
 
-    for fac in config.list_facilities():
+    for fac in public_facilities():  # an extra-path facility ships in no wheel
         wanted = [fac.data_dir / fac.docs_filename,
                   fac.data_dir / fac.facts_filename,
                   fac.data_dir / "docs_index" / "chunks.json"]

@@ -4,7 +4,10 @@ The shared ``hpc`` plugin owns the two MCP servers and only universal skills.
 Each facility instead has a small ``hpc-<slug>`` plugin containing its own
 generated workflow skills.  This keeps a user from loading guidance for
 machines they do not use while keeping all plugin metadata derived from the
-same ``facilities/*/facility.json`` source as the skill generator.
+same ``facilities/*/facility.json`` source as the skill generator. Only
+facilities/ in this checkout is read: a facility from a
+HPC_ROOKERY_FACILITY_PATH folder (private, PORTING.md §4a) gets no plugin
+and no marketplace entry; render_skills.py --out renders its skills.
 
     python scripts/render_plugins.py
     python scripts/render_plugins.py --check
@@ -22,6 +25,15 @@ import json
 import subprocess
 from pathlib import Path
 
+
+#: Where this code is cloned and installed from: the repository every
+#: manifest names and the git ref every install source pins (.mcp.json,
+#: mcp.json, the configuring and reproducing skills, pyproject.toml's
+#: Repository). This fork installs from itself; upstream is
+#: ("https://github.com/william-dawson/hpc-rookery", "main").
+REPO_URL, INSTALL_REF = "https://github.com/th-nic-11013/hpc-rookery", "hokusai-probed-facts"
+REPO_GIT_URL = f"{REPO_URL}.git"
+INSTALL_SOURCE = f"git+{REPO_GIT_URL}@{INSTALL_REF}"
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGINS = ROOT / "plugins"
@@ -103,7 +115,7 @@ def skill_plugin(facility: dict, version: str) -> dict:
             "Install the hpc base plugin first for MCP tools."
         ),
         "author": OWNER,
-        "repository": "https://github.com/william-dawson/hpc-rookery",
+        "repository": REPO_URL,
         "keywords": ["hpc", slug, facility["scheduler"]],
         "skills": "./skills/",
         "interface": {
@@ -131,7 +143,7 @@ def base_plugin(version: str) -> dict:
         "version": version,
         "description": "Shared HPC MCP servers and facility discovery. Install only the facility skill packs you use.",
         "author": OWNER,
-        "repository": "https://github.com/william-dawson/hpc-rookery",
+        "repository": REPO_URL,
         "keywords": ["hpc", "slurm", "supercomputer", "multi-facility"],
         "skills": "./skills/",
         "mcpServers": "./.mcp.json",
@@ -208,8 +220,7 @@ def claude_marketplace(manifests: list[dict]) -> dict:
 
 def portable_mcp() -> dict:
     args_prefix = [
-        "tool", "run", "--quiet", "--from",
-        "git+https://github.com/william-dawson/hpc-rookery.git@main",
+        "tool", "run", "--quiet", "--from", INSTALL_SOURCE,
     ]
     return {
         "$schema": OPEN_PLUGIN_MCP_SCHEMA,
@@ -224,6 +235,16 @@ def portable_mcp() -> dict:
                       "args": [*args_prefix[:-1], f"hpc-rookery[gromacs] @ {args_prefix[-1]}", "hyogo-mcp"]},
         },
     }
+
+
+def harness_mcp() -> dict:
+    """The .mcp.json Claude Code and Codex load: mcp.json's servers without
+    the OpenPlugin schema and type keys, so the two cannot pin different
+    sources."""
+    return {"mcpServers": {
+        name: {"command": server["command"], "args": server["args"], "env": server["env"]}
+        for name, server in portable_mcp()["mcpServers"].items()
+    }}
 
 
 def write_or_check(path: Path, payload: dict, check: bool, stale: list[Path]) -> None:
@@ -265,6 +286,7 @@ def main() -> int:
                    claude_manifest(base), args.check, stale)
     write_or_check(PLUGINS / "hpc" / "plugin.json", portable_manifest(base), args.check, stale)
     write_or_check(PLUGINS / "hpc" / "mcp.json", portable_mcp(), args.check, stale)
+    write_or_check(PLUGINS / "hpc" / ".mcp.json", harness_mcp(), args.check, stale)
     for facility in facs:
         plugin_dir = PLUGINS / f"hpc-{facility['slug']}"
         manifest = skill_plugin(facility, manifest_version(

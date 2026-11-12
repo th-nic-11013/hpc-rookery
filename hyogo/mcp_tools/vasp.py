@@ -18,8 +18,8 @@ TOOL_META = {
         "code": "vasp",
         "module": "`hyogo/vasp/incar.py`",
         "status": "live",
-        "source": "MXene+water labelling campaign `make_magmom_test2.py` (G32)",
-        "notes": "edits a base INCAR in place (layout and comments kept, so a comment can go stale): MAGMOM per element in POSCAR order plus per-site overrides, NUPDOWN, NCORE/KPAR, NBANDS pinned (or read from a reference OUTCAR) and refused when it isn't a multiple of the band groups, constrain-then-release `INCAR.pre`; refuses MAGMOM/NUPDOWN with ISPIN 1 and a MAGMOM that doesn't count every atom; matched the script's settings on all 23 MAGMOM test 2 runs",
+        "source": "MXene+water labelling campaign `make_magmom_test2.py` (G32); DFT+U from its `make_u_pilot.py` (G42)",
+        "notes": "edits a base INCAR in place (layout and comments kept, so a comment can go stale): MAGMOM per element in POSCAR order plus per-site overrides, NUPDOWN, NCORE/KPAR, NBANDS pinned (or read from a reference OUTCAR) and refused when it isn't a multiple of the band groups, constrain-then-release `INCAR.pre`; refuses MAGMOM/NUPDOWN with ISPIN 1 and a MAGMOM that doesn't count every atom; matched the script's settings on all 23 MAGMOM test 2 runs; DFT+U (G42): ldau preset \"mp\" or {element: U}, LDAUL/LDAUU/LDAUJ per POSCAR species block, LMAXMIX from the highest l, LDAU lists in the base checked, POTCAR TITEL order checked with potcar_path",
     },
     "vasp_check_incar": {
         "method": "any",
@@ -37,7 +37,7 @@ TOOL_META = {
         "module": "`hyogo/vasp/output.py`",
         "status": "live",
         "source": "campaign `outcar_to_extxyz.py`, `audit_completed.py`, `compare_magmom_test.py` (G32)",
-        "notes": "OUTCAR (.gz ok) + OSZICAR + POSCAR beside it: finished, SCF per ionic step with VASP's EDIFF-reached line (NELM hits exit 0), converged = every SCF converged + TOTEN + full force block, energies, E_F, total and per-site moments (LORBIT >= 10) with flipped-site counts, forces, stress, layout (ranks, KPAR, NCORE, band groups, NBANDS), timing, VASP's message boxes; NUL holes stripped, POSCAR fills a lost header; agreed with the campaign converter on 1524/1525 real OUTCARs. Physics diagnostics (where a moment sits) stay yagura's (G37); comparing two results (G38) is not here",
+        "notes": "OUTCAR (.gz ok) + OSZICAR + POSCAR beside it: finished, SCF per ionic step with VASP's EDIFF-reached line (NELM hits exit 0), converged = every SCF converged + TOTEN + full force block, energies, E_F, total and per-site moments (LORBIT >= 10) with flipped-site counts, forces, stress, layout (ranks, KPAR, NCORE, band groups, NBANDS), timing, VASP's message boxes; NUL holes stripped, POSCAR fills a lost header; agreed with the campaign converter on 1524/1525 real OUTCARs. sites_out (G37): the final frame as extxyz with per-site moments and charges per channel, forces and cell, for yagura's sites_by_environment and labels_compare",
     },
 }
 
@@ -57,9 +57,10 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
                     parallel: dict | None = None, nbands: int | None = None,
                     nbands_from: str | None = None, pre: dict | None = None,
                     out_path: str | None = None, overwrite: bool = False,
-                    vasp_version: str | None = None) -> dict:
+                    vasp_version: str | None = None, ldau: dict | str | None = None,
+                    ldautype: int = 2, potcar_path: str | None = None) -> dict:
     """Write a VASP INCAR by editing a base INCAR (or from scratch), with
-    the checks that matter for spin and parallel settings. The base file's
+    the checks that matter for spin, DFT+U and parallel settings. The base file's
     layout and comments are kept; changed keys are replaced in place.
     Local only; fs_upload the result into the run folder.
 
@@ -75,6 +76,11 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
       groups (ranks / (KPAR x NCORE)). With parallel.ranks given, a
       pinned NBANDS that doesn't divide is refused, and an unpinned one
       gets a warning.
+    - DFT+U (ldau): LDAUL, LDAUU and LDAUJ get one value per POSCAR
+      species block, in POSCAR order, and LMAXMIX covers the highest l
+      with a U (4 for d, 6 for f). LDAU lists already in the base INCAR
+      are checked the same way. With potcar_path, the POTCAR's TITEL
+      order must be the POSCAR's (MAGMOM and LDAU follow the POSCAR).
     - NUPDOWN in a result fixes its total moment: right for a half-metal
       or a non-magnetic system, a bias for a metallic magnet. For those,
       pass pre to constrain, then release.
@@ -89,7 +95,9 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
 
     Returns {"out", "pre_out" (INCAR.pre path or null), "natoms",
     "species": [[element, count]], "magmom" (the value written),
-    "total_magmom", "nbands", "band_groups", "changed": {KEY: [old, new]},
+    "total_magmom", "nbands", "band_groups", "ldau" (the LDAU tags and
+    LMAXMIX written, or null), "potcar" (the POTCAR labels, e.g. "Cr_pv",
+    or null), "changed": {KEY: [old, new]},
     "pre": {"changed": ...} or null, "incar_check" (vasp_check_incar's
     result for each file written), "warnings"}. Read the warnings to the
     user.
@@ -115,6 +123,15 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
         overwrite: replace out_path (and INCAR.pre) if they exist.
         vasp_version: the VASP that will run it (e.g. "6.4.3"), so tags it
             does not have yet are flagged.
+        ldau: DFT+U. "mp" for the Materials Project's U values (Co 3.32,
+            Cr 3.7, Fe 5.3, Mn 3.9, Mo 4.38, Ni 6.2, V 3.25, W 6.2 eV on d;
+            the set MPtrj and OMat24 use, applied by MP only with O or F
+            present), or {element: U in eV} (on d), or {element: {"u": U,
+            "j": J, "l": 3}} for f. Other species get none. LDAU tags and
+            LMAXMIX then can't also be in settings.
+        ldautype: LDAUTYPE, default 2 (Dudarev: only U - J counts).
+        potcar_path: the run's POTCAR on this machine, to check its species
+            order against the POSCAR (only its TITEL lines are read).
     """
     psrc, praw = _read_local(poscar_path, "POSCAR")
     base = ""
@@ -131,8 +148,13 @@ def vasp_make_incar(poscar_path: str, base_incar: str | None = None,
     for f in (dst, pre_dst) if pre is not None else (dst,):
         if f.exists() and not overwrite:
             raise ValueError(f"{f} exists; pass overwrite=true to replace it")
+    potcar = None
+    if potcar_path:
+        _, potraw = _read_local(potcar_path, "POTCAR")
+        potcar = potraw.decode("latin-1")
     text, pre_text, info = vasp_incar.make_incar(base, praw.decode("latin-1"), settings, magmom,
-                                                 magmom_sites, nupdown, parallel, nbands, pre)
+                                                 magmom_sites, nupdown, parallel, nbands, pre,
+                                                 ldau, ldautype, potcar)
     dst.write_text(text)
     if pre_text is not None:
         pre_dst.write_text(pre_text)
@@ -177,7 +199,8 @@ def vasp_check_incar(incar_path: str, vasp_version: str | None = None) -> dict:
 
 @mcp.tool()
 def vasp_parse_output(outcar_path: str, oszicar_path: str | None = None,
-                      poscar_path: str | None = None, arrays: bool = False) -> dict:
+                      poscar_path: str | None = None, arrays: bool = False,
+                      sites_out: str | None = None, overwrite: bool = False) -> dict:
     """Read a VASP OUTCAR on this machine (plain or .gz): did the run
     finish and converge, what did it print, what layout did it run with
     and what did it cost. Writes nothing. Use it instead of grepping.
@@ -209,6 +232,16 @@ def vasp_parse_output(outcar_path: str, oszicar_path: str | None = None,
     max_memory_mb}, "oszicar": {steps, F, E0, mag}, "messages" (VASP's
     warning, advice and error boxes), "warnings"}. With arrays: also
     "positions", "forces.vectors" and "magnetization.site_moments".
+    With sites_out: "sites": {"out", "natoms", "columns"}.
+
+    sites_out (G37) writes the final frame as a one-frame extxyz: species,
+    positions, REF_forces, the per-site moments (REF_magmoms = VASP's
+    "tot", magmoms_s/p/d) and charges (charges = "tot", charges_s/p/d)
+    from the last "magnetization (x)" and "total charge" blocks, with the
+    cell, REF_energy (TOTEN), e_fermi, magnetization and converged on the
+    comment line. yagura's sites_by_environment summarises those columns
+    by environment (water O, slab O, metal); labels_compare compares two
+    such files. Needs LORBIT >= 10.
 
     "opposed" counts sites of an element whose moment (>= 0.5 uB) points
     against that element's net moment: a flipped site.
@@ -222,12 +255,48 @@ def vasp_parse_output(outcar_path: str, oszicar_path: str | None = None,
         oszicar_path: default the OSZICAR (or .gz) beside the OUTCAR, if any.
         poscar_path: default the POSCAR beside the OUTCAR, if any.
         arrays: include per-atom positions, forces and moments.
+        sites_out: write the per-site extxyz here (e.g. "sites.extxyz").
+        overwrite: replace sites_out if it exists.
     """
     src, raw = _read_local(outcar_path, "OUTCAR")
     osz = Path(oszicar_path).expanduser() if oszicar_path else _beside(src, "OSZICAR")
     pos = Path(poscar_path).expanduser() if poscar_path else _beside(src, "POSCAR")
     osz_text = _read_local(str(osz), "OSZICAR")[1].decode("latin-1") if osz else None
     pos_text = _read_local(str(pos), "POSCAR")[1].decode("latin-1") if pos else None
-    r = vasp_output.parse(raw, osz_text, pos_text, arrays)
+    sites_dst = Path(sites_out).expanduser() if sites_out else None
+    if sites_dst is not None:
+        if sites_dst.exists() and not overwrite:
+            raise ValueError(f"{sites_dst} exists; pass overwrite=true to replace it")
+        if sites_dst.resolve() == src.resolve():
+            raise ValueError("sites_out would overwrite the OUTCAR")
+    r = vasp_output.parse(raw, osz_text, pos_text, arrays or sites_dst is not None)
+    if sites_dst is not None:
+        blocks = vasp_output.site_blocks(raw)
+        if "magmoms" not in blocks and "charges" not in blocks:
+            raise ValueError("the OUTCAR has no per-site moments or charges: they need "
+                             "LORBIT >= 10 in the run's INCAR")
+        if not blocks["cell"] or not r.get("positions"):
+            raise ValueError("the OUTCAR has no lattice vectors or no final positions "
+                             "(a cut or unfinished run)")
+        elements = [el for el, n in (r.get("species") or []) for _ in range(n)]
+        if len(elements) != len(r["positions"]):
+            raise ValueError(f"{len(elements)} atoms in the species counts, "
+                             f"{len(r['positions'])} positions")
+        mags = r.get("magnetization") or {}
+        info = {"REF_energy": (r.get("energy") or {}).get("toten"), "e_fermi": r.get("e_fermi"),
+                "magnetization": mags.get("total"), "converged": "T" if r.get("converged") else "F",
+                "source": f'"{src.name}"'}
+        sites_dst.write_text(vasp_output.sites_extxyz(
+            elements, r["positions"], blocks["cell"], (r.get("forces") or {}).get("vectors"),
+            blocks, info))
+        head = sites_dst.read_text().split("\n", 2)[1]
+        r["sites"] = {"out": str(sites_dst), "natoms": len(elements),
+                      "columns": head.split("Properties=")[1].split()[0].split(":")[::3]}
+        if not arrays:
+            r.pop("positions", None)
+            if r.get("forces"):
+                r["forces"].pop("vectors", None)
+            if r.get("magnetization"):
+                r["magnetization"].pop("site_moments", None)
     return {"path": str(src), "oszicar_path": str(osz) if osz else None,
             "poscar_path": str(pos) if pos else None, **r}

@@ -11,7 +11,7 @@ import shlex
 import time
 from datetime import datetime
 
-from hpc_agent_core.compute.base import SchedulerBackend, parse_exit_code
+from hpc_agent_core.compute.base import SchedulerBackend, command_line, parse_exit_code
 from hpc_agent_core.middleware import norm_path, run_command, write_remote_file
 from hpc_agent_core.models import Job, JobSpec, JobState, JobStatus
 
@@ -364,7 +364,7 @@ class BridgeBackend(SchedulerBackend):
                 launcher = "ccc_mprun"
             if launcher:
                 command = launcher + " " + command
-        lines.append(command)
+        lines.append(command_line(spec, command))
         if spec.post_launch:
             lines.append(spec.post_launch)
         lines.append("")

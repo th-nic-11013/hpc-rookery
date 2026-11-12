@@ -12,16 +12,31 @@ What it checks is what cost runs before:
     band count. A pinned NBANDS that does not divide is refused;
   * NUPDOWN fixes the total moment of the result; a constrained pre-run
     (INCAR.pre) followed by a free run from its WAVECAR does not.
+  * DFT+U (G42): LDAUL, LDAUU and LDAUJ need one value per POSCAR species
+    block, in that order, which is also the POTCAR's; LMAXMIX must cover
+    the highest l that gets a U (4 for d, 6 for f).
 """
 from __future__ import annotations
 
 import re
 
 # a key added to an INCAR that doesn't have it goes after this key's line
-AFTER = {"NUPDOWN": "MAGMOM", "ISTART": "MAGMOM", "NBANDS": "NCORE", "KPAR": "NCORE"}
+AFTER = {"NUPDOWN": "MAGMOM", "ISTART": "MAGMOM", "NBANDS": "NCORE", "KPAR": "NCORE",
+         "LDAUTYPE": "LDAU", "LDAUL": "LDAUTYPE", "LDAUU": "LDAUL", "LDAUJ": "LDAUU",
+         "LMAXMIX": "LDAUJ"}
 SPIN_KEYS = ("MAGMOM", "NUPDOWN")
 PRE_DEFAULTS = {"ediff": "1E-4", "nelm": 120}
 KEY = re.compile(r"^[A-Z][A-Z0-9_]*$")
+LDAU_KEYS = ("LDAU", "LDAUTYPE", "LDAUL", "LDAUU", "LDAUJ")
+LDAU_LISTS = ("LDAUL", "LDAUU", "LDAUJ")
+#: named U sets, eV, U on the d shell, Dudarev (LDAUTYPE 2). "mp": the
+#: Materials Project's PBE+U (pymatgen MPRelaxSet), which MP applies only to
+#: structures with O or F; the +U foundation models' training data (MPtrj,
+#: OMat24) use it. The MXene campaign's U pilot used its Cr, Mo, V and W values.
+U_PRESETS = {
+    "mp": {"Co": 3.32, "Cr": 3.7, "Fe": 5.3, "Mn": 3.9, "Mo": 4.38, "Ni": 6.2,
+           "V": 3.25, "W": 6.2},
+}
 
 
 def fmt(value) -> str:
@@ -125,6 +140,63 @@ def magmom_list(species: list[tuple[str, int]], per_element: dict | None,
     return moms
 
 
+def potcar_elements(text: str) -> list[tuple[str, str]]:
+    """(element, POTCAR label) per TITEL line, in order, e.g. ("Cr", "Cr_pv")."""
+    return [(m.group(1).split("_")[0], m.group(1))
+            for m in re.finditer(r"TITEL\s*=\s*\S+\s+(\S+)", text)]
+
+
+def ldau_tags(species: list[tuple[str, int]], ldau: dict | str,
+              ldautype: int = 2) -> tuple[dict, int, list[str]]:
+    """The LDAU tags for a POSCAR's species blocks, the LMAXMIX they need,
+    and warnings. ldau is a preset name or {element: U} or
+    {element: {"u": U, "j": J, "l": l}} (l 2 = d, the default; 3 = f)."""
+    preset = None
+    if isinstance(ldau, str):
+        if ldau not in U_PRESETS:
+            raise ValueError(f"no U preset {ldau!r}; there is {sorted(U_PRESETS)}, "
+                             "or pass {element: U}")
+        preset, ldau = ldau, U_PRESETS[ldau]
+    if not isinstance(ldau, dict) or not ldau:
+        raise ValueError("ldau is a preset name or {element: U in eV}")
+    if ldautype not in (1, 2, 4):
+        raise ValueError(f"LDAUTYPE {ldautype}: VASP has 1 (Liechtenstein), 2 (Dudarev) "
+                         "and 4 (Liechtenstein without exchange)")
+    per = {}
+    for el, v in ldau.items():
+        if isinstance(v, dict):
+            bad = set(v) - {"u", "j", "l"}
+            if bad or "u" not in v:
+                raise ValueError(f"ldau[{el!r}] takes u (required), j and l, not {sorted(bad)}")
+            u, j, lq = float(v["u"]), float(v.get("j", 0)), int(v.get("l", 2))
+        else:
+            u, j, lq = float(v), 0.0, 2
+        if lq not in (1, 2, 3):
+            raise ValueError(f"ldau[{el!r}] l {lq}: the U goes on p (1), d (2) or f (3)")
+        per[el] = (lq, u, j)
+    elements = [el for el, _ in species]
+    if preset is None and set(per) - set(elements):
+        raise ValueError(f"ldau names {sorted(set(per) - set(elements))}, which the POSCAR "
+                         f"doesn't have (species {elements})")
+    used = [per[el] for el in elements if el in per]
+    if not used:
+        raise ValueError(f"no species of this POSCAR ({elements}) has a U in preset {preset!r}; "
+                         "leave ldau out for a plain run")
+    warnings = []
+    if preset == "mp" and not {"O", "F"} & set(elements):
+        warnings.append("the Materials Project applies its U values only to structures with O "
+                        f"or F; this one ({elements}) has neither, so MP data for it is plain PBE")
+    if ldautype == 2 and any(j for _, _, j in used):
+        warnings.append("LDAUTYPE 2 (Dudarev) uses only U - J: the J values act as a smaller U")
+    tags = {
+        "LDAU": ".TRUE.", "LDAUTYPE": str(ldautype),
+        "LDAUL": " ".join(str(per[el][0]) if el in per else "-1" for el in elements),
+        "LDAUU": " ".join(f"{per[el][1]:g}" if el in per else "0" for el in elements),
+        "LDAUJ": " ".join(f"{per[el][2]:g}" if el in per else "0" for el in elements),
+    }
+    return tags, 2 * max(lq for lq, _, _ in used), warnings
+
+
 def nbands_from_outcar(text: str) -> int:
     """NBANDS a finished or running OUTCAR used (NUL bytes already stripped)."""
     m = re.search(r"NBANDS=\s*(\d+)", text)
@@ -136,9 +208,21 @@ def nbands_from_outcar(text: str) -> int:
 def make_incar(base: str, poscar: str, settings: dict | None = None,
                magmom: dict | None = None, magmom_sites: dict | None = None,
                nupdown: float | None = None, parallel: dict | None = None,
-               nbands: int | None = None, pre: dict | None = None) -> tuple[str, str | None, dict]:
+               nbands: int | None = None, pre: dict | None = None,
+               ldau: dict | str | None = None, ldautype: int = 2,
+               potcar: str | None = None) -> tuple[str, str | None, dict]:
     """Return (INCAR text, INCAR.pre text or None, info)."""
     species = read_poscar_species(poscar)
+    potcar_labels = None
+    if potcar is not None:
+        found = potcar_elements(potcar)
+        if not found:
+            raise ValueError("no TITEL line in the POTCAR")
+        if [el for el, _ in found] != [el for el, _ in species]:
+            raise ValueError(f"POTCAR order {[el for el, _ in found]} != POSCAR species "
+                             f"{[el for el, _ in species]}: MAGMOM and the LDAU lists follow the "
+                             "POSCAR, and VASP pairs each species block with its POTCAR")
+        potcar_labels = [label for _, label in found]
     natoms = sum(n for _, n in species)
     old = parse(base)
     text = base if base.endswith("\n") or not base else base + "\n"
@@ -151,12 +235,26 @@ def make_incar(base: str, poscar: str, settings: dict | None = None,
         if k2 in ("MAGMOM", "NUPDOWN", "NBANDS", "NCORE", "KPAR") and v is not None:
             raise ValueError(f"set {k2} with its own argument (magmom, nupdown, parallel, "
                              "nbands), which checks it")
+        if ldau is not None and k2 in (*LDAU_KEYS, "LMAXMIX"):
+            raise ValueError(f"{k2} comes from ldau; don't also set it in settings")
         text = setkey(text, k2, None if v is None else fmt(v))
 
     if magmom is not None or magmom_sites:
         text = setkey(text, "MAGMOM", compress_magmom(magmom_list(species, magmom, magmom_sites)))
     if nupdown is not None:
         text = setkey(text, "NUPDOWN", fmt(nupdown))
+
+    ldau_info = None
+    if ldau is not None:
+        tags, lmaxmix, ldau_warnings = ldau_tags(species, ldau, ldautype)
+        warnings += ldau_warnings
+        for k, v in tags.items():
+            text = setkey(text, k, v)
+        have = parse(text).get("LMAXMIX")
+        if have is None or int(have) < lmaxmix:
+            text = setkey(text, "LMAXMIX", str(lmaxmix))
+        ldau_info = {**tags, "LMAXMIX": parse(text)["LMAXMIX"],
+                     "preset": ldau if isinstance(ldau, str) else None}
 
     # parallel layout and NBANDS
     groups = None
@@ -230,6 +328,20 @@ def make_incar(base: str, poscar: str, settings: dict | None = None,
         if len(moms) != natoms:
             raise ValueError(f"MAGMOM has {len(moms)} values, the POSCAR {natoms} atoms "
                              "(it must follow the POSCAR species order)")
+    # LDAU lists, from ldau or already in the base INCAR / settings
+    nspecies = len(species)
+    for k in LDAU_LISTS:
+        if k in final and len(final[k].split()) != nspecies:
+            raise ValueError(f"{k} = {final[k]} has {len(final[k].split())} values, the POSCAR "
+                             f"{nspecies} species blocks; it must have one per block, in POSCAR "
+                             "order (ldau writes it)")
+    if final.get("LDAU", "").upper().strip(".") in ("TRUE", "T") and "LDAUL" in final:
+        lmax = max(int(x) for x in final["LDAUL"].split())
+        need = 2 * lmax
+        if lmax >= 2 and int(final.get("LMAXMIX", "2") or 2) < need:
+            warnings.append(f"LMAXMIX {final.get('LMAXMIX', '2 (default)')} with a U on l = {lmax}: "
+                            f"VASP needs LMAXMIX {need} so the mixer and CHGCAR keep the on-site "
+                            "density; set it (ldau does)")
     if "NUPDOWN" in final and pre is None and float(final["NUPDOWN"]) != -1:
         warnings.append(f"NUPDOWN {final['NUPDOWN']} fixes the total moment of this result. "
                         "Right for a half-metal (integer moment) or a non-magnetic system; "
@@ -252,7 +364,8 @@ def make_incar(base: str, poscar: str, settings: dict | None = None,
             "magmom": final.get("MAGMOM"),
             "total_magmom": round(sum(moms), 6) if moms is not None else None,
             "nbands": int(final["NBANDS"]) if "NBANDS" in final else None,
-            "band_groups": groups, "changed": changed,
+            "band_groups": groups, "ldau": ldau_info, "potcar": potcar_labels,
+            "changed": changed,
             "pre": {"changed": {k: [final.get(k), v] for k, v in parse(pre_text).items()
                                 if final.get(k) != v}} if pre_text else None,
             "warnings": warnings}

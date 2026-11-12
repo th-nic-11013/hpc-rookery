@@ -35,9 +35,11 @@ def home_shorthand_is_normalized_for_scheduler_paths():
     slurm = SlurmBackend("test", nodes_always_explicit=True)
     slurm_script = slurm.render_script(spec)
     assert "#SBATCH --chdir=agent/work/run" in slurm_script
-    assert "#SBATCH --input=inputs/in.dat" in slurm_script
-    assert "#SBATCH --output=outputs/out.log" in slurm_script
-    assert "#SBATCH --error=outputs/err.log" in slurm_script
+    # Slurm resolves these against --chdir, so they are spelled from the
+    # run directory to keep their $HOME-relative meaning (G71).
+    assert "#SBATCH --input=../../../inputs/in.dat" in slurm_script
+    assert "#SBATCH --output=../../../outputs/out.log" in slurm_script
+    assert "#SBATCH --error=../../../outputs/err.log" in slurm_script
 
     ge = GridEngineBackend("test")
     ge_script = ge.render_script(spec)

@@ -50,7 +50,7 @@ hyogo-mcp = "hyogo.server:main"
 hpc-doctor = "hpc_mcp.doctor:main"
 
 [project.urls]
-Repository = "https://github.com/william-dawson/hpc-rookery"
+Repository = "https://github.com/th-nic-11013/hpc-rookery"  # = REPO_URL in scripts/render_plugins.py
 
 [tool.setuptools.packages.find]
 include = ["hpc_agent_core*", "hpc_mcp*", "hpc_codes*", "yagura*", "hyogo*", "facilities*"]

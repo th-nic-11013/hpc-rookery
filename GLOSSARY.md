@@ -20,6 +20,7 @@
 - **Embedding endpoint** — the server that turns text into vectors so `search_docs` can rank guide sections by meaning, not just keywords.
 - **Experience record** — a proposed record type holding one symptom → cause → fix lesson, looked up before a run (and matched against the error if one fails).
 - **Farthest-point sampling (FPS)** — pick frames one at a time, each the one farthest (in descriptor space) from everything picked so far, so a small set covers the pool's spread instead of its crowded middle.
+- **Fixed-step benchmark (VASP)** — a layout timing in which every run does exactly N SCF steps (NELMIN = NELM = N) with NBANDS pinned, so only the parallel split differs; its `wall_s` record is for those N steps (`extra.scf_steps`), not for a converged single point.
 - **Fork** — your own copy of someone else's GitHub repo, under your account, that you can push to and propose changes back from (like photocopying a shared notebook to write in it).
 - **Gap (G1, G2, …)** — a numbered entry in a personal "tool audit" note (local `notes/`, not committed): a step the repo's tools couldn't do, with its owner and proposed fix; numbers run on across notes.
 - **Gap card** — one small file per gap saying what it may edit, what it depends on and which few files to load; the unit one session claims.
@@ -64,6 +65,7 @@
 - **SessionStart hook** — a command Claude Code runs when a session opens; agent-notes uses it to print the project's notebook index.
 - **Shared H** — an H still nearest its own atom but also within bond distance of a second one (a very short hydrogen bond, e.g. the μ3-OH proton half-way to another O in a collapsed cell); reported, not treated as a proton transfer.
 - **Spin multiplicity** — 2S+1 for an atom's unpaired electrons (H 2, C/O/Zr 3); an isolated-atom reference must use the lowest-energy one.
+- **Spin-state trap** — a magnetic run that converges cleanly but to another spin state than intended or than its neighbours in a label set (a flipped metal moment, a stray moment on water O); the energy moves little, the forces a lot. Found with `labels_compare` and `sites_by_environment`, steered with constrain-then-release.
 - **SSH multiplexing** — reusing one open SSH connection for many commands, instead of logging in afresh each time (like keeping a phone call open rather than redialling).
 - **stdio transport (MCP)** — the agent starts the tool server as a local child process and talks to it over stdin/stdout, so nothing listens on the network (like an intercom wired between two rooms, not a phone line).
 - **Truncated Coulomb (HFX)** — cutting exact exchange off at a radius below half the cell width so a periodic cell does not see its own images.

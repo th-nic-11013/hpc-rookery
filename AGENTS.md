@@ -62,6 +62,8 @@ facilities/             One directory per onboarded facility, plus
                         registry.py (facility slug -> SchedulerBackend).
                         Each facility's skill_notes/ holds its real,
                         hand-written skill content (see PORTING.md §7).
+                        HPC_ROOKERY_FACILITY_PATH adds private ones kept
+                        outside the repo, never published (PORTING.md §4a).
 hpc_mcp/                The unified server entry points; importing this
                         package registers every facility.
 plugins/hpc/            The base Codex plugin: .mcp.json and only the
@@ -77,8 +79,9 @@ codes/                  Code packs: facility-neutral skills per simulation
 hpc_codes/              The code-pack tools, served by hpc-mcp: records_*
                         tools over the records adapter (records.py) and
                         schemas/records.yaml, the provisional schema of
-                        measured records (benchmarks, builds), the cp2k_*
-                        tools and launch_plan, in mcp_tools/<group>.py
+                        measured records (benchmarks, builds, campaign
+                        snapshots), the cp2k_* tools, launch_plan and
+                        campaign_status, in mcp_tools/<group>.py
                         (decorated @_tool). hpc_server.py registers them
                         (and the docs tools) each inside its own guard, so a
                         code tool can't stop the scheduler tools from

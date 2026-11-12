@@ -116,6 +116,8 @@ def _type_errors(t: str, v, where: str) -> list[str]:
           "date": lambda: isinstance(v, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", v)}
     if t in ok:
         return [] if ok[t]() else [f"{where}: {v!r} is not {t}"]
+    if t == "map":
+        return [] if isinstance(v, dict) else [f"{where}: not a mapping"]
     if t.startswith("enum["):
         return [] if v in t[5:-1].split("|") else [f"{where}: {v!r} not in {t}"]
     if t.startswith("list["):
@@ -131,26 +133,40 @@ def _type_errors(t: str, v, where: str) -> list[str]:
     raise RecordsError(f"schema has unknown type {t}")
 
 
-def _field_errors(spec: dict, rec: dict, where: str) -> list[str]:
+def _field_errors(spec: dict, rec: dict, where: str, code=None) -> list[str]:
+    """`code` is the record's top-level code, for fields with `per_code`."""
     errs = [f"{where}: unknown field {k}" for k in rec if k not in spec and k != "_scope"]
     for name, f in spec.items():
         v = rec.get(name)
+        at = f"{where}.{name}"
+        if "per_code" in f:
+            pc = f["per_code"]
+            f = {**f, **pc.get(code, pc.get("*", {}))}
+            at += f" (code {code})"
         if v is None:
             if f.get("required"):
                 errs.append(f"{where}: missing required {name}")
             elif f.get("required_unless") and rec.get(f["required_unless"]) is None:
                 errs.append(f"{where}: missing required {name} (or set {f['required_unless']})")
         elif "fields" in f:
-            errs += (_field_errors(f["fields"], v, f"{where}.{name}") if isinstance(v, dict)
-                     else [f"{where}.{name}: not a mapping"])
+            errs += (_field_errors(f["fields"], v, at, code) if isinstance(v, dict)
+                     else [f"{at}: not a mapping"])
+        elif "entries" in f:
+            if not isinstance(v, dict):
+                errs.append(f"{at}: not a mapping")
+                continue
+            for key, x in v.items():
+                errs += _type_errors("str", key, f"{at} key")
+                errs += (_field_errors(f["entries"], x, f"{at}[{key}]", code) if isinstance(x, dict)
+                         else [f"{at}[{key}]: not a mapping"])
         else:
-            errs += _type_errors(f["type"], v, f"{where}.{name}")
+            errs += _type_errors(f["type"], v, at)
     return errs
 
 
 def _record_errors(facility: str, rtype: str, rec: dict, scope: str) -> list[str]:
     rid = rec.get(_type(rtype)["id_field"])
-    errs = _field_errors(_type(rtype)["fields"], rec, f"{rtype}[{rid}]")
+    errs = _field_errors(_type(rtype)["fields"], rec, f"{rtype}[{rid}]", rec.get("code"))
     if "facility" in rec and rec["facility"] != facility:
         errs.append(f"{rtype}[{rid}]: facility {rec['facility']!r} in {facility}'s records")
     if rtype == "benchmarks":
@@ -166,7 +182,31 @@ def _record_errors(facility: str, rtype: str, rec: dict, scope: str) -> list[str
         if m.get("model") is not None and dft:
             errs.append(f"benchmarks[{rid}]: method has a model and DFT fields {dft}: "
                         "an MLIP run records the model, a DFT run the functional")
+        if isinstance(rec.get("samples"), dict) and not errs:
+            errs += _samples_errors(rec, f"benchmarks[{rid}]")
     return errs
+
+
+def _samples_errors(rec: dict, where: str) -> list[str]:
+    """A summary record (G36): its statistics are ordered, and its metric is
+    the one the schema's `samples` doc derives from them."""
+    s, metric = rec["samples"], rec.get("metric") or {}
+    if s["n"] < 1:
+        return [f"{where}: samples.n must be at least 1"]
+    if not s["min"] <= s["median"] <= s["max"] or not s["min"] <= s["mean"] <= s["max"]:
+        return [f"{where}: samples need min <= median, mean <= max"]
+    if s["quantity"] == metric.get("name"):
+        want, how = s["mean"], "samples.mean"
+    elif s["quantity"] == "s_per_scf_step" and metric.get("name") == "wall_s":
+        steps = (rec.get("extra") or {}).get("scf_steps")
+        if not steps:
+            return [f"{where}: a s_per_scf_step summary needs extra.scf_steps (median steps per run)"]
+        want, how = s["mean"] * steps, "samples.mean x extra.scf_steps"
+    else:
+        return [f"{where}: samples.quantity {s['quantity']} does not go with metric {metric.get('name')}"]
+    if abs(metric.get("value", 0) - want) > 1e-3 * abs(want) + 1e-3:
+        return [f"{where}: metric.value {metric.get('value')} is not {how} ({want:.3f})"]
+    return []
 
 
 def _link_errors(recs: dict) -> list[str]:

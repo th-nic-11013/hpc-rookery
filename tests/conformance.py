@@ -16,6 +16,10 @@ Each check is one file, found automatically (add a file, edit nothing else):
 - tests/checks/<area>/<name>.py (rookery, skills, codes, hyogo, yagura):
   runs once, under "repo-wide". It defines LABEL and a function <name>().
 - tests/checks/_common.py: the few helpers several checks share.
+- facilities/<dir>/checks/<name>.py, in a facility's own folder: same
+  contract as tests/checks/facility/, run for that facility only. This is
+  how a facility kept outside this repository (HPC_ROOKERY_FACILITY_PATH,
+  PORTING.md §4a) brings its own cases without editing a shared file.
 
 Runs entirely offline — no SSH, no scheduler, no network. Everything here
 must stay that way so CI can run it. Anything needing a live cluster
@@ -35,7 +39,7 @@ import pathlib
 import sys
 import traceback
 
-import hpc_mcp  # noqa: F401 -- registers every facility
+import hpc_mcp  # registers every facility
 from hpc_agent_core import config
 from facilities.registry import get_backend
 
@@ -69,6 +73,24 @@ def discover() -> list[dict]:
     return found
 
 
+def own_checks(slug: str) -> list[dict]:
+    """The checks a facility ships in its own folder, checks/<name>.py,
+    with the same contract as tests/checks/facility/<name>.py."""
+    folder = hpc_mcp.FACILITY_DIRS.get(slug)
+    found = []
+    for path in sorted((folder / "checks").glob("*.py")) if folder else []:
+        if path.name.startswith("_"):
+            continue
+        name = path.stem
+        mod = importlib.import_module(f"facilities.{folder.name}.checks.{name}")
+        fn = getattr(mod, name, None)
+        assert callable(fn) and isinstance(getattr(mod, "LABEL", None), str), \
+            f"{path}: needs LABEL and a function named {name}"
+        found.append({"area": f"facilities/{folder.name}/checks", "name": name,
+                      "label": mod.LABEL, "facilities": (slug,), "fn": fn})
+    return found
+
+
 def matches(c: dict, only: str | None, slug: str | None = None) -> bool:
     if not only:
         return True
@@ -85,8 +107,9 @@ def main() -> int:
     checks = discover()
     repo = [c for c in checks if c["area"] != "facility"]
     per_facility = [c for c in checks if c["area"] == "facility"]
+    own = {fac.slug: own_checks(fac.slug) for fac in config.list_facilities()}
     if a.list:
-        for c in checks:
+        for c in checks + [c for cs in own.values() for c in cs]:
             print(f"{c['area']}/{c['name']}: {c['label']}"
                   + (f" [{', '.join(c['facilities'])}]" if c["facilities"] else ""))
         return 0
@@ -101,6 +124,7 @@ def main() -> int:
     for fac in config.list_facilities():
         todo = [c for c in per_facility
                 if (not c["facilities"] or fac.slug in c["facilities"]) and matches(c, a.only, fac.slug)]
+        todo += [c for c in own[fac.slug] if matches(c, a.only, fac.slug)]
         if not todo:
             continue
         slug, f = fac.slug, config.get_facility(fac.slug)

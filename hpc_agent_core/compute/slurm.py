@@ -49,6 +49,7 @@ RCCS-Cloud's CloudSlurmBackend, which overrides only render_script to inject
 """
 from __future__ import annotations
 
+import posixpath
 import shlex
 import time
 
@@ -167,6 +168,39 @@ def _parse_scontrol_show_job(output: str) -> Job | None:
             },
         ),
     )
+
+
+def _from_run_directory(path: str, directory: str | None) -> str:
+    """A spec's stdin/stdout/stderr path as an #SBATCH directive must spell it.
+
+    A relative path in a spec means $HOME-relative, as everywhere else in
+    these tools (norm_path). Slurm, however, resolves a relative --input,
+    --output or --error against the job's working directory, which --chdir
+    sets to spec.directory. So once a directory is set, a $HOME-relative
+    path is respelled relative to that directory: with directory ~/a/b,
+    ~/c/x.out becomes ../../c/x.out and ~/a/b/x.out becomes x.out (gap G71).
+    That keeps the saved script right when it is resubmitted by hand from
+    $HOME, where the header's own --chdir=a/b resolves the same way.
+
+    The '..' steps are resolved by the filesystem, so they miss when a
+    component of the run directory is a symlink, and a directory that is
+    absolute or climbs out of $HOME leaves no relative spelling at all
+    (the path is left as norm_path gives it). submit() therefore also
+    passes every $HOME-relative path as "$HOME"/<path> on the sbatch
+    command line, which overrides the header.
+    """
+    normalized = norm_path(path)
+    if not directory or normalized.startswith("/"):
+        return normalized
+    run_dir = posixpath.normpath(norm_path(directory))
+    if run_dir.startswith("/") or run_dir == ".." or run_dir.startswith("../"):
+        return normalized
+    target = posixpath.normpath(normalized)
+    if target == ".." or target.startswith("../"):
+        # above $HOME: climb out of the run directory, then follow the path
+        depth = 0 if run_dir == "." else run_dir.count("/") + 1
+        return posixpath.normpath("../" * depth + target)
+    return posixpath.relpath("/" + target, "/" + run_dir)
 
 
 class SlurmBackend(SchedulerBackend):
@@ -292,14 +326,18 @@ class SlurmBackend(SchedulerBackend):
         if spec.directory:
             # Slurm directives are not shell-evaluated.  norm_path turns
             # home shorthands into a relative path because submission starts
-            # in $HOME, avoiding a literal tilde or dollar sign here.
+            # in $HOME, avoiding a literal tilde or dollar sign here. submit()
+            # runs sbatch from this directory instead and overrides this line
+            # with an absolute --chdir; it stays for anyone who resubmits the
+            # saved script by hand from $HOME.
             lines.append(f"#SBATCH --chdir={norm_path(spec.directory)}")
-        if spec.stdin_path:
-            lines.append(f"#SBATCH --input={norm_path(spec.stdin_path)}")
-        if spec.stdout_path:
-            lines.append(f"#SBATCH --output={norm_path(spec.stdout_path)}")
-        if spec.stderr_path:
-            lines.append(f"#SBATCH --error={norm_path(spec.stderr_path)}")
+        # Slurm resolves a relative --input/--output/--error against the
+        # job's working directory (--chdir), not $HOME; see
+        # _from_run_directory and submit().
+        for flag, path in (("input", spec.stdin_path), ("output", spec.stdout_path),
+                           ("error", spec.stderr_path)):
+            if path:
+                lines.append(f"#SBATCH --{flag}={_from_run_directory(path, spec.directory)}")
         for key, val in attr.custom_attributes.items():
             lines.append(f"#SBATCH --{key}={val}")
         return lines
@@ -312,12 +350,44 @@ class SlurmBackend(SchedulerBackend):
         return "\n".join(self._header(spec)) + render_body(spec, gpu_requested, vendor_flag)
 
     def submit(self, spec: JobSpec) -> dict:
-        """Write the rendered script on the cluster and sbatch it."""
+        """Write the rendered script on the cluster and sbatch it.
+
+        With spec.directory set, sbatch runs from that directory: Slurm sets
+        SLURM_SUBMIT_DIR to where sbatch ran, not to --chdir, and
+        `cd "$SLURM_SUBMIT_DIR"` is the usual first line of an existing
+        driver script. The header's --chdir is $HOME-relative (see
+        _header) and would resolve against the run directory once sbatch
+        runs there, so the command line overrides it with the same
+        directory made absolute. A directory that does not exist fails
+        here, before anything is queued, instead of the job running
+        somewhere else. For the same reason a $HOME-relative stdin, stdout
+        or stderr path is passed as an absolute path on the command line
+        (gap G71).
+        """
         stamp = time.strftime("%Y%m%d-%H%M%S")
         script_path = write_remote_file(
             self.facility, f"{self._jobs_dir}/{spec.name}-{stamp}.sh", self.render_script(spec)
         )
-        output = run_command(self.facility, f"sbatch --parsable {shlex.quote(script_path)}")
+        command = f"sbatch --parsable {shlex.quote(script_path)}"
+        if spec.directory:
+            directory = norm_path(spec.directory)
+            missing = (f"run directory {directory} does not exist on the cluster; "
+                       "create it with fs_mkdir first, or fix spec.directory")
+            # A $HOME-relative path goes on the command line too, anchored
+            # at the login node's $HOME, so it holds where the header's
+            # spelling cannot (see _from_run_directory).
+            anchored = "".join(
+                f' --{flag}="$HOME"/{shlex.quote(norm_path(path))}'
+                for flag, path in (("input", spec.stdin_path), ("output", spec.stdout_path),
+                                   ("error", spec.stderr_path))
+                if path and not norm_path(path).startswith("/")
+            )
+            command = (
+                f"cd {shlex.quote(directory)} 2>/dev/null || "
+                f"{{ echo {shlex.quote(missing)} >&2; exit 1; }}; "
+                f'sbatch --parsable --chdir="$PWD"{anchored} {shlex.quote(script_path)}'
+            )
+        output = run_command(self.facility, command)
         # --parsable prints "<job_id>" or "<job_id>;<cluster>"
         job_id = output.strip().splitlines()[-1].split(";")[0] if output.strip() else ""
         if not job_id.isdigit():

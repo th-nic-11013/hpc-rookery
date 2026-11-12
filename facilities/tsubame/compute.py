@@ -12,7 +12,7 @@ import shlex
 import time
 
 from hpc_agent_core import config
-from hpc_agent_core.compute.base import SchedulerBackend
+from hpc_agent_core.compute.base import SchedulerBackend, command_line
 from hpc_agent_core.middleware import norm_path, run_command, write_remote_file
 from hpc_agent_core.models import Job, JobSpec, JobState, JobStatus
 
@@ -251,7 +251,7 @@ class TsubameBackend(SchedulerBackend):
             command = "apptainer exec " + " ".join(flags) + " bash -c " + shlex.quote(command)
         if spec.launcher:
             command = spec.launcher + " " + command
-        lines.append(command)
+        lines.append(command_line(spec, command))
         if spec.post_launch:
             lines.append(spec.post_launch)
         lines.append("")

@@ -1,0 +1,1 @@
+**Spin-state trap** — a magnetic run that converges cleanly but to another spin state than intended or than its neighbours in a label set (a flipped metal moment, a stray moment on water O); the energy moves little, the forces a lot. Found with `labels_compare` and `sites_by_environment`, steered with constrain-then-release.

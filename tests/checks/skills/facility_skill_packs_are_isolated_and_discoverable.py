@@ -1,14 +1,14 @@
-from hpc_agent_core import config
-from checks._common import ROOT
+from checks._common import ROOT, public_facilities
 
 LABEL = 'facility skill packs are isolated and discoverable'
 
 
 def facility_skill_packs_are_isolated_and_discoverable():
-    """The same base/pack split is valid for all three plugin formats."""
+    """The same base/pack split is valid for all three plugin formats.
+    A facility from HPC_ROOKERY_FACILITY_PATH has no pack here, by design."""
     import json
     root = ROOT
-    facilities = config.list_facilities()
+    facilities = public_facilities()
     base_skills = sorted(p.name for p in (root / "plugins" / "hpc" / "skills").iterdir()
                          if p.is_dir())
     assert base_skills == ["hpc-facilities"], (
@@ -26,8 +26,8 @@ def facility_skill_packs_are_isolated_and_discoverable():
     portable_mcp = json.loads((root / "plugins" / "hpc" / "mcp.json").read_text())
     assert portable_mcp["$schema"].endswith("mcp.schema.json")
     assert set(portable_mcp["mcpServers"]) == {"hpc", "yagura", "hyogo"}
-    # .mcp.json is hand-maintained (the harnesses load it); it must name
-    # the same servers, or one harness silently lacks a server
+    # .mcp.json (the harnesses load it) is derived from mcp.json; it must
+    # name the same servers, or one harness silently lacks a server
     harness_mcp = json.loads((root / "plugins" / "hpc" / ".mcp.json").read_text())
     assert set(harness_mcp["mcpServers"]) == set(portable_mcp["mcpServers"])
     for fac in facilities:

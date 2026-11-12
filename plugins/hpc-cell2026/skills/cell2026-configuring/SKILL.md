@@ -80,14 +80,14 @@ endpoint; without it, docs search falls back to BM25.
    key. Never commit it or echo the key back in conversation.
 4. **Validate**:
    ```bash
-   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-rookery.git@main hpc-doctor cell2026
+   uv tool run --quiet --from git+https://github.com/th-nic-11013/hpc-rookery.git@hokusai-probed-facts hpc-doctor cell2026
    ```
    (From a checkout of this repo: `.venv/bin/python -m hpc_mcp.doctor
    cell2026` also works.)
 5. **If the embedding endpoint was added or changed**, rebuild this
    facility's docs index:
    ```bash
-   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-rookery.git@main python -m hpc_mcp.ingest cell2026
+   uv tool run --quiet --from git+https://github.com/th-nic-11013/hpc-rookery.git@hokusai-probed-facts python -m hpc_mcp.ingest cell2026
    ```
    Then run the doctor again — it should report "chunks with embeddings".
 
