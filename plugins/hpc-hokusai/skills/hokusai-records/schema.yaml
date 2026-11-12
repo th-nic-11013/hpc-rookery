@@ -13,6 +13,11 @@
 # block. `null` is allowed for any field that is not required.
 # `required_unless: <sibling>` makes a field required only when that sibling
 # field is absent (benchmarks.method: the DFT fields, unless `model` is set).
+# `per_code: {<code>: <spec>, "*": <spec>}` makes a field depend on the
+# record's top-level `code`: the entry for that code (else `"*"`, else
+# nothing) is laid over the field's own spec, replacing its `type` or
+# `fields` (variant.exe: each code's binary flavours; benchmarks.layout: each
+# code's parallelisation keys).
 
 schema_version: 1
 status: provisional
@@ -44,14 +49,21 @@ record_types:
     id_field: build_id
     doc: "A built, installed scientific code on one facility."
     fields:
-      build_id:     {type: str, required: true, doc: "stable name, <code>-<version>-<exe>-<target>-<toolchain-short>, e.g. cp2k-2026.2-psmp-cpu-gcc. Shared benchmarks refer to builds by this"}
+      build_id:     {type: str, required: true, doc: "stable name, <code>-<version>-<exe>-<target>-<toolchain-short>, e.g. cp2k-2026.2-psmp-cpu-gcc or vasp-6.4.3-gam-cpu-intel. Shared benchmarks refer to builds by this"}
       facility:     {type: str, required: true, doc: "facility slug"}
       code:         {type: str, required: true, doc: "lower-case code name, e.g. cp2k"}
       version:      {type: str, required: true, doc: "release, e.g. 2026.2"}
       variant:
         required: true
         fields:
-          exe:      {type: "enum[psmp|ssmp|popt|sopt|other]", required: true, doc: "CP2K binary flavour; other codes use `other`"}
+          exe:
+            type: "enum[psmp|ssmp|popt|sopt|std|gam|ncl|other]"
+            required: true
+            doc: "binary flavour, allowed per code: CP2K psmp|ssmp|popt|sopt (cp2k.<exe>), VASP std|gam|ncl (vasp_<exe>); `other` for an unusual one, and the only value for any other code"
+            per_code:
+              cp2k: {type: "enum[psmp|ssmp|popt|sopt|other]"}
+              vasp: {type: "enum[std|gam|ncl|other]"}
+              "*":  {type: "enum[other]"}
           target:   {type: "enum[cpu|gpu]", required: true}
           libs:     {type: "list[str]", required: false, doc: "enabled libraries, e.g. the cp2kflags line"}
       toolchain:    {type: str, required: true, doc: "compiler + MPI + math, e.g. 'GCC 13.2, Open MPI 4.1.6, MKL'"}
@@ -103,7 +115,7 @@ record_types:
           functional: {type: str, required_unless: model, doc: "DFT: e.g. revPBE, PADE (LDA)"}
           dispersion: {type: str, required: false, doc: "e.g. D3, or null"}
           basis:      {type: str, required_unless: model}
-          cutoff_ry:  {type: float, required_unless: model}
+          cutoff_ry:  {type: float, required_unless: model, doc: "plane-wave cutoff in Ry (VASP: ENCUT in eV / 13.6057)"}
           rel_cutoff_ry: {type: float, required: false}
           hybrid:     {type: bool, required_unless: model}
           scf:        {type: str, required_unless: model, doc: "e.g. 'OT DIIS + FULL_ALL, ENERGY_GAP 0.05'"}
@@ -115,6 +127,16 @@ record_types:
       nodes:        {type: int, required: true}
       ranks_per_node: {type: int, required: true}
       threads_per_rank: {type: int, required: true}
+      layout:
+        required: false
+        doc: "code-specific parallelisation on top of nodes x ranks_per_node x threads_per_rank, as set in the input; allowed keys depend on code. CP2K has none (its layout is ranks x threads)"
+        fields: {}
+        per_code:
+          vasp:
+            fields:
+              KPAR:  {type: int, required: false, doc: "INCAR KPAR: k-point groups"}
+              NCORE: {type: int, required: false, doc: "INCAR NCORE: ranks sharing one orbital"}
+              NPAR:  {type: int, required: false, doc: "INCAR NPAR, when it was set instead of NCORE"}
       metric:
         required: true
         fields:

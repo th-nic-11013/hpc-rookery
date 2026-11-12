@@ -131,26 +131,32 @@ def _type_errors(t: str, v, where: str) -> list[str]:
     raise RecordsError(f"schema has unknown type {t}")
 
 
-def _field_errors(spec: dict, rec: dict, where: str) -> list[str]:
+def _field_errors(spec: dict, rec: dict, where: str, code=None) -> list[str]:
+    """`code` is the record's top-level code, for fields with `per_code`."""
     errs = [f"{where}: unknown field {k}" for k in rec if k not in spec and k != "_scope"]
     for name, f in spec.items():
         v = rec.get(name)
+        at = f"{where}.{name}"
+        if "per_code" in f:
+            pc = f["per_code"]
+            f = {**f, **pc.get(code, pc.get("*", {}))}
+            at += f" (code {code})"
         if v is None:
             if f.get("required"):
                 errs.append(f"{where}: missing required {name}")
             elif f.get("required_unless") and rec.get(f["required_unless"]) is None:
                 errs.append(f"{where}: missing required {name} (or set {f['required_unless']})")
         elif "fields" in f:
-            errs += (_field_errors(f["fields"], v, f"{where}.{name}") if isinstance(v, dict)
-                     else [f"{where}.{name}: not a mapping"])
+            errs += (_field_errors(f["fields"], v, at, code) if isinstance(v, dict)
+                     else [f"{at}: not a mapping"])
         else:
-            errs += _type_errors(f["type"], v, f"{where}.{name}")
+            errs += _type_errors(f["type"], v, at)
     return errs
 
 
 def _record_errors(facility: str, rtype: str, rec: dict, scope: str) -> list[str]:
     rid = rec.get(_type(rtype)["id_field"])
-    errs = _field_errors(_type(rtype)["fields"], rec, f"{rtype}[{rid}]")
+    errs = _field_errors(_type(rtype)["fields"], rec, f"{rtype}[{rid}]", rec.get("code"))
     if "facility" in rec and rec["facility"] != facility:
         errs.append(f"{rtype}[{rid}]: facility {rec['facility']!r} in {facility}'s records")
     if rtype == "benchmarks":
