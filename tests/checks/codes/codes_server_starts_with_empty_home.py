@@ -23,4 +23,4 @@ def codes_server_starts_with_empty_home():
     assert out.stdout.strip() == ("['cp2k_bench_dryrun', 'cp2k_bench_input', 'cp2k_bench_parse', "
                                   "'cp2k_bench_records', 'cp2k_check_build', 'cp2k_check_input', "
                                   "'cp2k_kinds', 'cp2k_record_from_run', 'launch_plan', 'records_append', 'records_check', "
-                                  "'records_query']"), out.stdout
+                                  "'records_query', 'records_summarise_timings']"), out.stdout
