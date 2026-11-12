@@ -1,0 +1,86 @@
+# CP2K sp, r2scan-D3(BJ), C192H112O128Zr24; written by cp2k_make_input
+# Edit the @SET values; the structure is in subsys.inc.
+@SET PROJECT       sp-g1-r2scan
+@SET CHARGE        0
+@SET MULTIPLICITY  1
+@SET UKS           .FALSE.
+@SET CUTOFF        1000
+@SET REL_CUTOFF    60
+@SET WALLTIME      1200
+
+&GLOBAL
+  PROJECT     ${PROJECT}
+  RUN_TYPE    ENERGY_FORCE
+  PRINT_LEVEL LOW
+  WALLTIME    ${WALLTIME}
+&END GLOBAL
+
+&FORCE_EVAL
+  METHOD QS
+  STRESS_TENSOR ANALYTICAL
+  &PRINT
+    &FORCES ON
+    &END FORCES
+    &STRESS_TENSOR ON
+      STRESS_UNIT GPa
+    &END STRESS_TENSOR
+  &END PRINT
+  &DFT
+    BASIS_SET_FILE_NAME BASIS_MOLOPT_UZH_2026.2
+    POTENTIAL_FILE_NAME POTENTIAL_UZH_2026.2
+    CHARGE       ${CHARGE}
+    MULTIPLICITY ${MULTIPLICITY}
+    UKS          ${UKS}
+    &MGRID
+      CUTOFF     ${CUTOFF}
+      REL_CUTOFF ${REL_CUTOFF}
+    &END MGRID
+    &QS
+      EPS_DEFAULT 1.0E-12
+    &END QS
+    &SCF
+      SCF_GUESS ATOMIC
+      EPS_SCF   1.0E-6
+      MAX_SCF   50
+      &OT ON
+        MINIMIZER      DIIS
+        PRECONDITIONER FULL_ALL
+        ENERGY_GAP     0.05
+      &END OT
+      &OUTER_SCF
+        EPS_SCF 1.0E-6
+        MAX_SCF 10
+      &END OUTER_SCF
+      &PRINT
+        &RESTART ON
+        &END RESTART
+      &END PRINT
+    &END SCF
+    &PRINT
+      &MO_CUBES
+        NHOMO 1
+        NLUMO 1
+        WRITE_CUBE FALSE
+      &END MO_CUBES
+    &END PRINT
+    &XC
+      &XC_FUNCTIONAL
+        &MGGA_X_R2SCAN
+        &END MGGA_X_R2SCAN
+        &MGGA_C_R2SCAN
+        &END MGGA_C_R2SCAN
+      &END XC_FUNCTIONAL
+      &VDW_POTENTIAL
+        POTENTIAL_TYPE PAIR_POTENTIAL
+        &PAIR_POTENTIAL
+          TYPE                 DFTD3(BJ)
+          PARAMETER_FILE_NAME  dftd3.dat
+          REFERENCE_FUNCTIONAL R2SCAN
+        &END PAIR_POTENTIAL
+      &END VDW_POTENTIAL
+    &END XC
+  &END DFT
+  &SUBSYS
+    @INCLUDE subsys.inc
+  &END SUBSYS
+&END FORCE_EVAL
