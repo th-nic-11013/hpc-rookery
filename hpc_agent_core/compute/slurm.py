@@ -292,7 +292,10 @@ class SlurmBackend(SchedulerBackend):
         if spec.directory:
             # Slurm directives are not shell-evaluated.  norm_path turns
             # home shorthands into a relative path because submission starts
-            # in $HOME, avoiding a literal tilde or dollar sign here.
+            # in $HOME, avoiding a literal tilde or dollar sign here. submit()
+            # runs sbatch from this directory instead and overrides this line
+            # with an absolute --chdir; it stays for anyone who resubmits the
+            # saved script by hand from $HOME.
             lines.append(f"#SBATCH --chdir={norm_path(spec.directory)}")
         if spec.stdin_path:
             lines.append(f"#SBATCH --input={norm_path(spec.stdin_path)}")
@@ -312,12 +315,33 @@ class SlurmBackend(SchedulerBackend):
         return "\n".join(self._header(spec)) + render_body(spec, gpu_requested, vendor_flag)
 
     def submit(self, spec: JobSpec) -> dict:
-        """Write the rendered script on the cluster and sbatch it."""
+        """Write the rendered script on the cluster and sbatch it.
+
+        With spec.directory set, sbatch runs from that directory: Slurm sets
+        SLURM_SUBMIT_DIR to where sbatch ran, not to --chdir, and
+        `cd "$SLURM_SUBMIT_DIR"` is the usual first line of an existing
+        driver script. The header's --chdir is $HOME-relative (see
+        _header) and would resolve against the run directory once sbatch
+        runs there, so the command line overrides it with the same
+        directory made absolute. A directory that does not exist fails
+        here, before anything is queued, instead of the job running
+        somewhere else.
+        """
         stamp = time.strftime("%Y%m%d-%H%M%S")
         script_path = write_remote_file(
             self.facility, f"{self._jobs_dir}/{spec.name}-{stamp}.sh", self.render_script(spec)
         )
-        output = run_command(self.facility, f"sbatch --parsable {shlex.quote(script_path)}")
+        command = f"sbatch --parsable {shlex.quote(script_path)}"
+        if spec.directory:
+            directory = norm_path(spec.directory)
+            missing = (f"run directory {directory} does not exist on the cluster; "
+                       "create it with fs_mkdir first, or fix spec.directory")
+            command = (
+                f"cd {shlex.quote(directory)} 2>/dev/null || "
+                f"{{ echo {shlex.quote(missing)} >&2; exit 1; }}; "
+                f'sbatch --parsable --chdir="$PWD" {shlex.quote(script_path)}'
+            )
+        output = run_command(self.facility, command)
         # --parsable prints "<job_id>" or "<job_id>;<cluster>"
         job_id = output.strip().splitlines()[-1].split(";")[0] if output.strip() else ""
         if not job_id.isdigit():

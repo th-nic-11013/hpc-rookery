@@ -128,7 +128,11 @@ decision at 300 yen/GPU-hour. `RIKYU_ACCOUNT` or `defaults.account` in
   root stays the user's own.
 - Create a requested `spec.directory` with `fs_mkdir` **before** submission.
   Schedulers enter that directory before the script body and `pre_launch`
-  runs, so a `mkdir` in `pre_launch` is too late.
+  runs, so a `mkdir` in `pre_launch` is too late. On Slurm, `sbatch` also
+  runs from that directory, so `$SLURM_SUBMIT_DIR` is the run directory
+  and a submission into a missing one fails. Other schedulers' submit-dir
+  variables (`$PBS_O_WORKDIR`, `$SGE_O_WORKDIR`, ...) are not the run
+  directory: a script there should rely on its working directory instead.
 - Don't guess facility-specific details not covered by the notes above —
   use `search_docs(facility="rikyu", query=...)` on the `hpc`
   server. It searches a bundled guide, not a live site — never invent a URL
