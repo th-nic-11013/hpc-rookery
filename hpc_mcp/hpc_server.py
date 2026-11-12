@@ -500,16 +500,34 @@ def fs_compress(facility: str, paths: list[str], archive_path: str,
     """Create a tar archive from one or more remote paths.
     (IRI: POST /api/v1/filesystem/compress/{resource_id})
 
-    match_pattern: a regex passed to `find -regex` to archive only the
-        matching files beneath `paths`, instead of everything.
+    match_pattern: archive only the files beneath `paths` that match this
+        POSIX extended regex (GNU `find -regextype posix-extended -regex`).
+        It must match the WHOLE path as find prints it, which starts with
+        the path given, so begin it with `.*/`: `.*/(INCAR|POSCAR)` takes
+        every INCAR and POSCAR; a bare `INCAR` matches nothing. If nothing
+        matches, the call fails and no archive is written.
     dereference: follow symlinks (tar -h) rather than storing the links.
     """
     deref = "h" if dereference else ""
     flag = f"-{deref}{_TAR_FLAGS[compression]}"
     quoted_paths = " ".join(quote_path(p) for p in paths)
     if match_pattern:
-        cmd = (f"find {quoted_paths} -regex {shlex.quote(match_pattern)} -print0 | "
-               f"tar {flag} {quote_path(archive_path)} --null -T -")
+        # find's default regex syntax is emacs, where `(a|b)` is literal text,
+        # and tar given an empty list writes an empty archive without a word
+        # (G43). So name the syntax, and refuse an empty match before tar
+        # runs; -print -quit stops at the first match. A find without
+        # -regextype (not GNU) fails here too, loudly, with its own error.
+        find = (f"find {quoted_paths} -regextype posix-extended "
+                f"-regex {shlex.quote(match_pattern)}")
+        nothing = (f"fs_compress: no file under {' '.join(paths)} matches match_pattern "
+                   f"{match_pattern!r}, so no archive was written. It is a POSIX extended "
+                   "regex matched against the whole path, which starts with the path "
+                   "given: begin it with '.*/', e.g. '.*/(INCAR|POSCAR)'.")
+        cmd = (f'm=$({find} -print -quit); rc=$?; if [ -z "$m" ]; then '
+               f'[ "$rc" -ne 0 ] && echo "fs_compress: find failed (exit $rc); '
+               f'match_pattern needs GNU find (-regextype posix-extended)" >&2; '
+               f"echo {shlex.quote(nothing)} >&2; exit 3; fi; "
+               f"{find} -print0 | tar {flag} {quote_path(archive_path)} --null -T -")
     else:
         cmd = f"tar {flag} {quote_path(archive_path)} {quoted_paths}"
     return run_command(facility, cmd)
