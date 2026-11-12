@@ -18,7 +18,9 @@ def records_summarise_production_timings():
     records_query in a temporary store. A CP2K record without `samples`
     still validates; a summary whose metric does not follow from its
     statistics, or whose statistics are out of order, is refused; a table
-    of several systems without frame_prefix is refused."""
+    of several systems without frame_prefix is refused. Runs that stopped
+    at the SCF step limit (nscf >= nelm, or converged false) are left out
+    and counted in a warning; with neither, a warning says so."""
     import numpy as np
     from hpc_codes import records, server
     from hpc_codes.records import RecordsError
@@ -121,3 +123,48 @@ def records_summarise_production_timings():
             raise AssertionError("summarised the same table twice under the same ids")
         assert len(server.records_query("hokusai", "benchmarks", {"code": "vasp"})) == 2
         assert not server.records_check("hokusai")["errors"]
+
+        # unconverged runs are left out: nscf >= nelm, or a false converged column;
+        # with neither, a warning says they can't be told apart
+        assert any("no nelm and no converged column" in w for w in dry["warnings"]), dry["warnings"]
+
+        def counts(res):
+            return {r["layout"]["NCORE"]: (r["samples"]["n"], r["samples"]["mean"]) for r in res["records"]}
+
+        def expect(res, keep_of):
+            want = {}
+            for ncore, (per, nscf) in truth.items():
+                keep = keep_of(nscf)
+                if keep.any():
+                    want[ncore] = (int(keep.sum()), per[keep].mean())
+            got = counts(res)
+            assert set(got) == set(want), (got, want)
+            for k, (n, mean) in want.items():
+                assert got[k][0] == n and abs(got[k][1] - mean) < 5e-4, (k, got[k], n, mean)
+            return sum(int((~keep_of(nscf)).sum()) for _, nscf in truth.values())
+
+        # a limit some runs sit exactly at: nscf == nelm stopped unconverged
+        lim = int(sorted(truth[4][1].tolist())[len(truth[4][1]) // 2])
+        assert (truth[4][1] == lim).any()
+        cut = server.records_summarise_timings(**args, dry_run=True, nelm=lim, tag="nelm")
+        dropped = expect(cut, lambda nscf: nscf < lim)
+        assert dropped and any(f"{dropped} unconverged run(s) (nscf >= nelm {lim})" in w
+                               for w in cut["warnings"]), cut["warnings"]
+        assert all(f"NELM {lim} left out" in r["notes"] for r in cut["records"]), cut["records"][0]["notes"]
+        lines = table.read_text().splitlines()
+        conv = [lines[0] + "\tconverged"] + [
+            l + ("\tF" if l.split("\t")[8].isdigit() and int(l.split("\t")[8]) >= 80 else "\tT")
+            for l in lines[1:]]
+        (Path(tmp) / "conv").mkdir()
+        ctable = Path(tmp) / "conv" / "perf.tsv"
+        ctable.write_text("\n".join(conv) + "\n")
+        res = server.records_summarise_timings(**{**args, "table_path": str(ctable)}, dry_run=True, tag="conv")
+        dropped = expect(res, lambda nscf: nscf < 80)
+        assert any(f"{dropped} unconverged run(s) (converged false)" in w for w in res["warnings"]), res["warnings"]
+        assert not any("no nelm" in w for w in res["warnings"]), res["warnings"]
+        try:
+            server.records_summarise_timings(**args, dry_run=True, nelm=0)
+        except ValueError as e:
+            assert "positive integer" in str(e), e
+        else:
+            raise AssertionError("nelm=0 accepted")

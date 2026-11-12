@@ -62,9 +62,14 @@ def _stats(xs: list[float]) -> dict:
 
 def summarise(facility: str, table_path: str, like: str | None = None, base: dict | None = None,
               frame_prefix: str | None = None, date: str | None = None, tag: str | None = None,
-              min_samples: int = 10, notes: str | None = None, dry_run: bool = False) -> dict:
+              min_samples: int = 10, notes: str | None = None, dry_run: bool = False,
+              nelm: int | None = None) -> dict:
     """Build one summary `benchmarks` record per layout group of a per-run
-    timing table, validate them all, and append them unless dry_run."""
+    timing table, validate them all, and append them unless dry_run.
+    Unconverged runs are left out: nscf >= nelm (the SCF step limit), or a
+    false `converged` column."""
+    if nelm is not None and nelm < 1:
+        raise ValueError(f"nelm is the SCF step limit (VASP NELM), a positive integer: {nelm}")
     start = {}
     if like:
         found = records.query(facility, "benchmarks", {"id": like})
@@ -108,7 +113,8 @@ def summarise(facility: str, table_path: str, like: str | None = None, base: dic
                              f"{', ...' if len(tops) > 8 else ''}): a record has one system, so "
                              "pass frame_prefix (e.g. 'X/') and base.system for each")
 
-    warnings, skipped = [], 0
+    warnings, skipped, unconverged = [], 0, 0
+    has_conv = "converged" in cols
     lay = [k for k in _layout_keys(code) if k.lower() in cols]
     prob = [c for c in PROBLEM if c in cols]
     keys = ["nodes", "ranks", "threads", *[k.lower() for k in lay], *prob]
@@ -119,9 +125,21 @@ def summarise(facility: str, table_path: str, like: str | None = None, base: dic
         if not v["nscf"] or v["nscf"] <= 0 or not v["loop"] or v["loop"] <= 0:
             skipped += 1
             continue
+        if (nelm is not None and v["nscf"] >= nelm) or \
+                (has_conv and str(r.get("converged", "")).strip().lower() in ("f", "false", "0", "no", "n")):
+            unconverged += 1
+            continue
         groups.setdefault(tuple(v[k] for k in keys), []).append(v)
     if skipped:
         warnings.append(f"{skipped} row(s) without SCF steps or loop time were left out")
+    if unconverged:
+        why = " or ".join(w for w, on in ((f"nscf >= nelm {nelm}", nelm is not None),
+                                          ("converged false", has_conv)) if on)
+        warnings.append(f"{unconverged} unconverged run(s) ({why}) were left out: a run stopped at "
+                        "the SCF step limit is not a production timing")
+    elif nelm is None and not has_conv:
+        warnings.append("no nelm and no converged column: runs that stopped at the SCF step limit "
+                        "can't be told apart and are included; pass nelm (VASP NELM)")
     if not groups:
         raise ValueError(f"no usable rows in {path.name}")
 
@@ -146,6 +164,7 @@ def summarise(facility: str, table_path: str, like: str | None = None, base: dic
         text = (f"summary of {len(g)} production runs from {path.name}: s per SCF step = each run's "
                 f"SCF loop time / its SCF steps"
                 + "".join(f"; {c} {k[c]}" for c in prob if k[c] is not None)
+                + (f"; runs with nscf >= NELM {nelm} left out" if nelm is not None else "")
                 + (f". {notes}" if notes else "") + " (records_summarise_timings)")
         rec = {"id": rid, **{f: rec0[f] for f in FROM_LIKE if f in rec0},
                "nodes": N, "ranks_per_node": R // N, "threads_per_rank": T,

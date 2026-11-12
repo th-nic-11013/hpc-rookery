@@ -100,7 +100,7 @@ records_append(facility="{{SLUG}}", record_type="benchmarks", record={...})
   campaign that timed every frame (e.g. a table with one row per labelled
   frame: ranks, nodes, kpar, ncore, nbands, nscf, loop, ...) becomes one
   record per layout group:
-  `records_summarise_timings(facility="{{SLUG}}", table_path="<local table>", like="<benchmarks id of the same system and method>", frame_prefix="<system>/", dry_run=true)`,
+  `records_summarise_timings(facility="{{SLUG}}", table_path="<local table>", like="<benchmarks id of the same system and method>", frame_prefix="<system>/", nelm=<the runs' NELM>, dry_run=true)`,
   then again without `dry_run`. Rows that differ in nodes, ranks, threads,
   layout, NBANDS or k-points are never pooled. `samples` holds n and the
   mean, std, min, median and max of seconds per SCF step (each run's SCF
@@ -110,7 +110,9 @@ records_append(facility="{{SLUG}}", record_type="benchmarks", record={...})
   as for any VASP timing. A table of several systems is summarised once
   per system (`frame_prefix`, and `base={"system": {...}}` when `like` is
   another system). Read its warnings to the user: a group of fewer than
-  `min_samples` runs is recorded but rough. The ids end in
+  `min_samples` runs is recorded but rough. Always pass `nelm` (or a `converged` column): runs
+  that stopped at the SCF step limit timed an unconverged SCF and are left
+  out; without either they can't be told apart. The ids end in
   `-summary-<N>n-<R>x<T>-k<KPAR>c<NCORE>`.
 - A `campaign` snapshot is written by `campaign_status(record=true)`, not
   by hand (see the {{SLUG}}-campaign skill). Query one campaign with

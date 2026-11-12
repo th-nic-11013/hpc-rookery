@@ -62,7 +62,7 @@ def records_summarise_timings(facility: str, table_path: str, like: str | None =
                               base: dict | None = None, frame_prefix: str | None = None,
                               date: str | None = None, tag: str | None = None,
                               min_samples: int = 10, notes: str | None = None,
-                              dry_run: bool = False) -> dict:
+                              dry_run: bool = False, nelm: int | None = None) -> dict:
     """Turn a table of production timings (one row per run, e.g. per
     labelled frame) into summary `benchmarks` records and append them to
     this user's records: one record per layout group, never one per run.
@@ -72,7 +72,10 @@ def records_summarise_timings(facility: str, table_path: str, like: str | None =
     step (each run's SCF loop time / its SCF steps), with the SCF step
     range and the time per run; `metric` is wall_s = mean s per SCF step x
     extra.scf_steps (the median steps per run). A group with fewer than
-    min_samples runs is still recorded, with a warning. Every record is
+    min_samples runs is still recorded, with a warning. Unconverged runs
+    are left out: nscf >= nelm (pass the run's SCF step limit, VASP NELM;
+    a run stopped there timed an unconverged SCF), or a false `converged`
+    column; without either, a warning says they can't be told apart. Every record is
     validated before any is written. Local only: no cluster command.
 
     Returns {"appended", "groups": [{id, n, layout, s_per_scf_step, std,
@@ -98,6 +101,8 @@ def records_summarise_timings(facility: str, table_path: str, like: str | None =
         min_samples: warn about a layout group with fewer runs than this.
         notes: appended to the generated notes.
         dry_run: build and validate the records but append nothing.
+        nelm: the SCF step limit the runs used (VASP NELM): rows with
+            nscf >= nelm stopped unconverged and are left out.
     """
     return timings.summarise(facility, table_path, like, base, frame_prefix, date, tag,
-                             min_samples, notes, dry_run)
+                             min_samples, notes, dry_run, nelm)
