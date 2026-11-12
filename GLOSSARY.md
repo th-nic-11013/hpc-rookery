@@ -43,6 +43,7 @@
 - **NUL hole** — a run of zero bytes left in a file that was being written when the disk filled up; text tools may treat it as binary. `vasp_parse_output` strips and counts them, then checks every block is complete.
 - **NVE energy drift** — how fast the total energy creeps in a run with no thermostat; near zero means the potential and timestep integrate cleanly.
 - **OPES** — On-the-fly Probability Enhanced Sampling: a successor to metadynamics that builds the bias from a running estimate of the probability distribution, so it converges faster and has fewer knobs; `OPES_METAD_EXPLORE` favours exploration, and `OPES_EXPANDED` samples a range of temperatures/pressures in one run.
+- **Packed job** — one batch job that runs K small runs one after another (a loop in the job script) instead of K separate jobs or a scheduler job array; keeps 100–200 CP2K label frames to a few jobs under a facility's job cap.
 - **Partial-node layout** — a run that uses only some of a node's cores (MLIP MD is fastest at 1 rank × 56 threads of 112); it is billed for the cores it uses and shares the node.
 - **PDOS (projected density of states)** — the density of states split by element or atom kind, showing which atoms the band edges sit on.
 - **Plugin vs repo** — a repo is who owns and versions the code; a plugin is how a user installs its tools and skills. One repo can ship one plugin, and one marketplace can list plugins from many repos.

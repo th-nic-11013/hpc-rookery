@@ -4,7 +4,7 @@ hyogo/server.py loads every module in this folder. A new cp2k tool goes here;
 a new group of tools is a new module beside this one.
 """
 from pathlib import Path
-from hyogo.cp2k import e0s as cp2k_e0s, input as cp2k_input, labels as cp2k_labels, output as cp2k_output, subsys
+from hyogo.cp2k import batch as cp2k_batch, e0s as cp2k_e0s, input as cp2k_input, labels as cp2k_labels, output as cp2k_output, subsys
 from hyogo.mcp_tools import mcp
 
 
@@ -56,6 +56,24 @@ TOOL_META = {
         "status": "live",
         "source": "hand greps of HOKUSAI UiO-66 outputs (sp, cell_opt); patterns shared with `hpc_codes/cp2k/parse_bench.py`",
         "notes": "G15: reads a local .out (fs_download first) into run-control facts (finished, SCF/opt convergence and criteria, walltime stop), printed results (energy, gap, forces, stress, final cell) and cost facts (timers, peak and HFX memory); writes nothing. Turning cost into a benchmark record stays rookery's",
+    },
+    "cp2k_make_label_batch": {
+        "method": "mlip",
+        "stage": "input",
+        "code": "cp2k",
+        "module": "`hyogo/cp2k/batch.py`",
+        "status": "live",
+        "source": "G51; E1 label inputs (`e1-label-sens/g1/r2scan`, 2026-11-08)",
+        "notes": "selected-frames extxyz (+ the selection manifest's per-frame sha256) → one folder per frame (subsys.inc + label.inp via cp2k_make_subsys/cp2k_make_input code, one identical input for every frame) + batch.json for rookery's `cp2k_pack_jobs` and the collector. Optional wavefunction guess from the previous frame",
+    },
+    "cp2k_collect_labels": {
+        "method": "mlip",
+        "stage": "parse",
+        "code": "cp2k",
+        "module": "`hyogo/cp2k/batch.py`",
+        "status": "live",
+        "source": "G51",
+        "notes": "batch folder (+ the downloaded tar of label.out files) → per frame finished / unconverged / wrong run type / rejected / unfinished / missing, cp2k_make_labels' `frames` for the good ones, rerun and fix lists",
     },
     "cp2k_restart_md": {
         "method": "md",
@@ -479,3 +497,162 @@ def cp2k_parse_output(out_path: str, vectors: bool = False) -> dict:
         raise ValueError(f"{src} is not a file on this machine. For an output on a "
                          "cluster, download it first (fs_download).")
     return {"path": str(src), **cp2k_output.parse(src.read_text(errors="replace"), vectors)}
+
+
+@mcp.tool()
+def cp2k_make_label_batch(frames_path: str, kinds: dict, out_dir: str,
+                          functional: str = "r2scan", d3: str = "none", cutoff: int = 1000,
+                          rel_cutoff: int = 60, precision: dict | None = None, scf: str = "ot",
+                          frame_duration: str | None = None, guess: str = "atomic",
+                          config_type: str | None = None, selection_path: str | None = None,
+                          hfx: dict | None = None, overwrite: bool = False) -> dict:
+    """Write CP2K label inputs for a batch of frames: one folder per frame
+    (fNNNN/subsys.inc and fNNNN/label.inp) and batch.json, the manifest
+    the packed jobs and the collector read. Local only.
+
+    The same code as cp2k_make_subsys and cp2k_make_input("sp", ...,
+    purpose="label") writes each folder; every frame's label.inp is the
+    same text (refused otherwise), so one setting covers the batch:
+    energy, forces and analytical stress in label.out, PROJECT "label".
+    The defaults are the E1 r2SCAN label settings (UZH 2026.2 SCAN-GTH
+    kinds from cp2k_kinds(family="uzh-scan"), CUTOFF 1000 / REL_CUTOFF 60
+    Ry, EPS_DEFAULT 1e-12, OT) without D3.
+
+    Before it: the selected frames as one extxyz (Lattice=, species and
+    pos first) and, when the selection wrote one, its manifest with a
+    sha256 per frame (checked here); cp2k_kinds(facility, elements,
+    family=...) for the build that will run it.
+
+    After it: cp2k_pack_jobs(facility, out_dir, remote_dir, launch_plan's
+    result) writes the job scripts into out_dir; then fs_upload out_dir to
+    remote_dir (under ~/agent/work/), cp2k_check_input on `check_input`
+    (one frame stands for all: the inputs are identical), render_job_script
+    and submit_job each pack. Read the collector with cp2k_collect_labels.
+
+    guess="previous" starts each frame from the previous frame's
+    wavefunction within a job (the job copies it to guess.wfn; the first
+    frame of a job, or one whose predecessor failed, starts from the
+    atomic guess with a CP2K warning). Off by default: it saves SCF steps
+    on nearby frames, but makes each label depend on the job's order.
+
+    Returns {"out_dir", "manifest", "frames", "natoms", "input_sha256",
+    "settings", "check_input" (the representative input, relative to the
+    batch folder), "config_types", "warnings"}; read the warnings to the
+    user (no D3, thin cells).
+
+    Args:
+        frames_path: the selected-frames extxyz on this machine.
+        kinds: cp2k_kinds' full result (kinds and data files).
+        out_dir: the batch folder to write (created; the name of the batch).
+        functional, d3, cutoff, rel_cutoff, precision, scf, hfx: as in
+            cp2k_make_input; d3 must stay "none" for D3-free labels.
+        frame_duration: per-frame CP2K WALLTIME "HH:MM:SS" (minus 600 s);
+            default 01:00:00, so a stuck SCF ends without the job's time.
+        guess: "atomic" (default) or "previous".
+        config_type: config_type for frames whose extxyz info and
+            selection carry none.
+        selection_path: the frame-selection manifest (JSON, {"frames":
+            [{"sha256", ...}]} or that list), one entry per frame in order.
+        overwrite: replace an existing batch in out_dir.
+    """
+    import json as _json
+    src = Path(frames_path).expanduser()
+    if not src.is_file():
+        raise ValueError(f"{src} is not a file on this machine; fs_download it first")
+    if not isinstance(kinds, dict) or "kinds" not in kinds or "files" not in kinds:
+        raise ValueError("kinds is cp2k_kinds' full result (it carries `kinds` and `files`)")
+    selection = None
+    if selection_path:
+        sp = Path(selection_path).expanduser()
+        if not sp.is_file():
+            raise ValueError(f"{sp} is not a file on this machine")
+        selection = _json.loads(sp.read_text())
+    dst = Path(out_dir).expanduser()
+    if (dst / cp2k_batch.MANIFEST).exists() and not overwrite:
+        raise ValueError(f"{dst} already holds a batch; pass overwrite=true to replace it")
+    files, man = cp2k_batch.write(src.read_text(), str(src), kinds["kinds"], kinds["files"],
+                                  functional, d3, cutoff, rel_cutoff, precision, scf,
+                                  frame_duration, guess, config_type, selection, hfx=hfx)
+    for rel, text in files.items():
+        p = dst / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+    (dst / cp2k_batch.MANIFEST).write_text(_json.dumps(man, indent=1) + "\n")
+    rows = man["frames"]
+    return {"out_dir": str(dst), "manifest": str(dst / cp2k_batch.MANIFEST),
+            "frames": len(rows), "natoms": sorted({r["natoms"] for r in rows}),
+            "input_sha256": man["input_sha256"], "settings": man["settings"],
+            "check_input": f"{rows[0]['name']}/{cp2k_batch.INPUT}",
+            "config_types": sorted({r["config_type"] or "" for r in rows}),
+            "warnings": man["warnings"]}
+
+
+@mcp.tool()
+def cp2k_collect_labels(batch_dir: str, archive_path: str | None = None) -> dict:
+    """Read a label batch's outputs on this machine: per frame finished,
+    unconverged, wrong run type, rejected, unfinished (killed or still
+    running) or missing, the `frames` list cp2k_make_labels takes for the
+    finished ones, and which frames to run again. Writes only the
+    label.out files it unpacks from archive_path.
+
+    Download (small outputs only, one transfer for the whole batch):
+    fs_compress(facility, [<remote batch folder>], <remote batch
+    folder>/outs.tar.gz, match_pattern=".*/f[0-9]+/label\\.out\\|.*/pack-[0-9]+\\.log")
+    then fs_download that archive and pass it here as archive_path. Only
+    fNNNN/label.out members of this batch's frames (into batch_dir/fNNNN/)
+    and the packs' pack-NN.log (the job's per-frame log, into batch_dir)
+    are unpacked, replacing older copies; nothing else is extracted.
+    The wavefunctions stay on the cluster.
+
+    Statuses: "finished" (passes every cp2k_make_labels check),
+    "unconverged" (SCF not converged, or stopped by the per-frame
+    WALLTIME), "wrong_run_type" (not ENERGY_FORCE), "rejected" (ended but
+    unusable: other project, atom count, no forces or stress),
+    "unfinished" (no PROGRAM ENDED), "missing" (no label.out).
+
+    Returns {"batch", "counts", "frames" (for cp2k_make_labels, with each
+    frame's config_type), "states": [{name, status, why, wall_s,
+    scf_steps}], "resubmit": {"rerun": unfinished + missing (resubmit
+    their packs: finished frames are skipped; or cp2k_pack_jobs with
+    frames=rerun), "fix": unconverged + wrong + rejected (the same input
+    won't help)}, "wall_s": {n, mean, max} of finished frames (for the
+    next packing), "unpacked", "warnings"}.
+
+    Args:
+        batch_dir: the batch folder cp2k_make_label_batch wrote.
+        archive_path: the downloaded tar(.gz) of the batch's label.out files.
+    """
+    import json as _json
+    import tarfile
+    root = Path(batch_dir).expanduser()
+    mp = root / cp2k_batch.MANIFEST
+    if not mp.is_file():
+        raise ValueError(f"{mp} is missing: batch_dir is the folder cp2k_make_label_batch wrote")
+    man = cp2k_batch.check_manifest(_json.loads(mp.read_text()))
+    names = {r["name"] for r in man["frames"]}
+    unpacked = []
+    if archive_path:
+        ap = Path(archive_path).expanduser()
+        if not ap.is_file():
+            raise ValueError(f"{ap} is not a file on this machine; fs_download it first")
+        with tarfile.open(ap) as tar:
+            for m in tar.getmembers():
+                parts = Path(m.name).parts
+                if (m.isfile() and len(parts) >= 2 and parts[-1] == cp2k_batch.OUTPUT
+                        and parts[-2] in names):
+                    data = tar.extractfile(m).read()
+                    (root / parts[-2] / cp2k_batch.OUTPUT).write_bytes(data)
+                    unpacked.append(parts[-2])
+                elif m.isfile() and parts and cp2k_batch.PACK_LOG_RE.fullmatch(parts[-1]):
+                    (root / parts[-1]).write_bytes(tar.extractfile(m).read())
+                    unpacked.append(parts[-1])
+    outs, subs = {}, {}
+    for r in man["frames"]:
+        o, s = root / r["name"] / cp2k_batch.OUTPUT, root / r["name"] / cp2k_batch.SUBSYS
+        outs[r["name"]] = o.read_text(errors="replace") if o.is_file() else None
+        if s.is_file():
+            subs[r["name"]] = s.read_text()
+    res = cp2k_batch.collect(man, outs, subs, str(root))
+    if archive_path and not unpacked:
+        res["warnings"].append(f"{archive_path} held no fNNNN/{cp2k_batch.OUTPUT} of this batch")
+    return {**res, "unpacked": sorted(unpacked)}

@@ -1,0 +1,1 @@
+**Packed job** — one batch job that runs K small runs one after another (a loop in the job script) instead of K separate jobs or a scheduler job array; keeps 100–200 CP2K label frames to a few jobs under a facility's job cap.
