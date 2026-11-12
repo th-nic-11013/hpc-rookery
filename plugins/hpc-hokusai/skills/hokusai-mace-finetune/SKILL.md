@@ -148,6 +148,35 @@ are on a different energy zero than the labels.
 The model is `checkpoints/<name>_run-<seed>.model`. To run it in LAMMPS
 it has to be exported first; that step is not a tool yet.
 
+## Picking the frames to label (before labelling)
+
+From an MD pool (extxyz, e.g. `structure_to_extxyz` on LAMMPS dumps),
+`mlip_select_frames` (hyogo, local) picks the frames to label. First
+without quotas: it returns the strata (stratum key x volume bin), how
+many frames each holds and how many fit at `min_spacing_ps`; agree the
+quotas with the user, then call again with `quotas` and `out_dir`.
+Hold out whole time blocks (`holdout=[{"source": "A3-*", "last_ps": 50}]`),
+never random frames: frames 25 fs apart are near copies. Round 2:
+`exclude=[<round-1 manifest.json>, <labels extxyz>]`, and `scores=` a
+per-frame disagreement array in place of farthest-point sampling.
+
+Without descriptors it spreads picks by volume alone. Descriptors
+(per-element means of the base model's invariant features) come from
+`scripts/mace_descriptors.py` on the cluster, in the MACE environment,
+on the same pool files: `fs_upload` the script and the pool, then
+
+```text
+submit_job(spec = launch_plan(facility="hokusai", code="mace", run_type="train",
+                              system={"atoms": <atoms per frame>}, gpus=1)["job_spec"] + {
+    "name": "<name>-desc", "directory": "<pool folder>",
+    "executable": "python mace_descriptors.py --model <base model> --out desc.npy <pool files>",
+    "attributes": {"duration": "<walltime>"}})
+```
+
+`--dry-run` counts and hashes the pool without a model. `fs_download`
+`desc.npy` and `desc.json` and pass `descriptors="desc.npy"`; the tool
+refuses descriptors computed on other files.
+
 ## HOKUSAI notes
 
 - **GPUs:** partition `gpu` (bwgpu1-3, 4 x H100 each, one node per job,

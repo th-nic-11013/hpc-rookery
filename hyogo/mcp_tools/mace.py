@@ -39,6 +39,15 @@ TOOL_META = {
         "source": "the user's `parse_mace.py`; G49",
         "notes": "training log → finished, early stop or max epochs, restarts, per-head validation errors (initial, last, at the saved checkpoint), best epoch, final error table, counted ERROR lines; warns when the initial energy error points at wrong E0s. Mean training loss from `*_train.txt` not carried",
     },
+    "mlip_select_frames": {
+        "method": "mlip",
+        "stage": "select",
+        "code": "none",
+        "module": "`hyogo/mace/select.py`",
+        "status": "live",
+        "source": "notes/uio66-labelling-readiness.md §2 (UiO-66 fine-tune sampling plan); G50",
+        "notes": "pool extxyz (streamed) → held-out time blocks, skip earlier picks (manifest sha256) or labelled frames (geometry), strata (keys × equal-width volume bins, quota each), FPS on descriptors or volume (or a per-frame score, round 2) with ≥ min_spacing_ps per run, uniform control set; seeded. Without quotas: the strata report. Writes selected.extxyz + manifest.json. Descriptors from the mace pack's `scripts/mace_descriptors.py` (cluster)",
+    },
 }
 
 
@@ -228,3 +237,200 @@ def mace_parse_log(log_path: str, epochs: bool = False) -> dict:
     if not epochs:
         r.pop("epochs")
     return {"path": str(src), **r}
+
+
+@mcp.tool()
+def mlip_select_frames(pool: list[str], quotas: dict | None = None, out_dir: str | None = None,
+                       strata: list[str] | None = None, volume_bins: int = 5,
+                       descriptors: str | None = None, scores: str | None = None,
+                       holdout: list[dict] | None = None, from_holdout: bool = False,
+                       exclude: list[str] | None = None, min_spacing_ps: float = 1.0,
+                       control_fraction: float = 0.05, seed: int = 0,
+                       keys: dict | None = None, overwrite: bool = False) -> dict:
+    """Pick the frames to label from a pool of MD frames (extxyz on this
+    machine): hold out whole time blocks, skip frames already picked or
+    labelled, stratify by stratum keys x volume bins with a quota per
+    stratum, pick inside each volume bin by farthest-point sampling (on
+    descriptors, else on the volume) never closer than min_spacing_ps to
+    another pick from the same run, and add a uniformly spaced control set.
+    Seeded: the same inputs give the same picks.
+
+    Call it first without quotas: it writes nothing and returns the strata
+    report (frames, eligible, volume range, per-bin counts and how many
+    frames fit at the spacing). Then call with quotas and out_dir.
+
+    Before it: structure_to_extxyz on the LAMMPS dumps (yagura) and a
+    structure check; for descriptors, the mace pack's
+    scripts/mace_descriptors.py on the cluster, then fs_download its .npy
+    and .json. After it: label the selected.extxyz frames (cp2k_make_subsys
+    + cp2k_make_input purpose="label" per frame); for round 2, pass this
+    manifest.json and the labelled extxyz in exclude.
+
+    Writes (with quotas) out_dir/selected.extxyz (the pool frames byte for
+    byte, plus pool_sha256, pool_file, pool_index, stratum, picked_by on
+    the comment line) and out_dir/manifest.json (inputs with sha256,
+    arguments, per frame: pool file, index, source, time_ps, volume,
+    stratum, sha256, why it was picked).
+
+    Returns {"pool": files, "frames", "feature" ("descriptors" | "volume" |
+    "score"), "strata" (the report), "holdout", "excluded", and with quotas
+    "out_dir", "files", "picked", "by_stratum", "warnings"}. Read the
+    warnings and the strata report to the user.
+
+    Refuses: descriptor or score rows that do not match the pool (count, or
+    the descriptor json naming other pool files); a stratum key, the run key
+    or (with spacing or time windows) the time key missing in some frame;
+    quotas larger than what a stratum holds at the spacing (with the report
+    in the message); quotas naming strata the pool lacks; a holdout rule that
+    matches nothing; an existing out_dir without overwrite.
+
+    Args:
+        pool: extxyz files of pool frames (.gz ok); ~ is expanded.
+        quotas: {stratum: frames}; a stratum is the strata keys' values
+            joined by "|" (e.g. "P1-300K"); omit for the report only.
+        out_dir: where to write selected.extxyz and manifest.json.
+        strata: info keys to stratify by (default ["config_type"]; "source"
+            is the run); [] for one stratum.
+        volume_bins: equal-width volume bins per stratum (the quota is
+            spread evenly over them, so the tails get frames).
+        descriptors: .npy, one row per pool frame in pool order (its .json
+            beside it is checked when present).
+        scores: .npy, one number per pool frame; when given, the highest
+            scores are picked instead of FPS (round 2: committee
+            disagreement). NaN frames are never picked.
+        holdout: rules, each {"source": glob, "match": {key: value},
+            "last_ps" | "first_ps" | "from_ps"/"to_ps": window per run};
+            no window holds out every frame matched.
+        from_holdout: pick from the held-out frames instead (a test set).
+        exclude: earlier manifest.json files, selected extxyz, or labelled
+            extxyz (matched by geometry: atom order must be the pool's).
+        min_spacing_ps: least time between two picks from one run (also
+            from excluded frames found in the pool); 0 turns it off.
+        control_fraction: control frames, as a fraction of the quota sum,
+            added on top.
+        seed: the random choices (first FPS pick, control offset).
+        keys: info key names when not the defaults {"source": "source",
+            "frame": "frame", "time": "time_ps", "volume": "volume"};
+            {"source": None} names each run after its file.
+    """
+    import hashlib
+    import json
+    import numpy as np
+    from hyogo.mace import select as sel
+
+    if isinstance(pool, str):
+        pool = [pool]
+    if not pool:
+        raise ValueError("no pool files: pass the extxyz of the pool frames")
+    paths = []
+    for p in pool:
+        src = Path(p).expanduser()
+        if not src.is_file():
+            raise ValueError(f"{src} (pool extxyz) is not a file on this machine; fs_download it first")
+        paths.append(src)
+    if volume_bins < 1 or min_spacing_ps < 0 or not 0 <= control_fraction < 1:
+        raise ValueError("volume_bins >= 1, min_spacing_ps >= 0 and 0 <= control_fraction < 1")
+    k = sel._keys(keys)
+    strata = ["config_type"] if strata is None else list(strata)
+    data = sel.read_pool(paths)
+    n = len(data["frames"])
+    fx = sel.facts(data, k, need_time=min_spacing_ps > 0)
+    labels = sel.strata_labels(data, fx, strata, k)
+    held, held_rep = sel.holdout_mask(data, fx, holdout)
+    shas, geoms = sel.read_exclude([Path(p).expanduser() for p in exclude or []])
+    excl, excl_rep = sel.excluded_mask(data, fx, shas, geoms)
+    eligible = (held if from_holdout else ~held) & ~excl
+    warnings = []
+    if excl_rep["not_in_pool"]:
+        warnings.append(f"{excl_rep['not_in_pool']} excluded frame(s) matched no pool frame (first: "
+                        f"{excl_rep['not_in_pool_first']}): from another pool, or atom order differs")
+
+    desc, blocks, desc_rec = None, None, None
+    if descriptors:
+        dp = Path(descriptors).expanduser()
+        if not dp.is_file():
+            raise ValueError(f"{dp} (descriptors .npy) is not a file on this machine")
+        desc = np.load(dp, mmap_mode="r")
+        if desc.ndim != 2 or desc.shape[0] != n:
+            raise ValueError(f"descriptors {dp.name} have shape {desc.shape}, the pool has {n} frames: "
+                             "one row per pool frame, in pool order")
+        meta_p = dp.with_suffix(".json")
+        if meta_p.is_file():
+            meta = json.loads(meta_p.read_text())
+            want = [(f["sha256"], f["frames"]) for f in meta.get("pool", [])]
+            have = [(f["sha256"], f["frames"]) for f in data["files"]]
+            if want != have:
+                raise ValueError(f"{meta_p.name} says the descriptors were computed on "
+                                 f"{[f.get('name') for f in meta.get('pool', [])]}, not on these pool files "
+                                 "(sha256 or frame counts differ); pass the same files in the same order")
+            blocks = [tuple(v) for v in (meta.get("blocks") or {}).values()] or None
+        else:
+            warnings.append(f"no {meta_p.name} beside the descriptors: rows matched to the pool by count only")
+        desc = np.asarray(desc, dtype=float)
+        if not np.isfinite(desc).all():
+            raise ValueError(f"descriptors {dp.name} contain NaN or inf")
+        desc_rec = {"path": str(dp), "sha256": sel.file_sha256(dp), "shape": list(desc.shape),
+                    "blocks": blocks}
+    sc, sc_rec = None, None
+    if scores:
+        sp_ = Path(scores).expanduser()
+        if not sp_.is_file():
+            raise ValueError(f"{sp_} (scores .npy) is not a file on this machine")
+        sc = np.asarray(np.load(sp_), dtype=float)
+        if sc.shape != (n,):
+            raise ValueError(f"scores {sp_.name} have shape {sc.shape}, the pool has {n} frames")
+        sc_rec = {"path": str(sp_), "sha256": sel.file_sha256(sp_)}
+        if np.isnan(sc[eligible]).any():
+            warnings.append(f"{int(np.isnan(sc[eligible]).sum())} eligible frames have no score (NaN): never picked")
+    feature = "score" if sc is not None else "descriptors" if desc is not None else "volume"
+
+    report = sel.plan(fx, labels, eligible, volume_bins, min_spacing_ps)
+    head = {"pool": [{kk: f[kk] for kk in ("path", "sha256", "frames")} for f in data["files"]],
+            "frames": n, "feature": feature, "strata": report, "holdout": held_rep,
+            "excluded": excl_rep}
+    if quotas is None:
+        return {**head, "warnings": warnings,
+                "next": "choose quotas per stratum from this report, then call again with quotas and out_dir"}
+    if not out_dir:
+        raise ValueError("out_dir is needed with quotas")
+    try:
+        quotas = {str(g): int(v) for g, v in quotas.items()}
+    except (TypeError, ValueError):
+        raise ValueError("quotas must be {stratum: number of frames}") from None
+    out = Path(out_dir).expanduser()
+    if out.exists() and any(out.iterdir()) and not overwrite:
+        raise ValueError(f"{out} exists and is not empty; pass overwrite=true or another out_dir")
+
+    feats = sel.features(desc, fx["volume"], blocks)
+    picks, w2, counts = sel.select(fx, labels, eligible, excl, quotas, volume_bins, min_spacing_ps,
+                                   control_fraction, seed, feats, sc)
+    warnings += w2
+    out.mkdir(parents=True, exist_ok=True)
+    rows, wmap = [], {}
+    for order, (i, g, why) in enumerate(picks):
+        f = data["frames"][i]
+        name = data["files"][f["file"]]["name"]
+        extra = (f"pool_sha256={f['sha256']} pool_file={json.dumps(name)} pool_index={f['index']} "
+                 f"stratum={json.dumps(g)} picked_by={why['by']}")
+        wmap[(f["file"], f["index"])] = (order, extra)
+        t = fx["time"][i]
+        fr = f["info"].get(k["frame"]) if k["frame"] else None
+        rows.append({"pool_file": name, "pool_index": f["index"],
+                     "frame": int(fr) if fr is not None and fr.lstrip("-").isdigit() else fr,
+                     "source": str(fx["source"][i]), "time_ps": None if np.isnan(t) else float(t),
+                     "volume_A3": round(float(fx["volume"][i]), 4), "stratum": g,
+                     "sha256": f["sha256"], "why": why})
+    sel.write_frames(paths, wmap, out / "selected.extxyz")
+    # no timestamp: the same inputs give a byte-identical manifest
+    man = {"tool": "mlip_select_frames", "pool": head["pool"], "pool_frames": n, "feature": feature,
+           "descriptors": desc_rec, "scores": sc_rec,
+           "arguments": {"quotas": quotas, "strata": strata, "volume_bins": volume_bins,
+                         "holdout": holdout, "from_holdout": from_holdout, "exclude": exclude,
+                         "min_spacing_ps": min_spacing_ps, "control_fraction": control_fraction,
+                         "seed": seed, "keys": k},
+           "holdout": held_rep, "excluded": excl_rep, "by_stratum": counts, "warnings": warnings,
+           "frames": rows}
+    (out / "manifest.json").write_text(json.dumps(man, indent=1) + "\n")
+    sha = hashlib.sha256((out / "selected.extxyz").read_bytes()).hexdigest()
+    return {**head, "out_dir": str(out), "files": ["manifest.json", "selected.extxyz"],
+            "selected_sha256": sha, "picked": len(rows), "by_stratum": counts, "warnings": warnings}
