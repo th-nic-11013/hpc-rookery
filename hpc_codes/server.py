@@ -11,7 +11,9 @@ first, like the scheduler tools. The records_* tools work on local files
 and never contact a cluster; the cp2k_* tools run one read-only command on
 the facility's login node, after the same configuration check as the
 scheduler tools (cp2k_bench_input then writes its inputs on this
-machine); launch_plan reads records and pack values only.
+machine); campaign_status runs one read-only command on the login node,
+after the same check, and may append a campaign record; launch_plan
+reads records and pack values only.
 """
 import hpc_mcp  # noqa: F401 -- import for its side effect: registers every facility
 from hpc_agent_core.mcp_server import MCPServer

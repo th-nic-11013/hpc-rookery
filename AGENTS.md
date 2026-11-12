@@ -79,8 +79,9 @@ codes/                  Code packs: facility-neutral skills per simulation
 hpc_codes/              The code-pack tools, served by hpc-mcp: records_*
                         tools over the records adapter (records.py) and
                         schemas/records.yaml, the provisional schema of
-                        measured records (benchmarks, builds), the cp2k_*
-                        tools and launch_plan, in mcp_tools/<group>.py
+                        measured records (benchmarks, builds, campaign
+                        snapshots), the cp2k_* tools, launch_plan and
+                        campaign_status, in mcp_tools/<group>.py
                         (decorated @_tool). hpc_server.py registers them
                         (and the docs tools) each inside its own guard, so a
                         code tool can't stop the scheduler tools from

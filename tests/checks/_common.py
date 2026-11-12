@@ -15,7 +15,7 @@ TESTS = ROOT / "tests"
 
 # the code-pack and docs tools the hpc server serves since it took over
 # hpc-codes-mcp and hpc-docs-mcp
-CODES_TOOLS = ['cp2k_bench_dryrun', 'cp2k_bench_input', 'cp2k_bench_parse', 'cp2k_bench_records',
+CODES_TOOLS = ['campaign_status', 'cp2k_bench_dryrun', 'cp2k_bench_input', 'cp2k_bench_parse', 'cp2k_bench_records',
                'cp2k_check_build', 'cp2k_check_input', 'cp2k_kinds', 'cp2k_record_from_run',
                'launch_plan', 'records_append', 'records_check', 'records_query',
                'records_summarise_timings']

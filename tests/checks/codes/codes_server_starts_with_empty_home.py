@@ -20,7 +20,7 @@ def codes_server_starts_with_empty_home():
         out = subprocess.run([sys.executable, "-c", probe], cwd=root, env=env,
                              capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr[-2000:]
-    assert out.stdout.strip() == ("['cp2k_bench_dryrun', 'cp2k_bench_input', 'cp2k_bench_parse', "
+    assert out.stdout.strip() == ("['campaign_status', 'cp2k_bench_dryrun', 'cp2k_bench_input', 'cp2k_bench_parse', "
                                   "'cp2k_bench_records', 'cp2k_check_build', 'cp2k_check_input', "
                                   "'cp2k_kinds', 'cp2k_record_from_run', 'launch_plan', 'records_append', 'records_check', "
                                   "'records_query', 'records_summarise_timings']"), out.stdout
