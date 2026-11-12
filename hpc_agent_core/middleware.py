@@ -173,7 +173,11 @@ def _unreachable_message(fac, detail: str) -> str:
 
 
 #: remotemanager's text when a command outlives its transport wait
-#: (remotemanager/connection/cmd.py, _communicate). The process is killed.
+#: (remotemanager/connection/cmd.py, _communicate). It kills the local SSH
+#: client, not the remote command: without a terminal sshd sends no hangup,
+#: so a command that writes files rather than output (tar, cp) runs to the
+#: end on the cluster (G44: a 3400-file fs_compress finished its archive
+#: after the call had already failed).
 _TRANSPORT_TIMEOUT_TEXT = "could not communicate with process"
 
 
@@ -187,13 +191,17 @@ def _transport_wait_s(timeout, max_timeouts) -> float:
     return t * m + t * m * (m - 1) / 2
 
 
-def _slow_command_message(fac, wait_s: float, per_call: bool) -> str:
-    how = ("pass a longer timeout to this call" if per_call else
-           f'raise "computer": {{"timeout": ...}} in {config.config_path(fac)}')
+def _slow_command_message(fac, wait_s: float) -> str:
     return (f"The command on {fac.display_name} ({fac.slug!r}) ran longer than the SSH "
-            f"transport waits (about {wait_s:.0f} s) and was stopped. The cluster was "
-            f"reached; this is not a connection or settings problem. Submit long work as a "
-            f"job (submit_job), or {how}.")
+            f"transport waits (about {wait_s:.0f} s), so the SSH client stopped waiting "
+            f"for it. The cluster was reached; this is not a connection or settings "
+            f"problem. The command itself may still be running there and finish on its "
+            f"own (losing SSH does not stop a command that writes files, such as a tar "
+            f"or cp), so do not re-run it yet: check whether it is still running with "
+            f"`ps -u $USER -o pid,etime,args` (on the same login node, where several sit "
+            f"behind one name), and once it is gone look at the files it writes. Submit "
+            f"long work as a job (submit_job), or raise "
+            f'"computer": {{"timeout": ...}} in {config.config_path(fac)}.')
 
 
 def run_command(facility: "Facility | str", cmd: str, timeout: float | None = None) -> str:
@@ -207,15 +215,22 @@ def run_command(facility: "Facility | str", cmd: str, timeout: float | None = No
     gets its own message instead (gap G4: it used to read as broken SSH).
 
     timeout: seconds this call may take, for commands known to be slow (a
-    `cp2k --check`). Without it the facility's computer settings apply
-    (remotemanager's timeout x max_timeouts, about 30 s by default).
+    `cp2k --check`, an fs_compress). Without it, or when the facility's
+    computer settings already wait longer, those settings apply
+    (remotemanager's timeout x max_timeouts, about 30 s by default), so a
+    user who raised them never gets a shorter wait from a tool.
     Output beyond OUTPUT_LIMIT_BYTES is truncated with a marker.
     """
     fac = config.resolve(facility)
     payload = 'cd "$HOME" && ' + cmd
     encoded = base64.b64encode(payload.encode()).decode()
     frontend = get_frontend(fac)
-    kw = {} if timeout is None else {"timeout": max(1, int(round(timeout))), "max_timeouts": 1}
+    wait = _transport_wait_s(getattr(frontend, "timeout", None),
+                             getattr(frontend, "max_timeouts", None))
+    kw = {}
+    if timeout is not None and timeout > wait:
+        wait = max(1, int(round(timeout)))
+        kw = {"timeout": wait, "max_timeouts": 1}
     # remotemanager may print progress to stdout, which would corrupt the
     # MCP stdio transport — divert anything it emits.
     with contextlib.redirect_stdout(sys.stderr):
@@ -225,10 +240,7 @@ def run_command(facility: "Facility | str", cmd: str, timeout: float | None = No
             )
         except Exception as exc:
             if _TRANSPORT_TIMEOUT_TEXT in str(exc):
-                wait = (kw["timeout"] if kw else
-                        _transport_wait_s(getattr(frontend, "timeout", None),
-                                          getattr(frontend, "max_timeouts", None)))
-                raise RuntimeError(_slow_command_message(fac, wait, bool(kw))) from exc
+                raise RuntimeError(_slow_command_message(fac, wait)) from exc
             raise RuntimeError(_unreachable_message(fac, str(exc))) from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()

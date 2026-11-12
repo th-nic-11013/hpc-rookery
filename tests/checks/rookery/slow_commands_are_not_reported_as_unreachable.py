@@ -39,7 +39,7 @@ def slow_commands_are_not_reported_as_unreachable():
         except RuntimeError as e:
             msg = str(e)
     assert slow.kw.get("timeout") == 90 and slow.kw.get("max_timeouts") == 1, slow.kw
-    assert "about 90 s" in msg and "longer timeout to this call" in msg, msg
+    assert "about 90 s" in msg, msg
     assert middleware._transport_wait_s(20, 3) == 120, "20 s x 3 waits 20+20+20+20+40"
 
     down = Frontend(RuntimeError("ssh: Could not resolve hostname hokusai"))
