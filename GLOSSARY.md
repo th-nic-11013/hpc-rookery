@@ -17,6 +17,7 @@
 - **ECV (expansion collective variable)** — in OPES_EXPANDED, the per-target-ensemble energy shift ΔUᵢ(x) that tells the bias how much more likely x is at (Tᵢ, Pᵢ) than at the simulated T₀, P₀.
 - **Embedding endpoint** — the server that turns text into vectors so `search_docs` can rank guide sections by meaning, not just keywords.
 - **Experience record** — a proposed record type holding one symptom → cause → fix lesson, looked up before a run (and matched against the error if one fails).
+- **Fixed-step benchmark (VASP)** — a layout timing in which every run does exactly N SCF steps (NELMIN = NELM = N) with NBANDS pinned, so only the parallel split differs; its `wall_s` record is for those N steps (`extra.scf_steps`), not for a converged single point.
 - **Fork** — your own copy of someone else's GitHub repo, under your account, that you can push to and propose changes back from (like photocopying a shared notebook to write in it).
 - **Gap (G1, G2, …)** — a numbered entry in a personal "tool audit" note (local `notes/`, not committed): a step the repo's tools couldn't do, with its owner and proposed fix; numbers run on across notes.
 - **Gap card** — one small file per gap saying what it may edit, what it depends on and which few files to load; the unit one session claims.
