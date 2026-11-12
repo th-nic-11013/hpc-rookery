@@ -1,0 +1,1 @@
+**Farthest-point sampling (FPS)** — pick frames one at a time, each the one farthest (in descriptor space) from everything picked so far, so a small set covers the pool's spread instead of its crowded middle.

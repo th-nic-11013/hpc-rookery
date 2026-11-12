@@ -7,6 +7,7 @@
 - **AUX_FIT** — the per-kind line in CP2K that names the small auxiliary basis ADMM uses for exact exchange.
 - **Band groups (VASP)** — the MPI ranks split into teams that each work on a share of the bands: ranks / (KPAR × NCORE). VASP silently rounds NBANDS up to a multiple of it, so a new NCORE can change the band count; `vasp_make_incar` checks it.
 - **Block averaging** — splitting a run into consecutive blocks and using the spread between block results as the error, so correlated frames aren't counted as independent.
+- **Block hold-out** — keep whole time windows of a run (e.g. its last 50 ps) out of training, because MD frames 25 fs apart are near copies and a random split would leak.
 - **Collective variable (CV)** — one number that summarises a configuration (a distance, a torsion angle, a coordination number), chosen so it tells apart the states you care about.
 - **Constrain-then-release** — a short VASP pre-run with the total moment fixed (NUPDOWN), whose wavefunction (WAVECAR) starts a second run with the moment free: it steers the SCF into a spin state without biasing the final result.
 - **Contract test** — a test in one repo that pins the names and arguments of the tools it calls in another, so a change on either side fails loudly instead of silently breaking a skill.
@@ -17,6 +18,7 @@
 - **ECV (expansion collective variable)** — in OPES_EXPANDED, the per-target-ensemble energy shift ΔUᵢ(x) that tells the bias how much more likely x is at (Tᵢ, Pᵢ) than at the simulated T₀, P₀.
 - **Embedding endpoint** — the server that turns text into vectors so `search_docs` can rank guide sections by meaning, not just keywords.
 - **Experience record** — a proposed record type holding one symptom → cause → fix lesson, looked up before a run (and matched against the error if one fails).
+- **Farthest-point sampling (FPS)** — pick frames one at a time, each the one farthest (in descriptor space) from everything picked so far, so a small set covers the pool's spread instead of its crowded middle.
 - **Fork** — your own copy of someone else's GitHub repo, under your account, that you can push to and propose changes back from (like photocopying a shared notebook to write in it).
 - **Gap (G1, G2, …)** — a numbered entry in a personal "tool audit" note (local `notes/`, not committed): a step the repo's tools couldn't do, with its owner and proposed fix; numbers run on across notes.
 - **Gap card** — one small file per gap saying what it may edit, what it depends on and which few files to load; the unit one session claims.
