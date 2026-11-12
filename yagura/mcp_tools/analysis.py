@@ -5,7 +5,7 @@ a new group of tools is a new module beside this one.
 """
 import re
 from pathlib import Path
-from yagura.analysis import fes as fes_mod, gap as gap_mod, pdos as pdos_mod, trajectory
+from yagura.analysis import fes as fes_mod, gap as gap_mod, pdos as pdos_mod, pdos_vasp, trajectory
 from yagura.mcp_tools import _local_file, mcp
 
 
@@ -196,9 +196,12 @@ def gap_compare(gaps: list[dict], references: list[dict], kpoints: str = "gamma"
 @mcp.tool()
 def pdos_read(paths: list[str], window_ev: float = 0.5, sigma_ev: float = 0.1,
               emin_ev: float = -6.0, emax_ev: float = 8.0, out_path: str | None = None,
-              overwrite: bool = False) -> dict:
-    """Read the CP2K projected DOS files of one run (one .pdos per atomic
-    kind: <PROJECT>-k<n>-1.pdos, or -ALPHA_k<n>- / -BETA_k<n>- with spin)
+              overwrite: bool = False, group_by: str = "element",
+              groups: dict[str, list[int]] | None = None, environment: dict | None = None,
+              edge_threshold: float = 0.05) -> dict:
+    """Read the projected DOS of one run, CP2K's or VASP's (see VASP below).
+    CP2K: the .pdos files (one per atomic kind: <PROJECT>-k<n>-1.pdos, or
+    -ALPHA_k<n>- / -BETA_k<n>- with spin)
     and say where the band edges sit: HOMO, LUMO and the gap between them,
     and the share of each kind and channel ("Zr d", "C p", ...) in the
     states within window_ev of each edge. Writes a Gaussian-broadened DOS
@@ -215,20 +218,63 @@ def pdos_read(paths: list[str], window_ev: float = 0.5, sigma_ev: float = 0.1,
     {states, kinds: {kind: share}, channels: {"El l": share}},
     "conduction": {...}}}, "gap_ev", "window_ev", "sigma_ev", "warnings"}.
 
+    VASP: pass one vasprun.xml or vasprun.xml.gz instead (LORBIT >= 10 for
+    the projections; the <projected> block isn't needed). The PDOS is summed
+    over groups of atoms: by element, or with group_by="environment" by the
+    classes of sites_by_environment (metal, water_O, slab_O, other_O, ...),
+    plus any named groups of atom numbers. Per spin and group it gives the
+    states per atom just below and above E_F (grid points in (E_F - w, E_F]
+    and (E_F, E_F + w], w = window_ev, times the grid spacing), the same
+    by channel, and "edge_ev": the highest E - E_F at or below +w where the
+    group's PDOS per atom exceeds edge_threshold (the top of its occupied
+    band: how far below E_F the water states sit). The MXene campaign's
+    water_pdos.py in one call. The written DOS is VASP's own (its
+    smearing; sigma_ev is not applied), E - E_F. A grid coarser than
+    window_ev / 5 is warned about (raise NEDOS). Returns {"out", "code":
+    "vasp", "natoms", "e_fermi_ev", "grid_mev", "channels", "group_by",
+    "environment", "spins": {"none" | "alpha" | "beta": {dos_at_ef, homo_ev,
+    lumo_ev, partly_occupied_states, "groups": {group: {atoms, below_ef,
+    above_ef, channels_near_ef, edge_ev}}}}, "gap_ev", "warnings"}.
+
     Args:
-        paths: the .pdos files on this machine (fs_download them first).
+        paths: the .pdos files on this machine (fs_download them first), or
+            one vasprun.xml(.gz).
         window_ev: the energy below the HOMO and above the LUMO whose states
-            count as the band edge.
-        sigma_ev: Gaussian broadening of the written DOS.
-        emin_ev, emax_ev: the written DOS's range, relative to the HOMO.
-        out_path: default <PROJECT>-pdos.dat beside the first file.
+            count as the band edge; for VASP, the window either side of E_F.
+        sigma_ev: Gaussian broadening of the written DOS (CP2K only).
+        emin_ev, emax_ev: the written DOS's range, relative to the HOMO
+            (CP2K) or E_F (VASP).
+        out_path: default <PROJECT>-pdos.dat (CP2K) or vasprun-pdos.dat
+            (VASP) beside the first file.
         overwrite: replace out_path if it exists.
+        group_by: VASP: "element" or "environment".
+        groups: VASP: extra groups, {name: [atom numbers from 1]}.
+        environment: VASP, group_by="environment": overrides of
+            sites_by_environment's metals, h_cut, water_min, slab_max.
+        edge_threshold: VASP: states/eV per atom for edge_ev.
     """
     if not paths:
         raise ValueError("paths is empty: pass the run's .pdos files")
     srcs = [_local_file(p) for p in paths]
     if len({s.resolve() for s in srcs}) != len(srcs):
         raise ValueError("a file is given twice")
+    vasp = [s for s in srcs if pdos_vasp.is_vasprun(s)]
+    if vasp and len(srcs) > 1:
+        raise ValueError("a vasprun.xml holds the whole run: pass it alone")
+    if vasp:
+        dst = (Path(out_path).expanduser() if out_path
+               else srcs[0].with_name(srcs[0].name.split(".xml")[0] + "-pdos.dat"))
+        if dst.resolve() == srcs[0].resolve():
+            raise ValueError("out_path must differ from the vasprun")
+        if dst.exists() and not overwrite:
+            raise ValueError(f"{dst} exists; pass overwrite=true to replace it")
+        text, info = pdos_vasp.analyse(srcs[0], window_ev, emin_ev, emax_ev, group_by, groups,
+                                       environment, edge_threshold)
+        dst.write_text(text)
+        return {"out": str(dst), **info}
+    if groups or environment or group_by != "element":
+        raise ValueError("group_by, groups and environment are for a vasprun; CP2K's .pdos "
+                         "files are per kind already")
     project = re.sub(r"-(ALPHA_|BETA_)?k\d+-\d+\.pdos$", "", srcs[0].name)
     dst = (Path(out_path).expanduser() if out_path
            else srcs[0].with_name(f"{project if project != srcs[0].name else srcs[0].stem}-pdos.dat"))
