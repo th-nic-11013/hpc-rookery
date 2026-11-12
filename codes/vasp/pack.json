@@ -1,0 +1,13 @@
+{
+  "code": "vasp",
+  "stages": [
+    "single-point"
+  ],
+  "values": {
+    "VASP_PARTITION": "Slurm partition VASP CPU jobs run in",
+    "VASP_CORES_PER_NODE": "cores per node there; a full-node layout R x T has R * T equal to this",
+    "VASP_DEFAULT_LAYOUT": "R x T launch_plan returns when no VASP timing is recorded yet, e.g. 48x1 (pure MPI: most VASP builds have no OpenMP)",
+    "VASP_SRUN_MPI": "srun flag selecting the MPI plugin the VASP build needs, e.g. --mpi=pmi2, or an empty string when none is needed",
+    "VASP_LAUNCH": "launch_plan's job-spec templates: {pre_launch, launcher, environment}, with {R} ranks/node, {T} threads/rank, {N} nodes, {env_script} and other values by name"
+  }
+}

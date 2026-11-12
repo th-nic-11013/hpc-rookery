@@ -1,0 +1,25 @@
+SYSTEM = single point
+# A base INCAR for a static, spin-polarised single point. Start from the
+# INCAR of the label set or reference run instead whenever one exists:
+# every physics setting must match it. Pass this file to vasp_make_incar
+# as base_incar; it writes MAGMOM, NCORE/KPAR and NBANDS with their checks.
+# electronic (agree ENCUT, ISMEAR/SIGMA and the POTCAR set with the user)
+PREC   = Accurate
+ENCUT  = 520
+EDIFF  = 1E-6
+NELM   = 200
+ALGO   = Normal
+LREAL  = .FALSE.
+LASPH  = .TRUE.
+ISMEAR = 0
+SIGMA  = 0.05
+# static
+IBRION = -1
+NSW    = 0
+# spin: MAGMOM comes from vasp_make_incar (magmom=...), in POSCAR order
+ISPIN  = 2
+# output: per-site moments (LORBIT >= 10) and a PDOS grid fine enough for pdos_read
+LORBIT = 11
+NEDOS  = 3001
+LWAVE  = .FALSE.
+LCHARG = .FALSE.
