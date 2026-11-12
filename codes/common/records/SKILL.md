@@ -18,8 +18,9 @@ behind the same tool names; skills will not change.
 - **Writes:** append only. A record is never edited or removed; a correction
   is a new record whose `supersedes` names the old id.
 - **Tools:** `records_query`, `records_append`, `records_check`,
-  `cp2k_record_from_run` (server `hpc`), each with `facility="{{SLUG}}"`. They work on local files
-  and never contact the cluster.
+  `records_summarise_timings`, `cp2k_record_from_run` (server `hpc`), each
+  with `facility="{{SLUG}}"`. They work on local files and never contact the
+  cluster.
 - **Preconditions:** the `hpc` server is connected. If the tools are
   missing, say so; don't read or write the record files by hand.
 - **Done when:** a query returned its matches, or an append returned
@@ -33,7 +34,7 @@ The full field list is in `schema.yaml` beside this file (provisional,
 
 | type | scope | id | holds |
 |---|---|---|---|
-| `benchmarks` | facility | `id` | one timing: system × method × run type × layout × nodes |
+| `benchmarks` | facility | `id` | one timing: system × method × run type × layout × nodes; with `samples`, a summary of many production runs of one such combination |
 | `software_registry` | user | `build_id` | one installed build: path, env script, data dir, test status, `default`, `removed` |
 | `benchmarks_provenance` | user | `id` | the job IDs behind a `benchmarks` record |
 
@@ -94,6 +95,22 @@ records_append(facility="{{SLUG}}", record_type="benchmarks", record={...})
   `NCORE` (or `NPAR`) in `layout`, and ends its id with
   `-k<KPAR>c<NCORE>`; `method.basis` names the POTCAR set and `cutoff_ry`
   is ENCUT / 13.6057. A CP2K benchmark has no `layout`.
+- **Production timings go in as summaries, never one record per run.** A
+  campaign that timed every frame (e.g. a table with one row per labelled
+  frame: ranks, nodes, kpar, ncore, nbands, nscf, loop, ...) becomes one
+  record per layout group:
+  `records_summarise_timings(facility="{{SLUG}}", table_path="<local table>", like="<benchmarks id of the same system and method>", frame_prefix="<system>/", dry_run=true)`,
+  then again without `dry_run`. Rows that differ in nodes, ranks, threads,
+  layout, NBANDS or k-points are never pooled. `samples` holds n and the
+  mean, std, min, median and max of seconds per SCF step (each run's SCF
+  loop time / its SCF steps), the SCF step range and the time per run;
+  `metric` is `wall_s` = mean s per SCF step x `extra.scf_steps` (the
+  median steps per run), so `metric.value / extra.scf_steps` is the mean
+  as for any VASP timing. A table of several systems is summarised once
+  per system (`frame_prefix`, and `base={"system": {...}}` when `like` is
+  another system). Read its warnings to the user: a group of fewer than
+  `min_samples` runs is recorded but rough. The ids end in
+  `-summary-<N>n-<R>x<T>-k<KPAR>c<NCORE>`.
 - A benchmark that failed or did not converge is still recorded, with
   `valid: false` and a `reason`, so it is not repeated.
 - Changing an existing record (moving `default` to another build, setting
