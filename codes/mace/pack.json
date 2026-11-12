@@ -1,10 +1,11 @@
 {
   "code": "mace",
   "stages": [
-    "finetune"
+    "finetune",
+    "eval"
   ],
   "values": {
-    "MACE_PARTITION": "Slurm partition MACE training and replay selection run in (a GPU partition)",
+    "MACE_PARTITION": "Slurm partition MACE training, replay selection and GPU scoring run in (a GPU partition)",
     "MACE_GPUS_PER_NODE": "GPUs per node there; launch_plan takes gpus from 1 to this, one node per job",
     "MACE_CORES_PER_GPU": "cores that come with (and are billed for) one GPU",
     "MACE_WORK_DIR": "where fine-tuning run folders go on the cluster",

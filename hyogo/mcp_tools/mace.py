@@ -5,6 +5,7 @@ a new group of tools is a new module beside this one.
 """
 from pathlib import Path
 from hyogo.mace import dataset as mace_dataset, finetune as mace_finetune, log as mace_log
+from hyogo.mace import eval as mace_eval
 from hyogo.mcp_tools import _read_local, mcp
 
 
@@ -47,6 +48,15 @@ TOOL_META = {
         "status": "live",
         "source": "notes/uio66-labelling-readiness.md §2 (UiO-66 fine-tune sampling plan); G50",
         "notes": "pool extxyz (streamed) → held-out time blocks, skip earlier picks (manifest sha256) or labelled frames (geometry), strata (keys × equal-width volume bins, quota each), FPS on descriptors or volume (or a per-frame score, round 2) with ≥ min_spacing_ps per run, uniform control set; seeded. Without quotas: the strata report. Writes selected.extxyz + manifest.json. Descriptors from the mace pack's `scripts/mace_descriptors.py` (cluster)",
+    },
+    "mlip_compare": {
+        "method": "mlip",
+        "stage": "parse",
+        "code": "mace",
+        "module": "`hyogo/mace/eval.py`",
+        "status": "live",
+        "source": "T1 scratch script `eval_models.py` (HOKUSAI job 9751103); G47",
+        "notes": "labels + one predictions file per model (the mace pack's `eval/scripts/predict.py`, run on the cluster) → per config_type and overall: ΔE/atom vs a reference frame, absolute energy after E0s (labels' vs the model's own), force RMSE/MAE/cosine, stress RMSE, worst frames. Refuses frames that differ (source_sha256, symbols and positions in order) and a model whose dispersion differs from the labels' (`d3_mismatch=\"energy_only\"` is T1's way: energies without D3, forces as upper bounds)",
     },
 }
 
@@ -434,3 +444,101 @@ def mlip_select_frames(pool: list[str], quotas: dict | None = None, out_dir: str
     sha = hashlib.sha256((out / "selected.extxyz").read_bytes()).hexdigest()
     return {**head, "out_dir": str(out), "files": ["manifest.json", "selected.extxyz"],
             "selected_sha256": sha, "picked": len(rows), "by_stratum": counts, "warnings": warnings}
+
+
+@mcp.tool()
+def mlip_compare(labels: list[str], predictions: list[str], reference_frame: int | str = 0,
+                 e0s: dict | str | None = None, d3_mismatch: str = "refuse", worst: int = 5,
+                 per_frame: bool = False, out_path: str | None = None,
+                 energy_key: str | None = None, forces_key: str | None = None,
+                 stress_key: str | None = None) -> dict:
+    """Score one or more MLIPs against labelled frames on this machine:
+    energy, force and stress errors per config_type and overall, and the
+    worst frames. Use it for a base-model check, a held-out test and each
+    active-learning round, instead of a scratch script.
+
+    Before it: the labels (cp2k_make_labels' extxyz), then on the cluster
+    the mace pack's eval/scripts/predict.py on that same file (one
+    `<name>.predictions.json` per model; see the mace-eval skill), then
+    fs_download the predictions.
+
+    Returns {"labels": {frames, d3, keys, config_types}, "reference_frame":
+    {index, config_type}, "models": {name: {"model" (path, sha256, head,
+    e0s), "dispersion", "label_energy" (the label energy used), "overall",
+    "by_config_type" (each: frames, atoms, energy_rel_meV_atom {mae, rmse,
+    max_abs, mean} (model minus labels of E/atom - E/atom of the reference
+    frame; the reference frame itself is left out), energy_abs_meV_atom
+    {mean, mae, rmse, std} ((E - sum E0) / atoms, model minus labels; only
+    with e0s), forces {rmse_meV_A, mae_meV_A, cosine_mean, cosine_atoms},
+    stress {frames, rmse_meV_A3, rmse_GPa}), "worst": {force_rmse,
+    energy_rel}, "frames" (with per_frame), "warnings"}}, "warnings",
+    "out_path"}. Read the warnings to the user.
+
+    Refuses: predictions of other frames (count, source_sha256, symbols and
+    positions in order); labels mixing D3 and D3-free frames; a model whose
+    dispersion ("none" | "included", stated to predict.py) differs from the
+    labels' (frames with dispersion_eV have D3). For D3 labels and a D3-free
+    model, d3_mismatch="energy_only" compares energies without D3 and
+    reports force and stress errors that still contain D3 (upper bounds), as
+    T1 (job 9751103) did.
+
+    Args:
+        labels: the labelled extxyz file(s) on this machine (.gz ok), in the
+            order predict.py read them (one file is the usual case).
+        predictions: predict.py's <name>.predictions.json, one per model
+            (.gz ok).
+        reference_frame: frame index (default 0), or the config_type of
+            exactly one frame, for the relative energies.
+        e0s: the labels' isolated-atom energies {Z or symbol: eV} or the
+            path of cp2k_make_e0s' json; adds the absolute energy error
+            against the model's own E0s.
+        d3_mismatch: "refuse" (default) or "energy_only".
+        worst: how many worst frames to list per measure.
+        per_frame: also return every frame's row.
+        out_path: write the full report (with every frame) as json here.
+        energy_key, forces_key, stress_key: label names when they are not
+            REF_energy / REF_forces / REF_stress (or another known set).
+    """
+    import hashlib
+    import json
+    if isinstance(labels, str):
+        labels = [labels]
+    if isinstance(predictions, str):
+        predictions = [predictions]
+    frames = _read_frames(labels)
+    preds, names = [], []
+    for p in predictions:
+        src, raw = _read_local(p, "predictions json")
+        try:
+            preds.append(json.loads(raw))
+        except ValueError as e:
+            raise ValueError(f"{src} is not json ({e}); expected predict.py's predictions file") from None
+        names.append((preds[-1].get("model") or {}).get("name") or src.name.split(".")[0])
+    if isinstance(e0s, str):
+        src, raw = _read_local(e0s, "E0s json")
+        try:
+            e0s = json.loads(raw)
+        except ValueError as e:
+            raise ValueError(f"{src} is not json ({e}); expected {{atomic number: eV}}") from None
+        if isinstance(e0s, dict) and isinstance(e0s.get("e0s"), dict):
+            e0s = e0s["e0s"]
+    full = mace_eval.compare(frames, preds, reference_frame, e0s, d3_mismatch, worst, True,
+                             energy_key, forces_key, stress_key, names)
+    pred_shas = full.pop("_prediction_label_shas")
+    if len(labels) == 1:
+        _, raw = _read_local(labels[0], "labelled extxyz")
+        sha = hashlib.sha256(raw).hexdigest()
+        if pred_shas - {sha}:
+            full["warnings"].append("a predictions file was made from a labels file with other bytes "
+                                    "(the frames match; config_type or other info may differ)")
+    if out_path:
+        out = Path(out_path).expanduser()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(full, indent=1) + "\n")
+        full["out_path"] = str(out)
+    else:
+        full["out_path"] = None
+    if not per_frame:
+        for m in full["models"].values():
+            m.pop("frames", None)
+    return full
