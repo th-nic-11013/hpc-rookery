@@ -1,6 +1,6 @@
 ---
 name: hokusai-records
-description: Read and write measured records for HOKUSAI BigWaterfall2 (HBW2): benchmark timings (best MPI x OpenMP layout, s per step, node scaling), the user's software builds, and the job IDs behind them. Use whenever another skill says to query or append `benchmarks`, `software_registry` or `benchmarks_provenance` records, or the user asks what has already been measured or built on HOKUSAI BigWaterfall2 (HBW2) ("is there a benchmark for this", "which layout is fastest", "what builds do I have").
+description: Read and write measured records for HOKUSAI BigWaterfall2 (HBW2): benchmark timings (best MPI x OpenMP layout, s per step, node scaling), the user's software builds, the job IDs behind them, and snapshots of many-frame campaigns. Use whenever another skill says to query or append `benchmarks`, `software_registry`, `benchmarks_provenance` or `campaign` records, or the user asks what has already been measured or built on HOKUSAI BigWaterfall2 (HBW2) ("is there a benchmark for this", "which layout is fastest", "what builds do I have").
 ---
 
 # Records on HOKUSAI BigWaterfall2 (HBW2)
@@ -37,6 +37,7 @@ The full field list is in `schema.yaml` beside this file (provisional,
 | `benchmarks` | facility | `id` | one timing: system × method × run type × layout × nodes; with `samples`, a summary of many production runs of one such combination |
 | `software_registry` | user | `build_id` | one installed build: path, env script, data dir, test status, `default`, `removed` |
 | `benchmarks_provenance` | user | `id` | the job IDs behind a `benchmarks` record |
+| `campaign` | user | `id` | a snapshot of a many-frame campaign: every frame's state, attempts, SCF steps, wall time, failure reason |
 
 ## Query
 
@@ -111,6 +112,11 @@ records_append(facility="hokusai", record_type="benchmarks", record={...})
   another system). Read its warnings to the user: a group of fewer than
   `min_samples` runs is recorded but rough. The ids end in
   `-summary-<N>n-<R>x<T>-k<KPAR>c<NCORE>`.
+- A `campaign` snapshot is written by `campaign_status(record=true)`, not
+  by hand (see the hokusai-campaign skill). Query one campaign with
+  `filters={"campaign": "<name>"}` and `fields=["taken_at", "counts"]`;
+  one frame's history with `filters={"campaign": "<name>"}` and
+  `fields=["taken_at", "frames.<group>/<frame>"]`.
 - A benchmark that failed or did not converge is still recorded, with
   `valid: false` and a `reason`, so it is not repeated.
 - Changing an existing record (moving `default` to another build, setting
