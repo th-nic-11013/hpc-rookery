@@ -35,12 +35,24 @@ def parse_exit_code(s: str) -> int | None:
         return None
 
 
+def command_line(spec: JobSpec, command: str) -> str:
+    """The final command as the script runs it: `exec`-prefixed when
+    spec.exec_command is set, so it replaces the batch shell. Schedulers
+    signal the batch shell (Slurm --signal=B:..., a PBS/GE kill), and a
+    plain bash with no trap dies without passing the signal on to its
+    child. JobSpec's validator guarantees one simple command and no
+    post_launch when exec is asked for. Every body renderer uses this, so
+    the flag means the same on every facility."""
+    return f"exec {command}" if spec.exec_command else command
+
+
 def render_body(spec: JobSpec, gpu_requested: bool, gpu_vendor_flag: str = "--nv") -> str:
     """Render the scheduler-neutral body of a batch script.
 
     Covers everything after the scheduler-specific header: environment exports,
     pre_launch, the command (optionally wrapped in a Singularity container),
-    launcher prefix, and post_launch. Starts with a blank line to separate
+    launcher prefix, `exec` when spec.exec_command asks for it, and
+    post_launch. Starts with a blank line to separate
     from the header.
 
     gpu_vendor_flag is the Singularity container GPU flag to add when a
@@ -74,7 +86,7 @@ def render_body(spec: JobSpec, gpu_requested: bool, gpu_vendor_flag: str = "--nv
 
     if spec.launcher:
         command = spec.launcher + " " + command
-    lines.append(command)
+    lines.append(command_line(spec, command))
 
     if spec.post_launch:
         lines.append(spec.post_launch)

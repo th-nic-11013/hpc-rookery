@@ -15,9 +15,10 @@ before calling submit(); until that layer exists, the neutral defaults below
 recommendations for any specific machine.
 """
 import re
+import shlex
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class JobState(str, Enum):
@@ -314,6 +315,54 @@ class JobSpec(BaseModel):
     post_launch: str | None = Field(None, description="Script lines to insert after executable")
     launcher: str | None = Field(None, description="Launcher prefix, e.g. 'srun' or 'mpirun -np 4'")
     container: Container | None = Field(None, description="Run inside a Singularity container")
+    exec_command: bool = Field(
+        False,
+        description=(
+            "Start the command with `exec`, so it replaces the batch shell and "
+            "receives signals the scheduler sends to that shell (e.g. Slurm "
+            "custom_attributes {\"signal\": \"B:USR1@300\"} for a graceful "
+            "wind-down before the time limit). Needs one simple command: no "
+            "post_launch, and no ;, &&, ||, | or & in executable (put setup in "
+            "pre_launch)."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _exec_needs_one_command(self) -> "JobSpec":
+        """exec_command prefixes the rendered command line with `exec`.
+
+        That only does what it says for one simple command: `exec a && b`
+        replaces the shell with `a` and never runs `b`, `exec cd x && ...`
+        kills the job outright (cd is a builtin), a pipeline runs exec in a
+        subshell, and anything in post_launch never runs. Refuse those here,
+        once, rather than render a script that silently drops work.
+        Redirections (`> log 2>&1`) are fine: exec applies them first.
+        """
+        if not self.exec_command:
+            return self
+        if self.post_launch:
+            raise ValueError(
+                "exec_command replaces the batch shell with the command, so "
+                "post_launch would never run. Drop post_launch, or leave "
+                "exec_command unset."
+            )
+        try:
+            lexer = shlex.shlex(self.executable, posix=True, punctuation_chars=True)
+            lexer.whitespace_split = True
+            tokens = list(lexer)
+        except ValueError as exc:
+            raise ValueError(f"exec_command: cannot parse executable ({exc}).") from None
+        operators = [t for t in tokens
+                     if set(t) <= set("();<>|&") and set(t) & set(";|&")
+                     and not set(t) & set("<>")]
+        if "\n" in self.executable or operators:
+            raise ValueError(
+                f"exec_command needs executable to be one simple command, but "
+                f"{self.executable!r} has {operators[0] if operators else 'a newline'!r}. "
+                "Move setup (module load, cd, source) into pre_launch and keep "
+                "only the program and its arguments in executable."
+            )
+        return self
 
 
 class JobStatus(BaseModel):

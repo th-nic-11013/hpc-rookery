@@ -235,6 +235,15 @@ passed literally and never expands.
   and a submission into a missing one fails. Other schedulers' submit-dir
   variables (`$PBS_O_WORKDIR`, `$SGE_O_WORKDIR`, ...) are not the run
   directory: a script there should rely on its working directory instead.
+- To run an existing job script (e.g. a restartable driver), set
+  `executable: "bash"`, `arguments: ["<script>"]`, `directory` to its run
+  directory and `exec_command: true`, and restate its own `#SBATCH`/`#PBS`
+  header in the spec: those lines are plain comments when it runs as a
+  command. `exec_command` makes the command replace the batch shell, so a
+  signal the scheduler sends there before the time limit (Slurm
+  `custom_attributes: {"signal": "B:USR1@300"}`) reaches the script's
+  trap; without it the shell dies and the script never sees it. It needs
+  one simple command: setup goes in `pre_launch`, and no `post_launch`.
 - Don't guess facility-specific details not covered by the notes above —
   use `search_docs(facility="hokusai", query=...)` on the `hpc`
   server. It searches a bundled guide, not a live site — never invent a URL
