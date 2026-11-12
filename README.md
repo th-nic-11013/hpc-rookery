@@ -247,6 +247,12 @@ python scripts/render_skills.py            # after editing skill_notes/
 python scripts/render_plugins.py           # after adding a facility
 ```
 
+A facility that must stay unpublished lives in its own repository instead:
+`HPC_ROOKERY_FACILITY_PATH` names the folder holding it, the server and the
+tests load it from there, the generators above leave it out, and
+`python scripts/render_skills.py --out DIR` renders its skills outside the
+checkout. See [`PORTING.md` §4a](PORTING.md#4a-a-facility-that-stays-private).
+
 ## License
 
 AGPL-3.0-or-later — see [LICENSE](LICENSE).

@@ -275,6 +275,49 @@ the documented `uv tool run --from git+...` install produced a server where
 `get_facility` and `search_docs` failed on every facility, with local
 testing looking perfectly healthy.
 
+### 4a. A facility that stays private
+
+Some ports can't be published (an unreleased machine, a site that asks
+for it), and a GitHub fork of a public repository can't be made private.
+Such a facility lives in its own repository, in a folder laid out exactly
+like `facilities/` (one `<dir>/` per facility, as above), and
+`HPC_ROOKERY_FACILITY_PATH` names that folder:
+
+```bash
+export HPC_ROOKERY_FACILITY_PATH=~/my-private-ports/facilities   # os.pathsep-separated, like PATH
+```
+
+Set it wherever the servers start (the MCP client's `env` for the server,
+or the shell for the doctor and the tests). Then:
+
+- **It loads like an in-tree one.** Each folder is appended to the
+  `facilities` package path, so `hpc_mcp` imports `<dir>/facility.py` from
+  there and `from facilities.<dir>.compute import ...` works unchanged. The
+  server, `hpc-doctor` and `tests/conformance.py` all see it.
+  `facilities/` in the checkout always comes first: a folder there with the
+  same name as a public one is reported as unavailable, not loaded, and a
+  named folder that doesn't exist is reported too.
+- **It is never published.** `render_facility_tables.py` and
+  `render_plugins.py` read only `facilities/` in the checkout, so the
+  tables, plugin manifests and marketplaces stay as they are, and the
+  checks of those files skip it. Run them freely.
+- **Its skills render outside the tree.** `render_skills.py` skips it
+  (and says so); `python scripts/render_skills.py --out DIR` renders only
+  the extra-path facilities, to `DIR/<slug>-<workflow>/SKILL.md`. `DIR` may
+  be a folder a harness loads skills from, such as `~/.claude/skills`, and
+  must be outside the checkout. `--out DIR --check` reports stale output.
+- **It brings its own test cases.** A per-facility conformance case for
+  it goes in its own folder as `checks/<name>.py`, with the same contract as
+  `tests/checks/facility/<name>.py` (`LABEL` and `<name>(slug, fac,
+  backend)`); `tests/conformance.py` runs it for that facility only
+  (`--only <slug>` runs just its section). Its `tests/live_smoke.py --job`
+  defaults go in `live_smoke.json` in its folder, an object with the keys
+  of `JOB_DEFAULTS` (`queue_name`, `duration`, `gpus`, `account`,
+  `custom_attributes`).
+
+Nothing of the private facility is in the checkout, so there is nothing to
+exclude from git and nothing for a render to leak.
+
 ## 5. Wire up `facility.py` — config registration
 
 ```python

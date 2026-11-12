@@ -62,6 +62,8 @@ facilities/             One directory per onboarded facility, plus
                         registry.py (facility slug -> SchedulerBackend).
                         Each facility's skill_notes/ holds its real,
                         hand-written skill content (see PORTING.md §7).
+                        HPC_ROOKERY_FACILITY_PATH adds private ones kept
+                        outside the repo, never published (PORTING.md §4a).
 hpc_mcp/                The unified server entry points; importing this
                         package registers every facility.
 plugins/hpc/            The base Codex plugin: .mcp.json and only the
