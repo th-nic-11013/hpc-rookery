@@ -88,7 +88,7 @@ record_types:
   benchmarks:
     scope: facility      # true for anyone running this build on this hardware
     id_field: id
-    doc: "One measured timing: a system, a method, a run type, a layout on N nodes."
+    doc: "One measured timing: a system, a method, a run type, a layout on N nodes; or, with `samples`, a summary of many runs of one such combination."
     fields:
       id:           {type: str, required: true, doc: "stable, e.g. hokusai-cp2k-2026-10-22-uio66-456-aimd-2n-16x7"}
       facility:     {type: str, required: true, doc: "facility slug"}
@@ -158,7 +158,36 @@ record_types:
           ns_per_day:          {type: float, required: false, doc: "MD: simulated ns per wall-clock day of this one run"}
           nve_drift_meV_atom_ps: {type: float, required: false, doc: "MD validation: linear drift of the NVE total energy"}
           concurrent_runs:     {type: int, required: false, doc: "throughput: this many copies ran side by side on the node; metric is per copy"}
-      job_id:       {type: str, required: false, doc: "null in committed, shared records. Kept per user in benchmarks_provenance"}
+      samples:
+        required: false
+        doc: "set when the record summarises many runs of one system, method and layout (the frames of a production campaign) instead of timing one run; absent, the record is one timing. The statistics are of `quantity` per run. metric stays what a reader of one run expects: metric.value is samples.mean when quantity equals metric.name; for s_per_scf_step, metric is wall_s = samples.mean x extra.scf_steps (the median SCF steps per run), so metric.value / extra.scf_steps is samples.mean, as for any VASP timing"
+        fields:
+          n:        {type: int, required: true, doc: "runs summarised"}
+          quantity: {type: "enum[s_per_scf_step|s_per_step|wall_s]", required: true, doc: "the per-run timing summarised; s_per_scf_step: one run's SCF loop time / its SCF steps (VASP LOOP+ / steps)"}
+          mean:     {type: float, required: true}
+          std:      {type: float, required: false, doc: "sample standard deviation (n - 1); null when n is 1"}
+          min:      {type: float, required: true}
+          median:   {type: float, required: true}
+          max:      {type: float, required: true}
+          scf_steps:
+            required: false
+            doc: "SCF steps per run, the main source of spread in a run's time"
+            fields:
+              min:    {type: int, required: true}
+              median: {type: float, required: true}
+              max:    {type: int, required: true}
+          wall_s:
+            required: false
+            doc: "time per run (the SCF loop): the campaign spent n x mean"
+            fields:
+              mean:   {type: float, required: true}
+              min:    {type: float, required: true}
+              median: {type: float, required: true}
+              max:    {type: float, required: true}
+          source:   {type: str, required: false, doc: "where the runs were listed, e.g. the table's file name (no path)"}
+      # records_append checks that min <= median, mean <= max and that metric
+      # follows from the statistics as the doc above says (records.py).
+      job_id:      {type: str, required: false, doc: "null in committed, shared records. Kept per user in benchmarks_provenance"}
       date:         {type: date, required: true}
       valid:        {type: bool, required: true, doc: "false: not a usable timing (e.g. SCF did not converge)"}
       reason:       {type: str, required: false, doc: "required when valid is false"}

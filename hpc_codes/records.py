@@ -172,7 +172,31 @@ def _record_errors(facility: str, rtype: str, rec: dict, scope: str) -> list[str
         if m.get("model") is not None and dft:
             errs.append(f"benchmarks[{rid}]: method has a model and DFT fields {dft}: "
                         "an MLIP run records the model, a DFT run the functional")
+        if isinstance(rec.get("samples"), dict) and not errs:
+            errs += _samples_errors(rec, f"benchmarks[{rid}]")
     return errs
+
+
+def _samples_errors(rec: dict, where: str) -> list[str]:
+    """A summary record (G36): its statistics are ordered, and its metric is
+    the one the schema's `samples` doc derives from them."""
+    s, metric = rec["samples"], rec.get("metric") or {}
+    if s["n"] < 1:
+        return [f"{where}: samples.n must be at least 1"]
+    if not s["min"] <= s["median"] <= s["max"] or not s["min"] <= s["mean"] <= s["max"]:
+        return [f"{where}: samples need min <= median, mean <= max"]
+    if s["quantity"] == metric.get("name"):
+        want, how = s["mean"], "samples.mean"
+    elif s["quantity"] == "s_per_scf_step" and metric.get("name") == "wall_s":
+        steps = (rec.get("extra") or {}).get("scf_steps")
+        if not steps:
+            return [f"{where}: a s_per_scf_step summary needs extra.scf_steps (median steps per run)"]
+        want, how = s["mean"] * steps, "samples.mean x extra.scf_steps"
+    else:
+        return [f"{where}: samples.quantity {s['quantity']} does not go with metric {metric.get('name')}"]
+    if abs(metric.get("value", 0) - want) > 1e-3 * abs(want) + 1e-3:
+        return [f"{where}: metric.value {metric.get('value')} is not {how} ({want:.3f})"]
+    return []
 
 
 def _link_errors(recs: dict) -> list[str]:
