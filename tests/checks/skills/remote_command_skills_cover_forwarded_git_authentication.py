@@ -1,5 +1,4 @@
-from hpc_agent_core import config
-from checks._common import ROOT
+from checks._common import ROOT, public_facilities
 
 LABEL = 'remote-command skills diagnose forwarded Git authentication'
 
@@ -12,7 +11,7 @@ def remote_command_skills_cover_forwarded_git_authentication():
     assert "forwardagent" in source
     assert "ssh-add <their-facility-key>" in source
     assert "never invent a path" in source
-    for facility in config.list_facilities():
+    for facility in public_facilities():
         rendered = (root / "plugins" / f"hpc-{facility.slug}" / "skills" /
                     f"{facility.slug}-remote-command" / "SKILL.md").read_text()
         assert "Git-over-SSH authentication failures" in rendered

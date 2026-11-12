@@ -1,5 +1,4 @@
-from hpc_agent_core import config
-from checks._common import ROOT
+from checks._common import ROOT, public_facilities
 
 LABEL = 'generated skills have matching frontmatter'
 
@@ -26,7 +25,7 @@ def generated_skills_are_wellformed():
 
     remote_skills = sorted((root / "plugins").glob(
         "hpc-*/skills/*-remote-command/SKILL.md"))
-    assert len(remote_skills) == len(config.list_facilities()), (
+    assert len(remote_skills) == len(public_facilities()), (
         "every facility needs a generated remote-command skill"
     )
     for path in remote_skills:

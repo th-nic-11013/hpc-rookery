@@ -42,6 +42,15 @@ def no_user_config(slug: str):
             os.environ[var] = previous
 
 
+def public_facilities() -> list:
+    """The registered facilities this checkout publishes: every one except
+    those loaded from HPC_ROOKERY_FACILITY_PATH, which get no plugin,
+    marketplace entry or table row (PORTING.md §4a). A check of the
+    generated, published files enumerates these, not list_facilities()."""
+    import hpc_mcp
+    return [f for f in config.list_facilities() if f.slug not in hpc_mcp.EXTRA_FACILITIES]
+
+
 def bare_spec() -> JobSpec:
     """A minimal spec with everything optional left blank — what
     apply_defaults() is supposed to complete."""

@@ -1,14 +1,14 @@
-from hpc_agent_core import config
-from checks._common import ROOT
+from checks._common import ROOT, public_facilities
 
 LABEL = 'facility skill packs are isolated and discoverable'
 
 
 def facility_skill_packs_are_isolated_and_discoverable():
-    """The same base/pack split is valid for all three plugin formats."""
+    """The same base/pack split is valid for all three plugin formats.
+    A facility from HPC_ROOKERY_FACILITY_PATH has no pack here, by design."""
     import json
     root = ROOT
-    facilities = config.list_facilities()
+    facilities = public_facilities()
     base_skills = sorted(p.name for p in (root / "plugins" / "hpc" / "skills").iterdir()
                          if p.is_dir())
     assert base_skills == ["hpc-facilities"], (
