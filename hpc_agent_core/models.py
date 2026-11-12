@@ -303,12 +303,40 @@ class JobSpec(BaseModel):
             )
         return value
     arguments: list[str] = Field(default_factory=list)
-    directory: str | None = Field(None, description="Working directory for the job")
+    directory: str | None = Field(
+        None,
+        description=(
+            "Working directory the job runs in (on Slurm also the directory it "
+            "is submitted from). A relative or ~/ path is relative to your home "
+            "directory on the cluster; an absolute path is used as given."
+        ),
+    )
     environment: dict[str, str] = Field(default_factory=dict)
     inherit_environment: bool = Field(True, description="Inherit submission environment variables")
-    stdin_path: str | None = Field(None, description="Path to use as stdin (--input)")
-    stdout_path: str | None = None
-    stderr_path: str | None = None
+    stdin_path: str | None = Field(
+        None,
+        description=(
+            "File the job reads as stdin (--input). A relative or ~/ path is "
+            "relative to your home directory on the cluster, not to directory; "
+            "an absolute path is used as given."
+        ),
+    )
+    stdout_path: str | None = Field(
+        None,
+        description=(
+            "File the job's stdout is written to. A relative or ~/ path is "
+            "relative to your home directory on the cluster, not to directory; "
+            "an absolute path is used as given."
+        ),
+    )
+    stderr_path: str | None = Field(
+        None,
+        description=(
+            "File the job's stderr is written to. A relative or ~/ path is "
+            "relative to your home directory on the cluster, not to directory; "
+            "an absolute path is used as given."
+        ),
+    )
     resources: ResourceSpec = Field(default_factory=ResourceSpec)
     attributes: JobAttributes = Field(default_factory=JobAttributes)
     pre_launch: str | None = Field(None, description="Script lines to insert before executable")

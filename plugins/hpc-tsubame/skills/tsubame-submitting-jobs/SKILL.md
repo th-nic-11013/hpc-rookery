@@ -49,6 +49,12 @@ submission.
   and a submission into a missing one fails. Other schedulers' submit-dir
   variables (`$PBS_O_WORKDIR`, `$SGE_O_WORKDIR`, ...) are not the run
   directory: a script there should rely on its working directory instead.
+- Paths in the spec (`directory`, `stdout_path`, `stderr_path`,
+  `stdin_path`): a relative or `~/...` path is relative to the user's home
+  directory on the cluster, **not** to `spec.directory`; an absolute path
+  is used as given. `directory` only sets the job's working directory
+  (and, on Slurm, the submit directory), where the script body's own
+  relative paths resolve.
 - To run an existing job script (e.g. a restartable driver), set
   `executable: "bash"`, `arguments: ["<script>"]`, `directory` to its run
   directory and `exec_command: true`, and restate its own `#SBATCH`/`#PBS`
