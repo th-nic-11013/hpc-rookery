@@ -4,7 +4,7 @@ yagura/server.py loads every module in this folder. A new structure tool goes he
 a new group of tools is a new module beside this one.
 """
 from pathlib import Path
-from yagura import geomcheck, stretch
+from yagura import geomcheck, lammps_dump, stretch
 from yagura.mcp_tools import _ase, _local_file, mcp
 
 
@@ -86,7 +86,10 @@ def cif_inspect(path: str) -> dict:
 
 @mcp.tool()
 def structure_to_extxyz(source_path: str, out_path: str, vacuum: float | None = None,
-                        charge: int = 0, index: str = "-1", overwrite: bool = False) -> dict:
+                        charge: int = 0, index: str = "-1", overwrite: bool = False,
+                        specorder: list[str] | None = None, dt_fs: float | None = None,
+                        time_range_ps: list[float | None] | None = None,
+                        source: str | None = None, config_type: str | None = None) -> dict:
     """Convert any structure ASE reads (CIF, POSCAR, PDB, xyz, ...) into
     extended xyz with the cell on line 2, the format the other structure
     tools read. Converts, never repairs: partial CIF sites come out as
@@ -94,9 +97,21 @@ def structure_to_extxyz(source_path: str, out_path: str, vacuum: float | None = 
     without a full cell is refused unless `vacuum` boxes it. Needs ASE.
     Run structure_check on the result.
 
+    A LAMMPS text dump (plain or .gz; recognised by its first line) is
+    read without ASE and streamed, so a multi-GB dump is fine: types
+    become elements through `specorder`, triclinic boxes are read, and
+    `index` picks one frame or a range/stride ("::50"). Each frame's
+    comment line carries timestep, time_ps (with dt_fs), volume, source
+    (run label), frame (index in the dump), source_path and config_type,
+    the keys hyogo's mlip_select_frames reads. Then framework_check them.
+
     Returns {"out", "natoms", "formula", "cell": {lengths, angles},
     "electrons" (all-electron, at `charge`), "charge", "multiplicities"
-    (the allowed spin multiplicities), "warnings"}.
+    (the allowed spin multiplicities), "warnings"}; for a dump instead
+    {"out", "frames_written", "natoms", "formula", "composition", "source",
+    "first", "last" (each
+    {frame, timestep, volume, time_ps}), "volume_range", "electrons",
+    "charge", "multiplicities", "warnings"}.
 
     Args:
         source_path: the structure file on this machine.
@@ -104,14 +119,37 @@ def structure_to_extxyz(source_path: str, out_path: str, vacuum: float | None = 
         vacuum: centre an isolated molecule in a box with this much vacuum
             (A) on every side.
         charge: net charge, for the electron count.
-        index: frame of a multi-frame file, in ASE's index syntax ("-1" = last).
+        index: frame of a multi-frame file, in ASE's index syntax ("-1" = last);
+            for a dump also a range START:STOP:STEP ("::50", "100:", ":" = all).
         overwrite: replace out_path if it exists.
+        specorder: for a LAMMPS dump, the element of type 1, 2, ..., as in
+            `pair_coeff * *` (e.g. ["H", "C", "O", "Zr"]).
+        dt_fs: for a dump, the MD timestep in fs (0.5 in our UiO-66 runs);
+            adds time_ps to each frame.
+        time_range_ps: for a dump, keep frames with time_ps in [start, end]
+            (either may be null), e.g. [10, null] drops equilibration; needs dt_fs.
+        source: for a dump, the run label written to every frame (no spaces),
+            e.g. "A3-300K"; give every chunk of one run the same label.
+            Default: the dump's file stem.
+        config_type: for a dump, a stratum label for every frame, e.g. "P1-300K".
     """
     src, dst = _local_file(source_path), Path(out_path).expanduser()
     if dst.resolve() == src.resolve():
         raise ValueError("out_path must differ from source_path: the original is kept")
     if dst.exists() and not overwrite:
         raise ValueError(f"{dst} exists; pass overwrite=true to replace it")
+    if lammps_dump.is_dump(src):
+        if vacuum is not None:
+            raise ValueError("vacuum is for an isolated molecule; a LAMMPS dump has its box")
+        r = lammps_dump.write_extxyz(str(src), str(dst), specorder, index, dt_fs, time_range_ps,
+                                     source, config_type)
+        electrons = sum(lammps_dump.Z[e] * c for e, c in r["composition"].items()) - charge
+        return {**r, "electrons": electrons, "charge": charge,
+                "multiplicities": "1, 3, 5, ..." if electrons % 2 == 0 else "2, 4, 6, ...",
+                "warnings": []}
+    if specorder or dt_fs is not None or time_range_ps is not None or source or config_type:
+        raise ValueError("specorder, dt_fs, time_range_ps, source and config_type are for a LAMMPS dump; "
+                         f"{src.name} does not start with 'ITEM: TIMESTEP'")
     warnings = []
     if src.suffix.lower() == ".cif":
         partial = _ase("inspect_cif").inspect(str(src))["partial"]
