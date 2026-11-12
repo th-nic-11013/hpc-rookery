@@ -13,6 +13,10 @@ Marked files are found by searching the repo for the marker pair itself
 (FACILITY_TABLE:START / FACILITY_TABLE:END as an HTML comment or, in
 Python, a plain comment) — no separate list to keep in sync. Add the marker
 pair to any new skill/README that needs the table; nothing else to wire up.
+
+Only facilities/ in this checkout is read: a facility from a
+HPC_ROOKERY_FACILITY_PATH folder (private, PORTING.md §4a) never enters
+these published tables.
 """
 import argparse
 import json

@@ -4,7 +4,10 @@ The shared ``hpc`` plugin owns the two MCP servers and only universal skills.
 Each facility instead has a small ``hpc-<slug>`` plugin containing its own
 generated workflow skills.  This keeps a user from loading guidance for
 machines they do not use while keeping all plugin metadata derived from the
-same ``facilities/*/facility.json`` source as the skill generator.
+same ``facilities/*/facility.json`` source as the skill generator. Only
+facilities/ in this checkout is read: a facility from a
+HPC_ROOKERY_FACILITY_PATH folder (private, PORTING.md §4a) gets no plugin
+and no marketplace entry; render_skills.py --out renders its skills.
 
     python scripts/render_plugins.py
     python scripts/render_plugins.py --check

@@ -8,6 +8,7 @@ rigid multi-slot template.
 
     python scripts/render_skills.py            # rewrite in place
     python scripts/render_skills.py --check     # exit 1 if stale (CI)
+    python scripts/render_skills.py --out DIR   # facilities from HPC_ROOKERY_FACILITY_PATH
 
 Inputs (per facility, from facilities/<dir>/):
   facility.json           slug, display_name (also used by
@@ -58,9 +59,16 @@ adds/edits skill_notes/*.md must re-run this (no --check) and commit the
 result; CI's --check run catches a PR that forgot to. Plugin skill folders
 may also contain hand-authored custom skills; this renderer never treats
 those as stale or tries to manage them.
+
+A facility loaded from a HPC_ROOKERY_FACILITY_PATH folder (a private one,
+PORTING.md §4a) is never rendered into plugins/: that tree is published.
+Without --out it is skipped (and named); --out DIR renders only those
+facilities, to DIR/<slug>-<workflow>/SKILL.md, a folder a harness can load
+skills from (e.g. ~/.claude/skills). DIR must be outside this checkout.
 """
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -69,6 +77,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import hpc_mcp  # noqa: E402,F401 -- import registers every facility
 from hpc_agent_core import config as _config  # noqa: E402
+from facilities import PATH_ENV  # noqa: E402
 
 TEMPLATES_DIR = ROOT / "templates" / "skills"
 CODES_DIR = ROOT / "codes"
@@ -81,18 +90,31 @@ _FALLBACK_NOTES = (
 )
 
 
-def load_facilities() -> list[dict]:
+def load_facilities(out: Path | None = None) -> list[dict]:
+    """This checkout's facilities, or with out, only those loaded from
+    HPC_ROOKERY_FACILITY_PATH, each to be rendered into out."""
+    if out is None:
+        manifests = sorted((ROOT / "facilities").glob("*/facility.json"))
+    else:
+        manifests = [hpc_mcp.FACILITY_DIRS[slug] / "facility.json"
+                     for slug in hpc_mcp.EXTRA_FACILITIES]
     facs = []
-    for manifest in sorted((ROOT / "facilities").glob("*/facility.json")):
+    for manifest in manifests:
         data = json.loads(manifest.read_text())
         data["_dir"] = manifest.parent
+        data["_out"] = out
         facs.append(data)
     return sorted(facs, key=lambda f: f["slug"])
 
 
 def skills_dir(fac: dict) -> Path:
-    """The isolated skill-pack directory for one facility."""
-    return PLUGINS_DIR / f"hpc-{fac['slug']}" / "skills"
+    """The isolated skill-pack directory for one facility (--out: that folder)."""
+    return fac["_out"] or PLUGINS_DIR / f"hpc-{fac['slug']}" / "skills"
+
+
+def shown(path: Path) -> str:
+    """A path relative to this checkout when it is in it, else as given."""
+    return str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
 
 
 def render_one(template_text: str, fac: dict, workflow: str) -> str:
@@ -252,7 +274,7 @@ def code_pack_stages(fac: dict) -> list[tuple[str, Path, tuple[Path, ...], dict,
 
 
 def unresolved_tokens(rendered: dict[Path, str]) -> list[str]:
-    return [f"{path.relative_to(ROOT)}: {', '.join(sorted(set(_TOKEN.findall(text))))}"
+    return [f"{shown(path)}: {', '.join(sorted(set(_TOKEN.findall(text))))}"
             for path, text in rendered.items() if _TOKEN.search(text)]
 
 
@@ -261,9 +283,25 @@ def main() -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true",
                          help="Exit 1 if any generated skill would change, without writing.")
+    parser.add_argument("--out", type=Path, metavar="DIR",
+                        help="Render only the facilities from HPC_ROOKERY_FACILITY_PATH, "
+                             "into DIR/<slug>-<workflow>/ (DIR outside this checkout).")
     args = parser.parse_args()
 
-    facilities = load_facilities()
+    out = args.out.expanduser().resolve() if args.out else None
+    if out is not None:
+        if out.is_relative_to(ROOT):
+            print(f"--out {out} is inside this checkout; a facility from "
+                  f"{PATH_ENV} renders outside it, so it can't be committed.", file=sys.stderr)
+            return 2
+        if not hpc_mcp.EXTRA_FACILITIES:
+            print(f"--out: no facility was loaded from {PATH_ENV} "
+                  f"({os.environ.get(PATH_ENV) or 'unset'}).", file=sys.stderr)
+            return 2
+    elif hpc_mcp.EXTRA_FACILITIES:
+        print(f"Not rendered here (from {PATH_ENV}; use --out DIR): "
+              + ", ".join(hpc_mcp.EXTRA_FACILITIES))
+    facilities = load_facilities(out)
     templates = sorted(TEMPLATES_DIR.glob("*.md.tmpl"))
     if not templates:
         print(f"No templates found under {TEMPLATES_DIR}", file=sys.stderr)
@@ -363,11 +401,11 @@ def main() -> int:
                 out_path.write_text(rendered)
                 written.append(out_path)
 
-    rel = [str(p.relative_to(ROOT)) for p in stale]
+    rel = [shown(p) for p in stale]
     if args.check:
         if rel:
             print("Generated skills are stale:", *rel, sep="\n  ")
-            print("\nRun: python scripts/render_skills.py")
+            print("\nRun: python scripts/render_skills.py" + (f" --out {out}" if out else ""))
             return 1
         print(f"Generated skills up to date ({len(facilities)} facilities x {len(templates)} workflows).")
         return 0
