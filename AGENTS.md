@@ -82,8 +82,7 @@ hpc_codes/              The code-pack tools, served by hpc-mcp: records_*
                         (decorated @_tool). hpc_server.py registers them
                         (and the docs tools) each inside its own guard, so a
                         code tool can't stop the scheduler tools from
-                        starting. hpc-codes-mcp, the old standalone entry
-                        point, still works.
+                        starting.
 yagura/                Structure checking and analysis (trajectories,
                         and GROMACS runs in yagura/gromacs/), its own MCP
                         server (yagura-mcp); tools in mcp_tools/<group>.py,

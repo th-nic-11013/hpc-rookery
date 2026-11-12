@@ -12,7 +12,7 @@ def hpc_server_serves_docs_and_codes_tools():
     """hpc-mcp took over the docs and code-pack tools: with an empty
     HOME it lists every one of them next to the scheduler tools, and no
     tool group is reported failed. It also serves every tool the
-    standalone hpc-codes server lists, so a code tool decorated with
+    hpc_codes tool registry holds, so a code tool decorated with
     @mcp.tool() instead of @_tool (which register() would not see) fails
     here instead of going missing from hpc."""
     root = ROOT

@@ -23,8 +23,6 @@ import asyncio, json, os, sys, tempfile
 from unittest.mock import patch
 import hpc_agent_core.mcp_server, yagura.mcp_server, hyogo.mcp_server
 from hpc_mcp.hpc_server import mcp as hpc
-from hpc_mcp.docs_server import mcp as docs
-from hpc_codes.server import mcp as codes
 from yagura.server import mcp as yag
 from hyogo.server import mcp as hyo
 
@@ -35,8 +33,7 @@ def call(m, name, args):
         return "ERR " + str(e)
     return "".join(c.text for c in r.content if hasattr(c, "text"))
 
-for m in (hpc, docs, codes):
-    assert isinstance(m, hpc_agent_core.mcp_server.MCPServer), m
+assert isinstance(hpc, hpc_agent_core.mcp_server.MCPServer)
 assert isinstance(yag, yagura.mcp_server.MCPServer)
 assert isinstance(hyo, hyogo.mcp_server.MCPServer)
 
@@ -45,7 +42,7 @@ kinds = {{"O": {{"q": 6, "basis": "DZVP-MOLOPT-SR-GTH", "potential": "GTH-PBE-q6
 res = {{
     "rookery_bad": call(hpc, "get_facility", {{"facility": "hokusai", "faclity": "x"}}),
     "rookery_ok": call(hpc, "get_facility", {{"facility": "hokusai"}}),
-    "codes_bad": call(codes, "launch_plan", {{"facilty": "hokusai"}}),
+    "codes_bad": call(hpc, "launch_plan", {{"facilty": "hokusai"}}),
     "yagura_bad": call(yag, "structure_check", {{"path": {str(fx)!r}, "pth": "x"}}),
     "yagura_ok": call(yag, "structure_check", {{"path": {str(fx)!r}}}),
     "hyogo_bad": call(hyo, "cp2k_make_subsys", {{"xyz_path": {str(fx)!r}, "kinds": kinds,

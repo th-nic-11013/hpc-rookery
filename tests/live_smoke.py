@@ -214,9 +214,8 @@ async def main(job_facility: str | None, account: str | None) -> None:
     # FUGAKU_GFSCACHE=/vol0004 actually submitted the config file's value, and
     # the resulting failure looked like it exonerated that setting.
     env = dict(os.environ)
-    async with connect(dev_params("hpc_mcp", "hpc_server", env=env), mode="live") as hpc, \
-               connect(dev_params("hpc_mcp", "docs_server", env=env), mode="live") as docs_hpc:
-        slugs = await read_only_tier(hpc, docs_hpc)
+    async with connect(dev_params("hpc_mcp", "hpc_server", env=env), mode="live") as hpc:
+        slugs = await read_only_tier(hpc, hpc)
         if job_facility:
             assert job_facility in slugs, f"{job_facility!r} is not registered (have {slugs})"
             if job_facility == "cell2026":

@@ -802,7 +802,7 @@ The tool surface, the skill *mechanics* (templates), the codegen scripts,
 README, and IRI checklist are already generic — a facility PR does **not**
 touch:
 
-- `hpc_mcp/hpc_server.py` / `docs_server.py` / `doctor.py` — already handle
+- `hpc_mcp/hpc_server.py` / `doctor.py` — already handle
   every registered facility generically.
 - `templates/skills/*.md.tmpl` — shared across every facility; see §7's
   note on why a template edit is a separate, deliberate change.

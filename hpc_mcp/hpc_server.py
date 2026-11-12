@@ -529,9 +529,9 @@ def fs_extract(facility: str, archive_path: str, dest_dir: str = ".") -> str:
 # ---------------------------------------------------------------------------
 # Docs search and code-pack tools, served by this same process
 # ---------------------------------------------------------------------------
-# They used to be separate servers (hpc-docs-mcp, hpc-codes-mcp) so a fault in
-# them could never stop the scheduler tools above from starting. Each group is
-# registered inside its own guard to keep that promise: a group that fails to
+# They used to be separate servers (hpc-docs-mcp, hpc-codes-mcp, both removed)
+# so a fault in them could never stop the scheduler tools above from starting.
+# Each group is registered inside its own guard to keep that promise: a group that fails to
 # import or register is reported on stderr and in FAILED_TOOL_GROUPS, and the
 # rest of the server starts as usual.
 

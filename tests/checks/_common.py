@@ -13,8 +13,8 @@ from hpc_agent_core.models import JobAttributes, JobSpec, ResourceSpec
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TESTS = ROOT / "tests"
 
-# the code-pack and docs tools the hpc server serves since it took over
-# hpc-codes-mcp and hpc-docs-mcp
+# the code-pack and docs tools the hpc server serves (hpc-codes-mcp and
+# hpc-docs-mcp, their old standalone servers, are removed)
 CODES_TOOLS = ['cp2k_bench_dryrun', 'cp2k_bench_input', 'cp2k_bench_parse', 'cp2k_bench_records',
                'cp2k_check_build', 'cp2k_check_input', 'cp2k_kinds', 'cp2k_record_from_run',
                'launch_plan', 'records_append', 'records_check', 'records_query']

@@ -101,7 +101,7 @@ repo-wide, not a per-machine template.
   determined caller. Always show the command to the user first
   (PORTING.md §10).
 - `search_docs`, `list_doc_sections`, `read_doc_section` — RAG docs search,
-  registered on `hpc-mcp` too (hpc_agent_core/docs_server.py).
+  served by `hpc-mcp` (hpc_agent_core/docs_server.py).
 
 ## Not implemented
 

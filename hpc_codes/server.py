@@ -2,8 +2,8 @@
 
 hpc_mcp/hpc_server.py calls register(its own MCPServer) inside a guard, so a
 fault here is logged and skips these tools without stopping the scheduler
-tools from starting. The standalone entry point (hpc-codes-mcp) still works
-for a harness that registered it separately.
+tools from starting. There is no standalone entry point: hpc-mcp is the
+only server for these tools.
 
 Registers every facility (via importing hpc_mcp), then exposes the tools
 the code-pack skills under codes/ call. Every tool takes the facility slug
@@ -15,7 +15,6 @@ machine); launch_plan reads records and pack values only.
 """
 import hpc_mcp  # noqa: F401 -- import for its side effect: registers every facility
 from hpc_agent_core.mcp_server import MCPServer
-from hpc_agent_core.serving import serve
 from hpc_codes.mcp_tools import TOOLS, load, mcp
 
 
@@ -33,11 +32,3 @@ def register(target: MCPServer) -> MCPServer:
     for fn in TOOLS:
         target.add_tool(fn)
     return target
-
-
-def main():
-    serve(mcp)
-
-
-if __name__ == "__main__":
-    main()

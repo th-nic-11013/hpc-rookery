@@ -101,10 +101,10 @@ If the harness does not support plugins, register `hpc-mcp`,
 From an editable checkout, point them at `.venv/bin/hpc-mcp`,
 `.venv/bin/yagura-mcp` and `.venv/bin/hyogo-mcp`
 (after installing this project into that environment, with the `yagura` and
-`gromacs` extras for ASE). `hpc-docs-mcp` and `hpc-codes-mcp` still exist for
-configurations that registered them before `hpc-mcp` took over their tools;
-don't register them next to `hpc-mcp`, or the agent sees every docs and
-records tool twice. Then install only the
+`gromacs` extras for ASE). `hpc-mcp` serves the docs-search and code-pack
+tools too; the old `hpc-docs-mcp` and `hpc-codes-mcp` entry points are gone,
+so remove them from any configuration that still registers them. Then install
+only the
 selected skill directories:
 
 ```text

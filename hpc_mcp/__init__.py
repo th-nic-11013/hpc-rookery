@@ -4,7 +4,7 @@ Every directory under facilities/ containing a facility.py is imported
 (triggering its config.register_facility() + registry.register_backend()
 calls) — a new facility PR that adds facilities/<slug>/facility.py needs no
 edit here to be picked up; that's deliberate, so parallel facility PRs don't
-conflict on this file. Every hpc_mcp entry point (hpc_server, docs_server,
+conflict on this file. Every hpc_mcp entry point (hpc_server,
 doctor, ingest) imports hpc_mcp first (even just for this side effect)
 before doing anything that needs a registered facility.
 

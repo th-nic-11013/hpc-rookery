@@ -45,10 +45,6 @@ gromacs = ["ase>=3.23,<4"]
 
 [project.scripts]
 hpc-mcp = "hpc_mcp.hpc_server:main"
-# hpc-mcp also serves the docs and code-pack tools; these two standalone
-# entry points remain for harnesses that registered them before the merge.
-hpc-docs-mcp = "hpc_mcp.docs_server:main"
-hpc-codes-mcp = "hpc_codes.server:main"
 yagura-mcp = "yagura.server:main"
 hyogo-mcp = "hyogo.server:main"
 hpc-doctor = "hpc_mcp.doctor:main"

@@ -1,6 +1,7 @@
 """The hpc_codes server's tools, one module per group: hpc_codes/mcp_tools/<group>.py.
 
-hpc_codes/server.py imports every module here (load()) and serves their tools;
+hpc_codes/server.py imports every module here (load()) and register() hands
+their tools to the hpc server;
 a new tool goes in its group's module, or a new module, and nothing else
 is edited. This file holds the server object and what several groups share.
 """

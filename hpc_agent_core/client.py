@@ -6,8 +6,8 @@ code that wants to drive a machine's tool surface *without* an interactive
 agent session behind it: a notebook distilling exploratory agent work into a
 reproducible narrative, a one-off script, CI.
 
-`connect()` opens an MCP stdio session against a machine's `hpc_server` (or
-`docs_server`) executable — either a dev-mode `python -m` invocation
+`connect()` opens an MCP stdio session against a machine's `hpc_server`
+executable — either a dev-mode `python -m` invocation
 (`dev_params`) or the same pinned `uv tool run --from git+...@<ref>`
 invocation a plugin's own `.mcp.json` uses (`pinned_params`), pinning a tag
 or commit rather than `main` for reproducibility across time — and hands
