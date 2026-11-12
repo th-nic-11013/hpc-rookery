@@ -100,10 +100,6 @@ unconfigured-tool behaviour pass locally and fail in CI. Reproduce with:
   now names `mpi/mpich-x86_64` but the sentence still reads "launch with
   `mpirun` (OpenMPI) instead", and the following paragraph's hostfile/PMI
   reasoning is OpenMPI-specific. Re-check against MPICH's Hydra.
-- **`plugins/hpc/.mcp.json` is hand-maintained; the generator owns
-  `mcp.json`.** The harnesses load the file the generator does not own, so
-  a branch or entry-point change updates one and leaves the other pointing
-  at the old ref. Generate both, or derive one from the other.
 - **Orphaned generated-skill directories are no longer detected.**
   The check was removed wholesale so hand-authored custom skills
   would not be flagged. Generated and hand-written skills are

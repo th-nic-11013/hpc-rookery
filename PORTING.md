@@ -621,6 +621,7 @@ string replacement):
 | `{{CONFIG_STEM}}` | `{{ENV_PREFIX}}` lowercased — the config filename stem, e.g. `~/.hpc-agent/rccs_cloud.json`. |
 | `{{CONFIG_EXAMPLE}}` | Your registered `config_example` as formatted JSON (§5a). **Template-only.** |
 | `{{SETUP_HELP}}` | Your registered `setup_help` text (§5a). **Template-only.** |
+| `{{INSTALL_SOURCE}}`, `{{REPO_GIT_URL}}`, `{{INSTALL_REF}}` | Where users install and clone this code from — the `git+<url>@<ref>` source, the `.git` URL and the ref — all from the one `REPO_URL, INSTALL_REF` setting in `scripts/render_plugins.py`. **Template-only.** |
 
 The last two come from your `register_facility(...)` call rather than from
 `facility.json`, deliberately: the same two values are what an unconfigured

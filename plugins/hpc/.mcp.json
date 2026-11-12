@@ -7,7 +7,7 @@
         "run",
         "--quiet",
         "--from",
-        "git+https://github.com/william-dawson/hpc-rookery.git@main",
+        "git+https://github.com/th-nic-11013/hpc-rookery.git@hokusai-probed-facts",
         "hpc-mcp"
       ],
       "env": {}
@@ -19,7 +19,7 @@
         "run",
         "--quiet",
         "--from",
-        "hpc-rookery[yagura] @ git+https://github.com/william-dawson/hpc-rookery.git@main",
+        "hpc-rookery[yagura] @ git+https://github.com/th-nic-11013/hpc-rookery.git@hokusai-probed-facts",
         "yagura-mcp"
       ],
       "env": {}
@@ -31,7 +31,7 @@
         "run",
         "--quiet",
         "--from",
-        "hpc-rookery[gromacs] @ git+https://github.com/william-dawson/hpc-rookery.git@main",
+        "hpc-rookery[gromacs] @ git+https://github.com/th-nic-11013/hpc-rookery.git@hokusai-probed-facts",
         "hyogo-mcp"
       ],
       "env": {}

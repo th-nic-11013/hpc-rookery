@@ -12,10 +12,15 @@ _harness.setup(__file__)
 
 import asyncio
 import os
+import sys
 import tempfile
 from pathlib import Path
 
 from hpc_agent_core.client import HpcClient, connect_sync, dev_params, pinned_params
+
+sys.path.insert(1, str(Path(__file__).resolve().parent.parent / "scripts"))
+# the one install setting the reproducing skill renders from (G34)
+from render_plugins import INSTALL_REF, INSTALL_SOURCE, REPO_GIT_URL  # noqa: E402
 
 
 class _Result:
@@ -34,13 +39,10 @@ class _RecordingSession:
 
 
 def check_pinned_root_project() -> None:
-    params = pinned_params(
-        "https://github.com/william-dawson/hpc-rookery.git",
-        "hpc-mcp",
-        ref="main",
-    )
+    params = pinned_params(REPO_GIT_URL, "hpc-mcp", ref=INSTALL_REF)
     source = params.args[params.args.index("--from") + 1]
-    assert source.endswith("@main"), source
+    # a generated notebook launches the same server the plugin's .mcp.json does
+    assert source == INSTALL_SOURCE, source
     assert "#subdirectory=" not in source, source
 
     legacy = pinned_params("https://example.invalid/old.git", "old-mcp",

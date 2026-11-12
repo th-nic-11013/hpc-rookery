@@ -78,6 +78,9 @@ sys.path.insert(0, str(ROOT))
 import hpc_mcp  # noqa: E402,F401 -- import registers every facility
 from hpc_agent_core import config as _config  # noqa: E402
 from facilities import PATH_ENV  # noqa: E402
+sys.path.insert(1, str(ROOT / "scripts"))
+# where users install and clone this code from: one setting, in render_plugins.py (G34)
+from render_plugins import INSTALL_REF, INSTALL_SOURCE, REPO_GIT_URL  # noqa: E402
 
 TEMPLATES_DIR = ROOT / "templates" / "skills"
 CODES_DIR = ROOT / "codes"
@@ -142,6 +145,9 @@ def render_one(template_text: str, fac: dict, workflow: str) -> str:
     text = template_text.replace("{{FACILITY_NOTES}}", notes)
     text = text.replace("{{CONFIG_EXAMPLE}}", config_example)
     text = text.replace("{{SETUP_HELP}}", setup_help)
+    text = text.replace("{{INSTALL_SOURCE}}", INSTALL_SOURCE)
+    text = text.replace("{{REPO_GIT_URL}}", REPO_GIT_URL)
+    text = text.replace("{{INSTALL_REF}}", INSTALL_REF)
     return substitute_scalars(text, fac)
 
 

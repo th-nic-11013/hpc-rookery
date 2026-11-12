@@ -105,14 +105,14 @@ facilities don't:
    key. Never commit it or echo the key back in conversation.
 4. **Validate**:
    ```bash
-   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-rookery.git@main hpc-doctor fugaku
+   uv tool run --quiet --from git+https://github.com/th-nic-11013/hpc-rookery.git@hokusai-probed-facts hpc-doctor fugaku
    ```
    (From a checkout of this repo: `.venv/bin/python -m hpc_mcp.doctor
    fugaku` also works.)
 5. **If the embedding endpoint was added or changed**, rebuild this
    facility's docs index:
    ```bash
-   uv tool run --quiet --from git+https://github.com/william-dawson/hpc-rookery.git@main python -m hpc_mcp.ingest fugaku
+   uv tool run --quiet --from git+https://github.com/th-nic-11013/hpc-rookery.git@hokusai-probed-facts python -m hpc_mcp.ingest fugaku
    ```
    Then run the doctor again — it should report "chunks with embeddings".
 
