@@ -87,6 +87,13 @@ records_append(facility="{{SLUG}}", record_type="benchmarks", record={...})
   must not carry), with `run_type: md_step` and `system.kpoints: none`.
   `extra` can hold `ns_per_day`, `nve_drift_meV_atom_ps` and
   `concurrent_runs` (copies run side by side; the metric is per copy).
+- `variant.exe` and `layout` depend on `code`. A CP2K build's `exe` is
+  `psmp`, `ssmp`, `popt` or `sopt`, a VASP build's `std`, `gam` or `ncl`;
+  any other code uses `other`. A VASP benchmark keeps `nodes`,
+  `ranks_per_node` and `threads_per_rank`, puts the INCAR's `KPAR` and
+  `NCORE` (or `NPAR`) in `layout`, and ends its id with
+  `-k<KPAR>c<NCORE>`; `method.basis` names the POTCAR set and `cutoff_ry`
+  is ENCUT / 13.6057. A CP2K benchmark has no `layout`.
 - A benchmark that failed or did not converge is still recorded, with
   `valid: false` and a `reason`, so it is not repeated.
 - Changing an existing record (moving `default` to another build, setting
