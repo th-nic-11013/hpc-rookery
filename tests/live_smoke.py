@@ -20,7 +20,9 @@ from hpc_agent_core.client import connect, dev_params
 
 #: Per-facility job spec for the --job tier. A facility absent from here can
 #: still be job-tested by passing --partition/--account explicitly; this just
-#: holds a known-good, deliberately tiny default per facility.
+#: holds a known-good, deliberately tiny default per facility. A facility can
+#: instead ship its own as live_smoke.json in its folder (see job_defaults),
+#: which is how one kept outside this repository (PORTING.md §4a) does it.
 JOB_DEFAULTS = {
     "rikyu": {"queue_name": "gpu", "gpus": 1},
     "hokusai": {"queue_name": "mpc"},
@@ -50,6 +52,21 @@ JOB_DEFAULTS = {
 }
 
 CELL2026_GE_JOB = {"queue_name": "all.q", "duration": 300, "gpus": 1}
+
+
+def job_defaults(slug: str) -> dict:
+    """The --job tier's spec defaults for slug: the facility folder's own
+    live_smoke.json (an object with JOB_DEFAULTS' keys) when it has one,
+    else JOB_DEFAULTS. Read offline; a facility from
+    HPC_ROOKERY_FACILITY_PATH is found as the server finds it."""
+    import json
+
+    import hpc_mcp
+    folder = hpc_mcp.FACILITY_DIRS.get(slug)
+    own = folder / "live_smoke.json" if folder else None
+    if own and own.is_file():
+        return json.loads(own.read_text())
+    return JOB_DEFAULTS.get(slug, {})
 
 
 async def read_only_tier(hpc, docs_hpc) -> list[str]:
@@ -127,7 +144,7 @@ async def read_only_tier(hpc, docs_hpc) -> list[str]:
 async def job_tier(hpc, slug: str, account: str | None,
                    defaults_override: dict | None = None,
                    job_name: str = "hub-smoke") -> None:
-    defaults = defaults_override if defaults_override is not None else JOB_DEFAULTS.get(slug, {})
+    defaults = defaults_override if defaults_override is not None else job_defaults(slug)
     resources = {"node_count": 1, "processes_per_node": 1}
     if defaults.get("gpus"):
         resources["gpus"] = defaults["gpus"]
