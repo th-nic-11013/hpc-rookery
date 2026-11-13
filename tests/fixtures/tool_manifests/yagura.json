@@ -13,6 +13,7 @@
  "structure_stretch_xh": ["length", "out_path", "overwrite", "pairs", "path"],
  "structure_to_extxyz": ["charge", "config_type", "dt_fs", "index", "out_path", "overwrite", "source", "source_path", "specorder", "time_range_ps", "vacuum"],
  "structure_to_lammps_data": ["index", "out_path", "overwrite", "source_path", "specorder"],
+ "trajectory_monitor": ["color_by", "energy", "frames_before", "k", "log_paths", "max_events", "metal_disp", "n_frames", "out_dir", "overwrite", "path", "rank_atoms", "relative", "specorder", "structure", "video", "view", "window"],
  "trajectory_msd": ["cell", "dt_fs", "elements", "fit_ps", "frames", "path", "points", "remove_drift"],
  "trajectory_rdf": ["bins", "cell", "frames", "pairs", "path", "r_max"],
  "trajectory_vdos": ["cell", "dt_fs", "elements", "frames", "max_wavenumber", "n_peaks", "path", "points"]

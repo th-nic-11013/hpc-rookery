@@ -11,6 +11,7 @@
 - **Block hold-out** — keep whole time windows of a run (e.g. its last 50 ps) out of training, because MD frames 25 fs apart are near copies and a random split would leak.
 - **Collective variable (CV)** — one number that summarises a configuration (a distance, a torsion angle, a coordination number), chosen so it tells apart the states you care about.
 - **Constrain-then-release** — a short VASP pre-run with the total moment fixed (NUPDOWN), whose wavefunction (WAVECAR) starts a second run with the moment free: it steers the SCF into a spin state without biasing the final result.
+- **Contact sheet** — a single image with several frames side by side in a grid, like a photographer's proof sheet.
 - **Contract test** — a test in one repo that pins the names and arguments of the tools it calls in another, so a change on either side fails loudly instead of silently breaking a skill.
 - **Core dump** — a snapshot of a crashed program's memory written to disk for debugging; for a large MPI job it can be tens of GB.
 - **D3(BJ)** — Grimme's dispersion correction with Becke–Johnson damping; the r²SCAN-family parameters exist only in this form.
@@ -59,6 +60,7 @@
 - **RDF (radial distribution function)** — how likely you are to find atom B at distance r from atom A, relative to random; peaks are bond/shell distances.
 - **Registering an MCP server** — adding one line to the agent's settings that says "this tool server exists, start it with this command" (like saving a contact so the phone knows whom to call).
 - **Reweighting** — recovering unbiased averages from a biased run by giving each frame the weight exp(V/kT) of the bias it felt.
+- **Robust z-score** — how far a value sits from the running median, measured in MADs (median absolute deviations), so one big spike can't inflate its own threshold the way it would with mean and σ.
 - **Run chaining** — starting a CP2K run from a previous run's outputs (its final structure and its `-RESTART.wfn`); hyogo's `guess_from` does the wavefunction half and refuses one that can't fit.
 - **Run state** — the agent-notes summary of one campaign (goal, current step, next step, what was tried, live jobs), kept on disk so an agent can resume after its context fills up.
 - **r²SCANh** — r²SCAN hybrid with 10 % exact exchange (r²SCAN0 has 25 %); hyogo preset `r2scanh`.
