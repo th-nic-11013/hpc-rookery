@@ -19,8 +19,10 @@ accepted names from the public `list_tools()` input schema, so it touches
 no SDK internals. If that ever stops working it logs to stderr once and
 falls back to the SDK's behaviour; it can never stop the server starting.
 
-yagura/mcp_server.py and hyogo/mcp_server.py carry a deliberate copy of
-this check: the three staged groups import nothing from each other.
+yagura/mcp_server.py and hyogo/mcp_server.py, in their own repositories,
+carry a deliberate copy of this check: the three import nothing from each
+other. scripts/sibling_sync.py --check compares the copies when those
+checkouts sit next to this one.
 """
 import sys
 from typing import Any

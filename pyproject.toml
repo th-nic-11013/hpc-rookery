@@ -35,25 +35,15 @@ dependencies = [
     "pyyaml",
 ]
 
-[project.optional-dependencies]
-# yagura's CIF tools (cif_inspect, structure_to_extxyz). Imported inside those
-# tools only, so every server starts without it.
-yagura = ["ase>=3.23,<4"]
-# hyogo's GROMACS build_system (make_molecules.py reads the frame with ASE).
-# The rest of hyogo starts and runs without it.
-gromacs = ["ase>=3.23,<4"]
-
 [project.scripts]
 hpc-mcp = "hpc_mcp.hpc_server:main"
-yagura-mcp = "yagura.server:main"
-hyogo-mcp = "hyogo.server:main"
 hpc-doctor = "hpc_mcp.doctor:main"
 
 [project.urls]
 Repository = "https://github.com/th-nic-11013/hpc-rookery"  # = REPO_URL in scripts/render_plugins.py
 
 [tool.setuptools.packages.find]
-include = ["hpc_agent_core*", "hpc_mcp*", "hpc_codes*", "yagura*", "hyogo*", "facilities*"]
+include = ["hpc_agent_core*", "hpc_mcp*", "hpc_codes*", "facilities*"]
 
 # Each facility's data/ is read at runtime via Path(__file__).parent/"data"
 # (config.register_facility(data_dir=...)), so it MUST ship in the wheel —

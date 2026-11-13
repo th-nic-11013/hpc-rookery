@@ -11,12 +11,11 @@ def cp2k_record_from_run_records_a_parsed_run():
     system and method) becomes a benchmarks record with the id, timing
     and extra fields the hand-written 2026-11-05 records had; refusals
     append nothing."""
-    import gzip
-    from hyogo.cp2k import output
+    import json
     from hpc_codes import records, server
-    root = ROOT
-    fx = root / "tests" / "fixtures" / "cp2k_outputs"
-    parse = lambda n: output.parse(gzip.decompress((fx / f"{n}.out.gz").read_bytes()).decode())
+    # hyogo's cp2k_parse_output results, saved (tests/fixtures/cp2k_parsed/README.md)
+    fx = ROOT / "tests" / "fixtures" / "cp2k_parsed"
+    parse = lambda n: json.loads((fx / f"{n}.json").read_text())
     sp, opt = parse("r2scan-sp"), parse("hse06-cellopt")
     with tempfile.TemporaryDirectory() as tmp, \
             patch.dict(os.environ, {"HPC_RECORDS_USER_DIR": tmp}):
@@ -78,8 +77,7 @@ def cp2k_record_from_run_records_a_parsed_run():
             assert any("cell_volume_A3 not copied" in w for w in r["warnings"]), r["warnings"]
 
             # an optimisation cut by the walltime: still a valid per-step time, warned
-            text = gzip.decompress((fx / "hse06-cellopt.out.gz").read_bytes()).decode()
-            cut = output.parse(text[: text.index(" OPTIMIZATION STEP:     12\n")])
+            cut = parse("hse06-cellopt-cut-step12")
             r = server.cp2k_record_from_run("hokusai", cut, 2, like=like["id"], tag="cut",
                                             dry_run=True)
             rec = r["record"]

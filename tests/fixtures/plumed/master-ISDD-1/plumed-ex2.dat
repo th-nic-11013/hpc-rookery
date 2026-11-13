@@ -1,8 +1,0 @@
-# Activate MOLINFO functionalities
-MOLINFO STRUCTURE=GB1_native.pdb
-# Define the dihedral phi of residue 2 as an explicit list of 4 atoms
-t1: TORSION ATOMS=3,9,10,11
-# Define the same dihedral using MOLINFO shortcuts
-t2: TORSION ATOMS=@phi-2
-# Print the two collective variables on COLVAR file every 10 steps
-PRINT ARG=t1,t2 FILE=COLVAR STRIDE=10

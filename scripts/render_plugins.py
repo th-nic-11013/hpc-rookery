@@ -34,6 +34,12 @@ from pathlib import Path
 REPO_URL, INSTALL_REF = "https://github.com/th-nic-11013/hpc-rookery", "hokusai-probed-facts"
 REPO_GIT_URL = f"{REPO_URL}.git"
 INSTALL_SOURCE = f"git+{REPO_GIT_URL}@{INSTALL_REF}"
+# yagura and hyogo are their own repositories (split 2026-11-13); the
+# plugin starts their servers from there, with the extra that brings ASE
+SIBLING_SOURCES = {
+    "yagura": "yagura[cif] @ git+https://github.com/th-nic-11013/yagura.git@main",
+    "hyogo": "hyogo[gromacs] @ git+https://github.com/th-nic-11013/hyogo.git@main",
+}
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGINS = ROOT / "plugins"
@@ -227,12 +233,12 @@ def portable_mcp() -> dict:
         "mcpServers": {
             # hpc-mcp serves the scheduler, docs-search and code-pack tools
             "hpc": {"type": "stdio", "command": "uv", "args": [*args_prefix, "hpc-mcp"], "env": {}},
-            # the [yagura] extra brings ASE for the CIF tools
+            # structures and analysis ([cif]: ASE for the CIF tools)
             "yagura": {"type": "stdio", "command": "uv", "env": {},
-                       "args": [*args_prefix[:-1], f"hpc-rookery[yagura] @ {args_prefix[-1]}", "yagura-mcp"]},
-            # the [gromacs] extra brings ASE for build_system
+                       "args": [*args_prefix[:-1], SIBLING_SOURCES["yagura"], "yagura-mcp"]},
+            # methods and inputs ([gromacs]: ASE for build_system)
             "hyogo": {"type": "stdio", "command": "uv", "env": {},
-                      "args": [*args_prefix[:-1], f"hpc-rookery[gromacs] @ {args_prefix[-1]}", "hyogo-mcp"]},
+                      "args": [*args_prefix[:-1], SIBLING_SOURCES["hyogo"], "hyogo-mcp"]},
         },
     }
 

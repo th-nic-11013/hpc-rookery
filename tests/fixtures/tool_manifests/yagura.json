@@ -1,0 +1,19 @@
+{
+ "analyze_density": ["last_ps", "reference_g_cm3", "stage", "window_ps", "workdir"],
+ "cif_inspect": ["path"],
+ "colvar_fes": ["bias", "block_size", "cvs", "frames", "grid", "out_path", "overwrite", "path", "temperature", "units"],
+ "export_frames": ["begin_ps", "end_ps", "n_frames", "outdir", "stage", "workdir"],
+ "framework_check": ["bonds", "dt_fs", "index", "max_transient_frames", "metal_o_cutoff", "metals", "overlap", "overwrite", "path", "reference_path", "specorder", "table_path"],
+ "gap_compare": ["computed_gap", "gaps", "kpoints", "references"],
+ "labels_compare": ["a_path", "b_path", "energy_key", "energy_mev", "force_rms_mev", "forces_key", "moment_key", "out_path", "overwrite", "pair", "tol"],
+ "pdos_read": ["edge_threshold", "emax_ev", "emin_ev", "environment", "group_by", "groups", "out_path", "overwrite", "paths", "sigma_ev", "window_ev"],
+ "sites_by_environment": ["frame", "h_cut", "metals", "out_path", "overwrite", "path", "rank_by", "slab_max", "top", "water_min"],
+ "stage_energies": ["last_ps", "stage", "terms", "workdir"],
+ "structure_check": ["path"],
+ "structure_stretch_xh": ["length", "out_path", "overwrite", "pairs", "path"],
+ "structure_to_extxyz": ["charge", "config_type", "dt_fs", "index", "out_path", "overwrite", "source", "source_path", "specorder", "time_range_ps", "vacuum"],
+ "structure_to_lammps_data": ["index", "out_path", "overwrite", "source_path", "specorder"],
+ "trajectory_msd": ["cell", "dt_fs", "elements", "fit_ps", "frames", "path", "points", "remove_drift"],
+ "trajectory_rdf": ["bins", "cell", "frames", "pairs", "path", "r_max"],
+ "trajectory_vdos": ["cell", "dt_fs", "elements", "frames", "max_wavenumber", "n_peaks", "path", "points"]
+}

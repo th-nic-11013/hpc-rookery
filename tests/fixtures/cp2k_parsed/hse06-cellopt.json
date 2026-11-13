@@ -1,0 +1,194 @@
+{
+ "cell": {
+  "a": 20.831819,
+  "alpha": 90.0,
+  "b": 20.831819,
+  "beta": 90.0,
+  "c": 20.831819,
+  "gamma": 90.0,
+  "volume": 9040.273892
+ },
+ "cost": {
+  "cp2k_s": 8886.337,
+  "hfx": {
+   "eri_disk_mib": 0,
+   "eri_ram_mib": 18952,
+   "max_program_mib": 4651,
+   "on_the_fly": 0
+  },
+  "peak_mib": 4724,
+  "top_timers": [
+   [
+    "cp_cell_opt",
+    8832.575
+   ],
+   [
+    "geoopt_bfgs",
+    8832.319
+   ],
+   [
+    "cp_eval_at",
+    8813.979
+   ],
+   [
+    "qs_forces",
+    8750.348
+   ],
+   [
+    "rebuild_ks_matrix",
+    8530.47
+   ],
+   [
+    "qs_ks_build_kohn_sham_matrix",
+    8530.463
+   ],
+   [
+    "hfx_ks_matrix",
+    8233.634
+   ],
+   [
+    "qs_ks_update_qs_env_forces",
+    7229.293
+   ]
+  ]
+ },
+ "dispersion_ha": -1.07856196375141,
+ "electrons": 1936,
+ "energy_ha": -4335.056972776092,
+ "files": {
+  "basis": "BASIS_MOLOPT_UZH_2026.2",
+  "final_cif": "hse06-cellopt-FINAL-1_21.cif",
+  "final_xyz": "hse06-cellopt-FINAL-1_21.xyz",
+  "potential": "POTENTIAL_UZH_2026.2",
+  "restart": "hse06-cellopt-1.restart",
+  "wfn": "hse06-cellopt-RESTART.wfn"
+ },
+ "finished": true,
+ "forces": null,
+ "gap_ev": 4.034722,
+ "md": null,
+ "natoms": 456,
+ "opt": {
+  "converged": true,
+  "criteria": {
+   "max_gradient": {
+    "converged": true,
+    "limit": 0.0001,
+    "value": 8.45438e-05
+   },
+   "max_step": {
+    "converged": true,
+    "limit": 0.003,
+    "value": 0.0002049276
+   },
+   "pressure_dev_bar": {
+    "converged": true,
+    "limit": 100.0,
+    "value": 6.3393678606
+   },
+   "rms_gradient": {
+    "converged": true,
+    "limit": 5e-05,
+    "value": 2.79377e-05
+   },
+   "rms_step": {
+    "converged": true,
+    "limit": 0.0015,
+    "value": 8.23768e-05
+   }
+  },
+  "energy_ha": -4335.0569730214,
+  "internal_pressure_bar": 7.3393678606,
+  "max_iter_hit": false,
+  "step_times_s": [
+   439.405,
+   403.288,
+   406.409,
+   399.387,
+   399.705,
+   401.214,
+   400.322,
+   396.751,
+   396.622,
+   404.368,
+   395.923,
+   391.14,
+   392.23,
+   390.872,
+   396.553,
+   395.383,
+   390.291,
+   392.091,
+   400.389,
+   394.816,
+   391.232,
+   391.508
+  ],
+  "steps": 21
+ },
+ "project": "hse06-cellopt",
+ "ranks": 32,
+ "run_type": "CELL_OPT",
+ "scf": {
+  "evaluations": 23,
+  "not_converged": 0,
+  "outer": [
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1
+  ],
+  "steps": [
+   1,
+   6,
+   6,
+   5,
+   5,
+   5,
+   5,
+   4,
+   4,
+   4,
+   3,
+   3,
+   3,
+   3,
+   4,
+   4,
+   3,
+   3,
+   3,
+   3,
+   3,
+   3,
+   3
+  ]
+ },
+ "started": "2026-11-05",
+ "stress_gpa": null,
+ "threads": 7,
+ "version": "CP2K version 2026.2",
+ "warnings": [
+  "CP2K warning (1x): hfx_types.F:762: Periodic Hartree Fock calculation requested with the use of a shortrange potential erfc(omega*r)/r. Given omega =  0.110 and EPS_SCHWARZ =  1.0E-06, the requested cutoff radius 10.400 A is smaller than what is necessary to satisfy erfc(omega*r)/r = EPS_SCHWARZ at r = 14.279 A. Increase input value (or omit keyword to use program default) to ensure accuracy.",
+  "CP2K warning (1x): dbcsr_mm.F:301: Using a non-square number of MPI ranks might lead to poor performance. Used ranks: 32 Suggested: 36 64"
+ ]
+}

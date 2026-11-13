@@ -86,31 +86,25 @@ hpc_codes/              The code-pack tools, served by hpc-mcp: records_*
                         (and the docs tools) each inside its own guard, so a
                         code tool can't stop the scheduler tools from
                         starting.
-yagura/                Structure checking and analysis (trajectories,
-                        and GROMACS runs in yagura/gromacs/), its own MCP
-                        server (yagura-mcp); tools in mcp_tools/<group>.py,
-                        which server.py loads. Staged
-                        here before it becomes its own repository: it
-                        imports nothing from the packages above and they
-                        import nothing from it (conformance enforces it).
-hyogo/                 Running simulation methods and writing their
-                        inputs (CP2K, VASP; GROMACS build and local
-                        equilibration in hyogo/gromacs/), its own MCP
-                        server (hyogo-mcp); tools in mcp_tools/<code>.py,
-                        each with TOOL_META (its INVENTORY.md rows). Staged
-                        like yagura; the three
-                        groups import nothing from each other, so the few
-                        GROMACS helpers both need are deliberate copies.
 scripts/                check (every required check), render_facility_tables.py,
                         render_skills.py, render_plugins.py (--bump: once per
-                        merge), render_inventory.py (hyogo/INVENTORY.md table),
-                        render_glossary.py (GLOSSARY.md from glossary/).
+                        merge), render_glossary.py (GLOSSARY.md from glossary/),
+                        sibling_sync.py (copies from yagura and hyogo).
 glossary/               One file per GLOSSARY.md term.
 tests/conformance.py    The offline checks' runner (--only, --list,
                         --empty-home); each check is its own file,
                         tests/checks/<area>/<name>.py (facility/ = per facility).
 tests/live_smoke.py     Live, facility-agnostic smoke test.
 ```
+
+## yagura and hyogo (sibling repositories)
+
+Structures and analysis live in [yagura](https://github.com/th-nic-11013/yagura), methods and
+inputs in [hyogo](https://github.com/th-nic-11013/hyogo), each with its own MCP server, checks
+and AGENTS.md; check them out next to this one (`../yagura`, `../hyogo`). The three meet
+through tools, never imports. Rookery keeps copies of a few of their files (their tool
+manifests, the structure-making scripts, the MCP shim): after changing a tool or one of those
+files there, run `python3 scripts/sibling_sync.py` here (`scripts/check` runs its `--check`).
 
 ## Facilities onboarded so far
 
@@ -120,13 +114,13 @@ Tables (live-tested and awaiting validation), generated:
 ## Checks and token hygiene
 
 Run `python3 scripts/check` before committing: it runs every required check (conformance
-and the notebook client, each also with `--empty-home`; the five generators with `--check`;
+and the notebook client, each also with `--empty-home`; the four generators and sibling_sync with `--check`;
 the wheel-data check; `git diff --check`) and prints only failures plus one summary line.
 `--only conformance` (or another check name) runs a subset.
 
 Gaps run in parallel, so a gap adds files rather than editing shared ones: a check is a new
-`tests/checks/<area>/<name>.py`; a tool goes in its group's `mcp_tools/<group>.py` (a new code
-is a new module) with its `TOOL_META` row in hyogo; a term is a new `glossary/<term>.md`.
+`tests/checks/<area>/<name>.py`; a tool goes in its group's `mcp_tools/<group>.py`; a term is
+a new `glossary/<term>.md`.
 Generated files (`.gitattributes` lists them) are re-rendered, never edited or hand-merged.
 Gap branches never bump plugin versions: `render_plugins.py --bump` does, once per merge.
 

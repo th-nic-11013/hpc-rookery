@@ -19,7 +19,7 @@
         "run",
         "--quiet",
         "--from",
-        "hpc-rookery[yagura] @ git+https://github.com/th-nic-11013/hpc-rookery.git@hokusai-probed-facts",
+        "yagura[cif] @ git+https://github.com/th-nic-11013/yagura.git@main",
         "yagura-mcp"
       ],
       "env": {}
@@ -31,7 +31,7 @@
         "run",
         "--quiet",
         "--from",
-        "hpc-rookery[gromacs] @ git+https://github.com/th-nic-11013/hpc-rookery.git@hokusai-probed-facts",
+        "hyogo[gromacs] @ git+https://github.com/th-nic-11013/hyogo.git@main",
         "hyogo-mcp"
       ],
       "env": {}

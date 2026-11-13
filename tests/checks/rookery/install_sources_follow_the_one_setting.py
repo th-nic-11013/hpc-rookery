@@ -18,13 +18,17 @@ REPO_LINK = re.compile(r"https?://github\.com/[^/\s\"'`]+/hpc-rookery(?:\.git)?\
 def install_sources_follow_the_one_setting():
     """G34: every repository field and install source names REPO_URL and
     INSTALL_REF from scripts/render_plugins.py, so switching between this
-    fork and upstream is one line and a hard-coded URL cannot come back."""
+    fork and upstream is one line and a hard-coded URL cannot come back.
+    yagura's and hyogo's servers start from their own repositories, named
+    once in SIBLING_SOURCES."""
     spec = importlib.util.spec_from_file_location(
         "render_plugins", ROOT / "scripts" / "render_plugins.py")
     plugins = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(plugins)
     repo, source = plugins.REPO_URL, plugins.INSTALL_SOURCE
     assert source == f"git+{repo}.git@{plugins.INSTALL_REF}", source
+    siblings = plugins.SIBLING_SOURCES
+    allowed = {source} | {s.split(" @ ")[-1] for s in siblings.values()}
 
     manifests = [p for p in (ROOT / "plugins").glob("*/plugin.json")]
     manifests += (ROOT / "plugins").glob("*/.*-plugin/plugin.json")
@@ -39,8 +43,9 @@ def install_sources_follow_the_one_setting():
         for server, entry in servers.items():
             args = entry["args"]
             pinned = args[args.index("--from") + 1]
-            # "git+<url>@<ref>" or "hpc-rookery[extra] @ git+<url>@<ref>"
-            assert pinned.split(" @ ")[-1] == source, f"plugins/hpc/{name} {server}: {pinned}"
+            # "git+<url>@<ref>", or "<repo>[extra] @ git+<url>@<ref>" for yagura and hyogo
+            want = siblings.get(server, source)
+            assert pinned == want, f"plugins/hpc/{name} {server}: {pinned}, not {want}"
 
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     assert project["urls"]["Repository"] == repo, project["urls"]
@@ -56,7 +61,7 @@ def install_sources_follow_the_one_setting():
             except UnicodeDecodeError:
                 continue
             for line_no, line in enumerate(text.splitlines(), 1):
-                bad = [m for m in GIT_SOURCE.findall(line) if m != source]
+                bad = [m for m in GIT_SOURCE.findall(line) if m not in allowed]
                 bad += [m for m in REPO_LINK.findall(line) if m not in (repo, f"{repo}.git")]
                 stale += [f"{path.relative_to(ROOT)}:{line_no}: {m}" for m in bad]
     assert not stale, ("install/clone sources that do not follow REPO_URL, INSTALL_REF in "

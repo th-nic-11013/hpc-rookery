@@ -15,7 +15,10 @@ and reads and writes the measured records (benchmarks, software builds) the
 code-pack skills use and plans launches; `yagura-mcp` checks and fixes
 structures and analyses trajectories and GROMACS runs, and `hyogo-mcp` writes
 simulation inputs and builds and runs GROMACS equilibrations, both on this
-machine (staged here until each becomes its own repository). Every operation names its target explicitly — for
+machine. yagura and hyogo are their own repositories
+([yagura](https://github.com/th-nic-11013/yagura),
+[hyogo](https://github.com/th-nic-11013/hyogo)); the plugin starts their
+servers from there. Every operation names its target explicitly — for
 example, `submit_job(facility="rikyu", ...)` or
 `search_docs(facility="fugaku", ...)`. The agent calls `get_facilities()`
 when it does not already know which machine you mean.
@@ -98,10 +101,10 @@ facility packs the user selected.
 
 If the harness does not support plugins, register `hpc-mcp`,
 `yagura-mcp` and `hyogo-mcp` using its normal stdio-MCP configuration.
-From an editable checkout, point them at `.venv/bin/hpc-mcp`,
-`.venv/bin/yagura-mcp` and `.venv/bin/hyogo-mcp`
-(after installing this project into that environment, with the `yagura` and
-`gromacs` extras for ASE). `hpc-mcp` serves the docs-search and code-pack
+From editable checkouts, point them at this project's `.venv/bin/hpc-mcp`
+and at `.venv/bin/yagura-mcp` and `.venv/bin/hyogo-mcp` in the yagura and
+hyogo checkouts (installed there with their `cif` and `gromacs` extras for
+ASE). `hpc-mcp` serves the docs-search and code-pack
 tools too; the old `hpc-docs-mcp` and `hpc-codes-mcp` entry points are gone,
 so remove them from any configuration that still registers them. Then install
 only the

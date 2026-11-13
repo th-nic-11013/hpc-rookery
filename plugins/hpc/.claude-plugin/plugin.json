@@ -1,7 +1,7 @@
 {
   "name": "hpc",
   "description": "Shared HPC MCP servers and facility discovery. Install only the facility skill packs you use.",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "author": {
     "name": "William Dawson",
     "email": "william.dawson@riken.jp"

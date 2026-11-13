@@ -14,13 +14,11 @@ def tests_import_this_checkout():
     venv's editable install points (a worktree would otherwise test
     the main checkout's code)."""
     import hpc_codes
-    import hyogo
-    import yagura
     root = ROOT
-    for mod in (hpc_codes, hyogo, yagura, config):
+    for mod in (hpc_codes, config):
         assert pathlib.Path(mod.__file__).resolve().is_relative_to(root), (mod.__name__, mod.__file__)
     with tempfile.TemporaryDirectory() as elsewhere:   # not the repo: no '' on sys.path helps
-        out = subprocess.run([sys.executable, "-c", "import hyogo; print(hyogo.__file__)"],
+        out = subprocess.run([sys.executable, "-c", "import hpc_codes; print(hpc_codes.__file__)"],
                              cwd=elsewhere, capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr[-1000:]
     assert pathlib.Path(out.stdout.strip()).resolve().is_relative_to(root), out.stdout

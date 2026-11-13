@@ -1,0 +1,1 @@
+**Delta learning (Δ-learning)** — training an ML model on the difference between a cheap method and an expensive one, then adding that correction to the cheap result to get near-expensive accuracy at near-cheap cost.

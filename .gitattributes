@@ -19,7 +19,6 @@ GLOSSARY.md linguist-generated=true merge=binary
 
 # Partly generated (only the marked region; the rest is hand-written, so these
 # merge as text: on a conflict inside the region, take either side and re-render):
-#   hyogo/INVENTORY.md       TOOL_TABLE      scripts/render_inventory.py (TOOL_META)
 #   README.md, PORTING.md, docs/facilities.md,
 #   plugins/hpc/skills/hpc-facilities/SKILL.md
 #                            FACILITY_TABLE  scripts/render_facility_tables.py

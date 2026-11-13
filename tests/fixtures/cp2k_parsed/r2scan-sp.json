@@ -1,0 +1,101 @@
+{
+ "cell": null,
+ "cost": {
+  "cp2k_s": 279.886,
+  "hfx": null,
+  "peak_mib": 3276,
+  "top_timers": [
+   [
+    "qs_forces",
+    248.604
+   ],
+   [
+    "qs_energies",
+    240.38
+   ],
+   [
+    "scf_env_do_scf",
+    176.194
+   ],
+   [
+    "scf_env_do_scf_inner_loop",
+    159.157
+   ],
+   [
+    "rebuild_ks_matrix",
+    104.696
+   ],
+   [
+    "qs_ks_build_kohn_sham_matrix",
+    104.695
+   ],
+   [
+    "qs_ks_update_qs_env",
+    97.051
+   ],
+   [
+    "qs_rho_update_rho_low",
+    61.465
+   ]
+  ]
+ },
+ "dispersion_ha": -0.48993718710468,
+ "electrons": 1936,
+ "energy_ha": -4331.274668682077,
+ "files": {
+  "basis": "BASIS_MOLOPT_UZH_2026.2",
+  "final_cif": null,
+  "final_xyz": null,
+  "potential": "POTENTIAL_UZH_2026.2",
+  "restart": null,
+  "wfn": "r2scan-sp-RESTART.wfn"
+ },
+ "finished": true,
+ "forces": {
+  "max": 0.008109223499728691,
+  "max_atom": 348,
+  "natoms": 456,
+  "rms": 0.004772856665214726
+ },
+ "gap_ev": 3.363827,
+ "md": null,
+ "natoms": 456,
+ "opt": null,
+ "project": "r2scan-sp",
+ "ranks": 16,
+ "run_type": "ENERGY_FORCE",
+ "scf": {
+  "evaluations": 1,
+  "not_converged": 0,
+  "outer": [
+   2
+  ],
+  "steps": [
+   55
+  ]
+ },
+ "started": "2026-11-05",
+ "stress_gpa": {
+  "tensor": [
+   [
+    -1.21112101193,
+    7.44299725311e-06,
+    -2.98487747398e-07
+   ],
+   [
+    7.44299725311e-06,
+    -1.21110784163,
+    -1.7236758484e-06
+   ],
+   [
+    -2.98487747398e-07,
+    -1.7236758484e-06,
+    -1.21110894099
+   ]
+  ],
+  "third_trace": -1.21111259818
+ },
+ "threads": 7,
+ "version": "CP2K version 2026.2",
+ "warnings": []
+}

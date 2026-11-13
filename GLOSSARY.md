@@ -14,6 +14,7 @@
 - **Contract test** — a test in one repo that pins the names and arguments of the tools it calls in another, so a change on either side fails loudly instead of silently breaking a skill.
 - **Core dump** — a snapshot of a crashed program's memory written to disk for debugging; for a large MPI job it can be tens of GB.
 - **D3(BJ)** — Grimme's dispersion correction with Becke–Johnson damping; the r²SCAN-family parameters exist only in this form.
+- **Delta learning (Δ-learning)** — training an ML model on the difference between a cheap method and an expensive one, then adding that correction to the cheap result to get near-expensive accuracy at near-cheap cost.
 - **dpdata / cp2kdata** — existing Python libraries that read DFT outputs (CP2K among them) into training-data formats; both need `PRINT_LEVEL MEDIUM` CP2K outputs.
 - **E0s** — the per-element energies of isolated atoms that MACE subtracts before learning; they must match the level of theory of the labels.
 - **ECV (expansion collective variable)** — in OPES_EXPANDED, the per-target-ensemble energy shift ΔUᵢ(x) that tells the bias how much more likely x is at (Tᵢ, Pᵢ) than at the simulated T₀, P₀.
@@ -68,6 +69,7 @@
 - **Spin-state trap** — a magnetic run that converges cleanly but to another spin state than intended or than its neighbours in a label set (a flipped metal moment, a stray moment on water O); the energy moves little, the forces a lot. Found with `labels_compare` and `sites_by_environment`, steered with constrain-then-release.
 - **SSH multiplexing** — reusing one open SSH connection for many commands, instead of logging in afresh each time (like keeping a phone call open rather than redialling).
 - **stdio transport (MCP)** — the agent starts the tool server as a local child process and talks to it over stdin/stdout, so nothing listens on the network (like an intercom wired between two rooms, not a phone line).
+- **Tool manifest** — a repo's `tool_manifest.json`: every MCP tool it serves and its argument names; rookery keeps yagura's and hyogo's copies (`scripts/sibling_sync.py`) to check its skills call real tools.
 - **Truncated Coulomb (HFX)** — cutting exact exchange off at a radius below half the cell width so a periodic cell does not see its own images.
 - **UZH basis/PP family** — the newer Zurich-made set of matched Gaussian basis sets, GTH pseudopotentials and ADMM auxiliary bases, fitted per functional; it replaced MOLOPT for hybrids in this study.
 - **VDOS (vibrational density of states)** — the spectrum of vibration frequencies in an MD run, like an unweighted IR/Raman spectrum.

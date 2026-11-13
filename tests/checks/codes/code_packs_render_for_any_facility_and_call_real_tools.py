@@ -17,12 +17,13 @@ KWARG = re.compile(r"(?:^|[,\s(])([a-z_][a-z0-9_]*)\s*=(?!=)")
 
 
 def _tool_arguments() -> dict[str, set[str]]:
-    """{tool: its argument names} for every tool the hpc, hyogo and yagura
-    servers serve, listed in a child process with an empty HOME."""
+    """{tool: its argument names} for every tool the hpc server serves,
+    listed in a child process with an empty HOME, plus hyogo's and
+    yagura's from their saved manifests (tests/fixtures/tool_manifests/,
+    refreshed by scripts/sibling_sync.py)."""
     probe = ("import asyncio, json; from hpc_mcp.hpc_server import mcp as h; "
-             "from hyogo.server import mcp as hy; from yagura.server import mcp as ya; "
              "print(json.dumps({t.name: sorted(t.input_schema.get('properties', {})) "
-             "for m in (h, hy, ya) for t in asyncio.run(m.list_tools())}))")
+             "for t in asyncio.run(h.list_tools())}))")
     with tempfile.TemporaryDirectory() as home:
         env = {k: v for k, v in os.environ.items()
                if k not in ("HPC_RECORDS_USER_DIR", "HPC_RECORDS_ROOT")}
@@ -30,7 +31,13 @@ def _tool_arguments() -> dict[str, set[str]]:
         out = subprocess.run([sys.executable, "-c", probe], cwd=ROOT, env=env,
                              capture_output=True, text=True, timeout=180)
     assert out.returncode == 0, out.stderr[-2000:]
-    return {k: set(v) for k, v in json.loads(out.stdout.strip().splitlines()[-1]).items()}
+    tools = {k: set(v) for k, v in json.loads(out.stdout.strip().splitlines()[-1]).items()}
+    for repo in ("hyogo", "yagura"):
+        saved = json.loads((ROOT / "tests" / "fixtures" / "tool_manifests" / f"{repo}.json").read_text())
+        clash = set(saved) & set(tools)
+        assert not clash, f"{repo} and the servers before it both serve {sorted(clash)}"
+        tools.update({k: set(v) for k, v in saved.items()})
+    return tools
 
 
 def _call_args(text: str, open_paren: int) -> str:
