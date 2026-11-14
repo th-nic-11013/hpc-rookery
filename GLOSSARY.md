@@ -11,6 +11,7 @@
 - **Block hold-out** — keep whole time windows of a run (e.g. its last 50 ps) out of training, because MD frames 25 fs apart are near copies and a random split would leak.
 - **Collective variable (CV)** — one number that summarises a configuration (a distance, a torsion angle, a coordination number), chosen so it tells apart the states you care about.
 - **Constrain-then-release** — a short VASP pre-run with the total moment fixed (NUPDOWN), whose wavefunction (WAVECAR) starts a second run with the moment free: it steers the SCF into a spin state without biasing the final result.
+- **Constrained decoding** — forcing a model's output to fit a given JSON schema token by token, so a tool call can never be malformed (it can still be wrong).
 - **Contact sheet** — a single image with several frames side by side in a grid, like a photographer's proof sheet.
 - **Contract test** — a test in one repo that pins the names and arguments of the tools it calls in another, so a change on either side fails loudly instead of silently breaking a skill.
 - **Core dump** — a snapshot of a crashed program's memory written to disk for debugging; for a large MPI job it can be tens of GB.
@@ -20,14 +21,18 @@
 - **E0s** — the per-element energies of isolated atoms that MACE subtracts before learning; they must match the level of theory of the labels.
 - **ECV (expansion collective variable)** — in OPES_EXPANDED, the per-target-ensemble energy shift ΔUᵢ(x) that tells the bias how much more likely x is at (Tᵢ, Pᵢ) than at the simulated T₀, P₀.
 - **Embedding endpoint** — the server that turns text into vectors so `search_docs` can rank guide sections by meaning, not just keywords.
+- **EOS fit** — fitting a volume-vs-pressure curve (typically Birch–Murnaghan) to get the bulk modulus K0 and its pressure derivative K0′.
 - **Experience record** — a proposed record type holding one symptom → cause → fix lesson, looked up before a run (and matched against the error if one fails).
+- **F(V) profile** — the Helmholtz free energy of a framework as a function of its cell volume at fixed T; adding PV gives which volume (phase) is stable at each pressure.
 - **Farthest-point sampling (FPS)** — pick frames one at a time, each the one farthest (in descriptor space) from everything picked so far, so a small set covers the pool's spread instead of its crowded middle.
 - **Fixed-step benchmark (VASP)** — a layout timing in which every run does exactly N SCF steps (NELMIN = NELM = N) with NBANDS pinned, so only the parallel split differs; its `wall_s` record is for those N steps (`extra.scf_steps`), not for a converged single point.
 - **Fork** — your own copy of someone else's GitHub repo, under your account, that you can push to and propose changes back from (like photocopying a shared notebook to write in it).
+- **Frontier model** — one of the largest hosted models (Claude Sonnet or Opus class), as opposed to a small model you can run on your own GPU.
 - **Gap (G1, G2, …)** — a numbered entry in a personal "tool audit" note (local `notes/`, not committed): a step the repo's tools couldn't do, with its owner and proposed fix; numbers run on across notes.
 - **Gap card** — one small file per gap saying what it may edit, what it depends on and which few files to load; the unit one session claims.
 - **GTH pseudopotential** — replaces each atom's core electrons and nucleus with a smooth effective potential, so only valence electrons are computed; each is fitted to one functional (GTH-PBE, GTH-PBE0, GTH-SCAN).
 - **Guess run** — a cheap GGA calculation whose only product is the starting wavefunction for a hybrid, in the hybrid's own basis; its energy is not a result.
+- **Hand-up** — when the small model fails a step a set number of times and passes it to the frontier model (also called escalation).
 - **Hybrid functional** — mixes a fraction of exact (Hartree–Fock) exchange into DFT exchange (PBE0, r²SCAN0: 25 %), which mainly fixes too-small band gaps.
 - **hybrid/overlay** — LAMMPS pair style that adds several potentials on the same atoms, e.g. MACE plus a D3 dispersion correction.
 - **Job dependency (afterok)** — `sbatch --dependency=afterok:<id>` holds a job until job `<id>` ends with exit 0; a clean CP2K WALLTIME stop also counts, so the job script must check the earlier run converged.
@@ -46,15 +51,18 @@
 - **NUL hole** — a run of zero bytes left in a file that was being written when the disk filled up; text tools may treat it as binary. `vasp_parse_output` strips and counts them, then checks every block is complete.
 - **NVE energy drift** — how fast the total energy creeps in a run with no thermostat; near zero means the potential and timestep integrate cleanly.
 - **OPES** — On-the-fly Probability Enhanced Sampling: a successor to metadynamics that builds the bias from a running estimate of the probability distribution, so it converges faster and has fewer knobs; `OPES_METAD_EXPLORE` favours exploration, and `OPES_EXPANDED` samples a range of temperatures/pressures in one run.
+- **Osmotic ensemble** — fixed gas chemical potential, pressure and temperature with a flexible host, the natural ensemble for adsorption-induced MOF transitions like breathing.
 - **Packed job** — one batch job that runs K small runs one after another (a loop in the job script) instead of K separate jobs or a scheduler job array; keeps 100–200 CP2K label frames to a few jobs under a facility's job cap.
 - **Partial-node layout** — a run that uses only some of a node's cores (MLIP MD is fastest at 1 rank × 56 threads of 112); it is billed for the cores it uses and shares the node.
 - **PDOS (projected density of states)** — the density of states split by element or atom kind, showing which atoms the band edges sit on.
 - **Plugin vs repo** — a repo is who owns and versions the code; a plugin is how a user installs its tools and skills. One repo can ship one plugin, and one marketplace can list plugins from many repos.
 - **PMIx psec** — the PMIx security plugin that checks which process is talking to the MPI launcher; on HOKUSAI `PMIX_MCA_psec=native` picks the built-in one and stops the "munge component not found" log noise.
 - **PostToolUse hook** — a command Claude Code runs after every tool call; agent-notes uses one to log each call of an open run.
+- **Pressure-transmitting medium** — the fluid around a sample in a diamond-anvil cell; a penetrating one (e.g. methanol) fills a MOF's pores and stiffens it, while a non-penetrating one (silicone oil, mercury) squeezes the empty framework.
 - **Print key (CP2K)** — an input section such as `&FORCES` that controls one block of output; its `FILENAME` sends that block to its own file instead of the main output.
 - **Prompt injection** — text the agent reads (a web page, job output, a doc) that contains instructions trying to make it misuse its tools.
 - **Provisional entry** — a lab-notebook entry the agent wrote on its own; it counts as unreviewed until you confirm it with `notes.py promote`.
+- **Quasi-harmonic approximation (QHA)** — treat the crystal as harmonic springs at each fixed volume, then let the volume change with temperature, so phonons give a free energy F(V, T); cheap but wrong for soft, anharmonic modes.
 - **Query by committee (QbC)** — active learning that trains several models (differing only in seed) and sends to DFT the frames where their predictions disagree most.
 - **RAG (retrieval-augmented generation)** — indexing documents so the agent looks up the relevant passage and quotes it, instead of answering from memory.
 - **RDF (radial distribution function)** — how likely you are to find atom B at distance r from atom A, relative to random; peaks are bond/shell distances.
@@ -69,11 +77,15 @@
 - **Shared H** — an H still nearest its own atom but also within bond distance of a second one (a very short hydrogen bond, e.g. the μ3-OH proton half-way to another O in a collapsed cell); reported, not treated as a proton transfer.
 - **Spin multiplicity** — 2S+1 for an atom's unpaired electrons (H 2, C/O/Zr 3); an isolated-atom reference must use the lowest-energy one.
 - **Spin-state trap** — a magnetic run that converges cleanly but to another spin state than intended or than its neighbours in a label set (a flipped metal moment, a stray moment on water O); the energy moves little, the forces a lot. Found with `labels_compare` and `sites_by_environment`, steered with constrain-then-release.
+- **Spinodal** — the pressure (at a given T) where a phase stops being even metastable: its free-energy basin flattens out and vanishes, so the structure must collapse without needing to cross a barrier.
 - **SSH multiplexing** — reusing one open SSH connection for many commands, instead of logging in afresh each time (like keeping a phone call open rather than redialling).
+- **Stage toolset** — the handful of tools (about 5) a model is shown for one step of a workflow, such as "monitor a job", instead of every tool at once.
 - **stdio transport (MCP)** — the agent starts the tool server as a local child process and talks to it over stdin/stdout, so nothing listens on the network (like an intercom wired between two rooms, not a phone line).
+- **Thermodynamic integration** — get a free-energy difference by integrating an average you can measure along a path, e.g. F(V) = −∫⟨P⟩ dV over a series of fixed-volume MD runs.
 - **Tool manifest** — a repo's `tool_manifest.json`: every MCP tool it serves and its argument names; rookery keeps yagura's and hyogo's copies (`scripts/sibling_sync.py`) to check its skills call real tools.
 - **Truncated Coulomb (HFX)** — cutting exact exchange off at a radius below half the cell width so a periodic cell does not see its own images.
 - **UZH basis/PP family** — the newer Zurich-made set of matched Gaussian basis sets, GTH pseudopotentials and ADMM auxiliary bases, fitted per functional; it replaced MOLOPT for hybrids in this study.
+- **Validation gate** — a check that must pass before a workflow moves on, such as a CP2K dry run before submitting; on failure the error goes back to the model to fix.
 - **VDOS (vibrational density of states)** — the spectrum of vibration frequencies in an MD run, like an unweighted IR/Raman spectrum.
 - **Walltime restart** — a run stopped cleanly by CP2K's WALLTIME continues from its own `<project>-1.restart` (`&EXT_RESTART`); tool-written inputs switch this with one line, `@SET RESTART 1`.
 - **X-ray hydrogen positions** — H atoms placed by X-ray refinement sit too close to their parent atom (C–H ~0.95 Å vs ~1.08 Å true), because X-rays see the electron density, which is pulled into the bond.

@@ -1,0 +1,1 @@
+**Spinodal** — the pressure (at a given T) where a phase stops being even metastable: its free-energy basin flattens out and vanishes, so the structure must collapse without needing to cross a barrier.

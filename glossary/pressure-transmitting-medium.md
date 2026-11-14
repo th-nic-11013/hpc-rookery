@@ -1,0 +1,1 @@
+**Pressure-transmitting medium** — the fluid around a sample in a diamond-anvil cell; a penetrating one (e.g. methanol) fills a MOF's pores and stiffens it, while a non-penetrating one (silicone oil, mercury) squeezes the empty framework.

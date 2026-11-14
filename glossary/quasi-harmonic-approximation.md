@@ -1,0 +1,1 @@
+**Quasi-harmonic approximation (QHA)** — treat the crystal as harmonic springs at each fixed volume, then let the volume change with temperature, so phonons give a free energy F(V, T); cheap but wrong for soft, anharmonic modes.
