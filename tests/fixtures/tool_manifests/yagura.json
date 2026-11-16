@@ -2,6 +2,7 @@
  "analyze_density": ["last_ps", "reference_g_cm3", "stage", "window_ps", "workdir"],
  "cif_inspect": ["path"],
  "colvar_fes": ["bias", "block_size", "cvs", "frames", "grid", "out_path", "overwrite", "path", "temperature", "units"],
+ "eos_fit": ["fit", "order", "points"],
  "export_frames": ["begin_ps", "end_ps", "n_frames", "outdir", "stage", "workdir"],
  "frames_pick": ["allow_mixed_natoms", "dt_fs", "out_path", "overwrite", "picks", "specorder"],
  "framework_check": ["bonds", "dt_fs", "index", "max_transient_frames", "metal_o_cutoff", "metals", "overlap", "overwrite", "path", "reference_path", "specorder", "table_path"],
