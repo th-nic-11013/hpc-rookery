@@ -1,0 +1,1 @@
+**MACE descriptor** — the numbers a MACE model computes for each atom's local environment before predicting energy; averaged per element, they act as a fingerprint of a whole frame for picking diverse training frames.

@@ -33,6 +33,7 @@
 - **GTH pseudopotential** — replaces each atom's core electrons and nucleus with a smooth effective potential, so only valence electrons are computed; each is fitted to one functional (GTH-PBE, GTH-PBE0, GTH-SCAN).
 - **Guess run** — a cheap GGA calculation whose only product is the starting wavefunction for a hybrid, in the hybrid's own basis; its energy is not a result.
 - **Hand-up** — when the small model fails a step a set number of times and passes it to the frontier model (also called escalation).
+- **Huang-Rhys factor** — a per-vibration number saying how strongly that vibration is shaken by an electronic transition; large values give a long vibrational progression in the band.
 - **Hybrid functional** — mixes a fraction of exact (Hartree–Fock) exchange into DFT exchange (PBE0, r²SCAN0: 25 %), which mainly fixes too-small band gaps.
 - **hybrid/overlay** — LAMMPS pair style that adds several potentials on the same atoms, e.g. MACE plus a D3 dispersion correction.
 - **Job dependency (afterok)** — `sbatch --dependency=afterok:<id>` holds a job until job `<id>` ends with exit 0; a clean CP2K WALLTIME stop also counts, so the job script must check the earlier run converged.
@@ -41,6 +42,7 @@
 - **Label run (CP2K)** — a single point written with `cp2k_make_input(purpose="label")`: energy, forces and analytical stress all printed in the `.out`, with the D3 choice stated explicitly.
 - **Label sensitivity** — how much the training targets (energies, forces) change when you swap the DFT functional used to compute them; if small, use the cheaper functional.
 - **LoRA (fine-tuning)** — training only small added low-rank matrices while the foundation model's own weights stay frozen; cheap, and it forgets less than retraining everything.
+- **MACE descriptor** — the numbers a MACE model computes for each atom's local environment before predicting energy; averaged per element, they act as a fingerprint of a whole frame for picking diverse training frames.
 - **MatPES** — a public ~400k-structure DFT dataset (PBE and r²SCAN, no dispersion) sampled from 300 K MD, used to train foundation MLIPs such as MACE-MATPES-r2SCAN-0.
 - **Meta-GGA (e.g. r²SCAN)** — a functional that also uses the kinetic-energy density, one rung above GGA (PBE/revPBE); better bonding at modest extra cost.
 - **Metadynamics** — enhanced sampling that adds small energy "hills" where the CV has already been, so the system is pushed over barriers it would rarely cross on its own; well-tempered metadynamics shrinks the hills over time.
@@ -81,6 +83,9 @@
 - **SSH multiplexing** — reusing one open SSH connection for many commands, instead of logging in afresh each time (like keeping a phone call open rather than redialling).
 - **Stage toolset** — the handful of tools (about 5) a model is shown for one step of a workflow, such as "monitor a job", instead of every tool at once.
 - **stdio transport (MCP)** — the agent starts the tool server as a local child process and talks to it over stdin/stdout, so nothing listens on the network (like an intercom wired between two rooms, not a phone line).
+- **Stokes shift** — the energy gap between the absorption peak and the (lower) emission peak, caused by the molecule relaxing in the excited state before it emits.
+- **Tamm-Dancoff approximation (TDA)** — a simplification of TDDFT that keeps only excitations (drops de-excitations), turning the problem into an ordinary eigenvalue problem.
+- **TDDFPT** — CP2K's linear-response TDDFT module: it gets excited-state energies (and forces) as a perturbation of the ground state, without propagating in time.
 - **Thermodynamic integration** — get a free-energy difference by integrating an average you can measure along a path, e.g. F(V) = −∫⟨P⟩ dV over a series of fixed-volume MD runs.
 - **Tool manifest** — a repo's `tool_manifest.json`: every MCP tool it serves and its argument names; rookery keeps yagura's and hyogo's copies (`scripts/sibling_sync.py`) to check its skills call real tools.
 - **Truncated Coulomb (HFX)** — cutting exact exchange off at a radius below half the cell width so a periodic cell does not see its own images.
@@ -89,6 +94,7 @@
 - **VDOS (vibrational density of states)** — the spectrum of vibration frequencies in an MD run, like an unweighted IR/Raman spectrum.
 - **Walltime restart** — a run stopped cleanly by CP2K's WALLTIME continues from its own `<project>-1.restart` (`&EXT_RESTART`); tool-written inputs switch this with one line, `@SET RESTART 1`.
 - **X-ray hydrogen positions** — H atoms placed by X-ray refinement sit too close to their parent atom (C–H ~0.95 Å vs ~1.08 Å true), because X-rays see the electron density, which is pulled into the bond.
+- **Z-vector equation** — the extra linear solve needed for excited-state forces, accounting for how the ground-state orbitals respond when atoms move.
 - **Zr–O excursion** — a Zr–O bond that stretches past the cutoff (2.7 Å) for a few consecutive frames and comes back: thermal, kept as training data; one that stays long longer than `max_transient_frames` is called persistent.
 - **Δ-correction (Δ-learning)** — label most frames with a cheap method and learn only the difference to an expensive one from a small subset.
 - **Δf (DELTAFS)** — the free-energy offsets OPES_EXPANDED learns, one per target ensemble; when they stop changing, the bias has converged.
