@@ -83,11 +83,32 @@ def run_defaults_validate_render(backend):
     assert "echo ok" in script, "rendered script lost the executable"
 
 
+_GNUBIN = ("/opt/homebrew/opt/findutils/libexec/gnubin",
+           "/usr/local/opt/findutils/libexec/gnubin")
+
+
+def _gnu_env():
+    """The environment for local_run_command: the clusters have GNU find
+    (-regextype, -printf), macOS does not, so there Homebrew's findutils
+    goes first on PATH when it is installed (the tools' commands stay GNU,
+    as on the clusters)."""
+    env = dict(os.environ)
+    env["COPYFILE_DISABLE"] = "1"   # macOS tar: no ._ AppleDouble files in archives (GNU tar writes none)
+    probe = subprocess.run(["find", "--version"], env=env, capture_output=True, text=True)
+    if "GNU" in probe.stdout:
+        return env
+    for d in _GNUBIN:
+        if os.path.exists(os.path.join(d, "find")):
+            env["PATH"] = d + os.pathsep + env.get("PATH", "")
+            return env
+    return env   # no GNU find: checks whose command needs it fail (brew install findutils)
+
+
 def local_run_command(facility, cmd, timeout=None):
     """middleware.run_command's contract, run in a local bash: the same
     payload (cd "$HOME" first), stdout back, RuntimeError on failure.
     Only read-only commands reach it (the cp2k_* tools)."""
-    out = subprocess.run(["bash", "-c", 'cd "$HOME" && ' + cmd],
+    out = subprocess.run(["bash", "-c", 'cd "$HOME" && ' + cmd], env=_gnu_env(),
                          capture_output=True, text=True, timeout=120)
     if out.returncode:
         raise RuntimeError(out.stderr or out.stdout)

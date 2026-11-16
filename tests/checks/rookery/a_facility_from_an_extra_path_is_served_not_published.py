@@ -98,7 +98,7 @@ def a_facility_from_an_extra_path_is_served_not_published():
     those published files (the skill-pack isolation check failed while a
     private facility was symlinked in)."""
     with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
+        tmp = Path(tmp).resolve()   # macOS: /var is a symlink to /private/var
         (tmp / "ext").mkdir()
         _private_facility(tmp / "ext")
         base = {k: v for k, v in os.environ.items() if k != "HPC_ROOKERY_FACILITY_PATH"}
