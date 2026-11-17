@@ -525,9 +525,9 @@ def fs_chmod(facility: str, path: str, mode: str) -> str:
     Args:
         facility: Facility slug, e.g. "rikyu". See get_facilities().
         path: File or directory on the cluster.
-        mode: Passed to chmod unchanged, so any form chmod accepts: octal
-            digits as a string ("755", "640") or a symbolic mode
-            ("u+x", "go-w", "a=r"). Not an integer.
+        mode: Any chmod mode string, passed to chmod unchanged: octal digits
+            as text (e.g. 755 or 0640) or symbolic (e.g. u+x, go-w, a=r).
+            Not an integer.
     """
     return run_command(facility, f"chmod {shlex.quote(mode)} {quote_path(path)}")
 
