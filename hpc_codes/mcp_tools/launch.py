@@ -5,6 +5,8 @@ a new group of tools is a new module beside this one.
 
 Launch planning. Local: reads records and pack values, never the cluster.
 """
+from typing import Literal
+
 from hpc_codes import launch
 from hpc_codes.mcp_tools import _tool
 
@@ -12,7 +14,7 @@ from hpc_codes.mcp_tools import _tool
 @_tool
 def launch_plan(facility: str, code: str, run_type: str, system: dict,
                 method: dict | None = None, build_id: str | None = None,
-                nodes: int | None = None, optimize: str = "cost",
+                nodes: int | None = None, optimize: Literal["cost", "time"] = "cost",
                 steps: int | None = None, hfx_memory_mb: int | None = None,
                 gpus: int | None = None) -> dict:
     """How to launch a run of `code` on this facility: the build, the

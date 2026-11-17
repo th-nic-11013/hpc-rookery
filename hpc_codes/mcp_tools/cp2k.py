@@ -7,6 +7,8 @@ CP2K. These read on the cluster's login node and change nothing there (the
 dry run writes only a scratch folder of its own, and removes it), so, unlike
 run_command_on_cluster, they need no preview-and-permission step.
 """
+from typing import Literal
+
 from hpc_codes.cp2k import tools as cp2k
 from hpc_codes.mcp_tools import _tool
 
@@ -78,7 +80,8 @@ def cp2k_check_build(facility: str, build_id: str | None = None) -> dict:
 
 @_tool
 def cp2k_kinds(facility: str, elements: list[str], basis: str | None = None,
-               build_id: str | None = None, family: str = "molopt",
+               build_id: str | None = None,
+               family: Literal["molopt", "uzh-pbe", "uzh-scan", "uzh-pbe0"] = "molopt",
                aux_basis: str | None = None) -> dict:
     """The CP2K &KIND facts of a recorded build for each element: valence
     q, basis set and GTH potential, read from the build's own data folder
@@ -113,7 +116,8 @@ def cp2k_kinds(facility: str, elements: list[str], basis: str | None = None,
 @_tool
 def cp2k_bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
                      build_id: str | None = None, steps: int = 10, smoke_steps: int = 3,
-                     xc: str = "revPBE", d3: str = "zero", cutoff: int = 450,
+                     xc: Literal["revPBE", "PBE"] = "revPBE",
+                     d3: Literal["zero", "bj", "none"] = "zero", cutoff: int = 450,
                      rel_cutoff: int = 60, basis: str = "DZVP-MOLOPT-SR-GTH",
                      charge: int = 0, overwrite: bool = False) -> dict:
     """Write a CP2K NVE AIMD benchmark input (NAME.inp, `steps` MD steps)
