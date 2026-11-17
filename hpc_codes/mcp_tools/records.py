@@ -39,7 +39,15 @@ def records_append(facility: str, record_type: str, record: dict) -> dict:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
         record_type: software_registry, benchmarks, benchmarks_provenance
             or campaign.
-        record: the record as a mapping, with every required field.
+        record: the record as a mapping of that record_type's fields, with
+            every required one (schemas/records.yaml lists them). benchmarks:
+            id, facility, partition, node_type, code, version, build_id,
+            system {label, atoms, elements, periodic, kpoints}, method
+            {functional, basis, cutoff_ry, hybrid, scf; or model for an
+            MLIP}, run_type, nodes, ranks_per_node, threads_per_rank,
+            metric {name, value}. software_registry: build_id, facility,
+            code, version, build, toolchain, install_path, env_script,
+            tests, default, date. Run records_check after appending.
     """
     return records.append(facility, record_type, record)
 
@@ -90,8 +98,11 @@ def records_summarise_timings(facility: str, table_path: str, like: str | None =
             (default 1), nbands, nkpts and the layout keys in lower case.
         like: a benchmarks id of the same system and method to copy code,
             version, build, partition, node_type, system and method from.
-        base: those fields instead of like, or keys overriding like's
-            (system and method are merged key by key).
+        base: benchmarks fields instead of like, or keys overriding like's
+            (system and method are merged key by key). Keys: code, version,
+            build_id, partition, node_type, system {label, atoms, elements,
+            periodic, kpoints}, method {functional, basis, cutoff_ry, hybrid,
+            scf}, run_type ("single_point").
         frame_prefix: keep only rows whose frame starts with this, e.g.
             "Ti2CO2/": a record has one system, so a table of several
             systems' frames is summarised once per system.

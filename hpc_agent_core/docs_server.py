@@ -50,7 +50,11 @@ def build(mcp: MCPServer) -> MCPServer:
 
     @mcp.tool()
     def search_docs(facility: str, query: str, top_k: int = 4) -> str:
-        """Search one facility's bundled documentation guide.
+        """Returns the best-matching sections of one facility's bundled
+        documentation guide for a free-text query (how-to, policy, module,
+        storage, login questions). It is for documentation prose only; for
+        live partition status use get_resources, for the list of facilities
+        use get_facilities.
 
         facility must be one of the slugs returned by get_facilities() (on
         the hpc-mcp server) — call that first if you don't already know

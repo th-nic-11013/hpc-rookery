@@ -61,7 +61,9 @@ def cp2k_pack_jobs(facility: str, batch_dir: str, remote_dir: str, plan: dict,
         batch_dir: the local batch folder (holds batch.json).
         remote_dir: where the batch will live on the cluster, under
             ~/agent/work/ (e.g. ~/agent/work/cp2k-runs/<batch>).
-        plan: launch_plan's result for one frame of this batch.
+        plan: launch_plan's whole result (a mapping; the keys used are
+            job_spec {launcher, resources, ...}, estimate {value, metric,
+            rough} and basis {match}), for one frame of this batch.
         frames_per_job: K; default the most that fit max_hours.
         max_hours: the longest job to request (HOKUSAI mpc: 24).
         safety: budget factor on the seconds per frame (default 1.5).

@@ -184,7 +184,10 @@ def cp2k_bench_dryrun(facility: str, bench_dir: str, ref_out: str,
             scripts, inputs/), absolute or under ~.
         ref_out: a finished cp2k.out on the cluster, e.g. the build's
             H2O-32 test output.
-        settings: the job's settings as environment variables, e.g.
+        settings: the job's settings as a mapping of environment variable
+            name to string value (the names the benchmark folder's scripts
+            read: SMOKE_INPUT, SCAN_INPUT, VALIDATE_INPUT, SCAN_LAYOUTS,
+            LAYOUTS, REF_DIR, REF_LAYOUT, ...), e.g.
             {"SMOKE_INPUT": "x-smoke.inp", "SCAN_INPUT": "x.inp",
             "VALIDATE_INPUT": "none", "SCAN_LAYOUTS": "28x4 8x14"}.
         cases: a subset of ["pass", "fail_layout", "time_limit"].
@@ -225,10 +228,13 @@ def cp2k_bench_records(facility: str, system: dict, method: dict, run_type: str,
 
     Args:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
-        system: the benchmarks `system` block: label, atoms, elements,
-            periodic, kpoints (electrons, cell_volume_A3 if known).
-        method: the `method` block: functional, basis, cutoff_ry, hybrid,
-            scf (dispersion, rel_cutoff_ry if known), as in the input.
+        system: the benchmarks `system` block as a mapping with keys label
+            (str), atoms (int), elements ({"Zr": 24, "O": 128}), periodic
+            ("xyz"|"xy"|"z"|"none"), kpoints ("gamma" or "2x2x2"); optional
+            electrons (int), cell_volume_A3 (float).
+        method: the `method` block as a mapping with keys functional (str),
+            basis (str), cutoff_ry (float), hybrid (bool), scf (str); optional
+            dispersion (str), rel_cutoff_ry (float), as in the input.
         run_type: aimd_step, md_step (MLIP or classical MD), single_point,
             geo_opt, cell_opt or train (GPU packs).
         parsed: a cp2k_bench_parse result; or give stage_dirs instead.
@@ -286,11 +292,17 @@ def cp2k_record_from_run(facility: str, parsed: dict, nodes: int, like: str | No
 
     Args:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
-        parsed: the cp2k_parse_output result (hyogo), unchanged.
+        parsed: the cp2k_parse_output result (hyogo), passed on unchanged
+            (its keys include run_type, ranks, threads, natoms, electrons, cell,
+            and the timings; do not rebuild it by hand).
         nodes: nodes the job ran on.
         like: a benchmarks id to copy system, method and build from.
-        system: the benchmarks system block, or keys overriding like's.
-        method: the benchmarks method block, or keys overriding like's.
+        system: keys of the benchmarks system block (label, atoms,
+            elements, periodic, kpoints, electrons, cell_volume_A3)
+            overriding like's, or the whole block without like.
+        method: keys of the benchmarks method block (functional, basis,
+            cutoff_ry, hybrid, scf, dispersion, rel_cutoff_ry) overriding
+            like's, or the whole block without like.
         job_id: the scheduler job ID (kept in benchmarks_provenance).
         build_id: the software_registry build; omit to use like's, or the default.
         date: YYYY-MM-DD; omit for the date the run started.

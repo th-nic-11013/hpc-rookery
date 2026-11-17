@@ -81,12 +81,18 @@ def _configured_facility_tool(func):
 
 @mcp.tool()
 def get_facilities() -> list[dict]:
-    """List every facility this server knows about — call this first
-    whenever you don't already know the exact facility slug to pass to
-    every other tool here. Every other tool's `facility` argument must be
-    one of the `slug` values returned here; passing anything else raises a
-    clear error listing the valid slugs, but it's cheaper to just check
-    first."""
+    """Returns the list of facility slugs (with display name and description)
+    this server can reach, and nothing else. Use it only when you do not
+    already know the facility slug, e.g. "which machines can you reach?".
+    Every other tool's `facility` argument must be one of the `slug` values
+    returned here.
+
+    It says nothing about a facility's contents. If the facility is already
+    named, do not call this: for partitions and how busy they are use
+    get_resources, for one partition get_resource, for down nodes
+    get_drained_nodes, for a project's budget get_project_allocations, for
+    static limits/storage/modules get_facility, and for documentation
+    search_docs."""
     listing = [
         {"slug": f.slug, "display_name": f.display_name, "description": f.description}
         for f in config.list_facilities()
@@ -110,8 +116,10 @@ def get_facilities() -> list[dict]:
 # connection, so it must answer before the user has configured SSH —
 # that is how an agent orients someone who has not set up yet.
 def get_facility(facility: str) -> dict:
-    """Static facts for one facility: partitions, the resource-limit table,
-    storage tiers, modules, and Spack. (IRI: GET /api/v1/facility)
+    """Returns static facts for one facility: partitions, the resource-limit
+    table, storage tiers, modules, and Spack. Not live; for current node
+    counts use get_resources, for prose documentation use search_docs.
+    (IRI: GET /api/v1/facility)
 
     Args:
         facility: Facility slug, e.g. "rikyu". See get_facilities().
@@ -122,9 +130,12 @@ def get_facility(facility: str) -> dict:
 @mcp.tool()
 @_configured_facility_tool
 def get_resources(facility: str) -> list[dict]:
-    """Live occupancy for one facility's compute partitions ("resources" in
-    IRI terms) — allocated/idle/other/total node counts, i.e. "will a job
-    start soon". A live query, unlike get_facility's static data.
+    """Returns the list of a facility's compute partitions ("resources" in
+    IRI terms) with live allocated/idle/other/total node counts, i.e. "what
+    partitions are there" and "will a job start soon". A live query, unlike
+    get_facility's static data. For a single partition use get_resource; for
+    down nodes use get_drained_nodes; to learn which facilities exist use
+    get_facilities.
     (IRI: GET /api/v1/status/resources)
     """
     return get_backend(facility).get_live_resources()
@@ -133,7 +144,15 @@ def get_resources(facility: str) -> list[dict]:
 @mcp.tool()
 @_configured_facility_tool
 def get_resource(facility: str, name: str) -> dict:
-    """Live occupancy for one named partition. (IRI: GET /api/v1/status/resources/{resource_id})"""
+    """Returns live occupancy (allocated/idle/other/total nodes) for one named
+    partition, e.g. name="gpu". For all partitions at once use get_resources;
+    for static limits use get_facility.
+    (IRI: GET /api/v1/status/resources/{resource_id})
+
+    Args:
+        facility: Facility slug, e.g. "rikyu". See get_facilities().
+        name: Partition name exactly as listed by get_resources.
+    """
     for p in get_backend(facility).get_live_resources():
         if p["partition"] == name:
             return p
@@ -143,8 +162,10 @@ def get_resource(facility: str, name: str) -> dict:
 @mcp.tool()
 @_configured_facility_tool
 def get_drained_nodes(facility: str) -> list[dict]:
-    """Nodes currently drained/down and why (extension — not an IRI
-    endpoint, but directly useful for "why won't my job start")."""
+    """Returns the nodes currently drained or down and the reason for each,
+    i.e. "are any nodes down for maintenance" or "why won't my job start".
+    For partition-level occupancy use get_resources. (Extension — not an IRI
+    endpoint.)"""
     return get_backend(facility).get_drained_nodes()
 
 
@@ -181,8 +202,10 @@ def get_project(facility: str, account: str) -> dict:
 @mcp.tool()
 @_configured_facility_tool
 def get_project_allocations(facility: str, project_id: str) -> dict:
-    """A project's allocation limits — the account-wide ceilings shared by
-    everyone under it.
+    """Returns a project's allocation limits — the account-wide ceilings shared
+    by everyone under it, i.e. how much of the project's budget is allowed.
+    Use get_user_allocations for the current user's own share, get_projects
+    to find the project_id (account name).
     (IRI: GET /api/v1/account/projects/{project_id}/project_allocations)
 
     On Slurm: GrpTRESMins caps cumulative core-time, GrpTRESRunMins caps
@@ -480,7 +503,15 @@ def fs_mv(facility: str, source: str, dest: str) -> str:
 @mcp.tool()
 @_configured_facility_tool
 def fs_chmod(facility: str, path: str, mode: str) -> str:
-    """Change a file/directory's permissions, e.g. mode="755". (IRI: PUT /api/v1/filesystem/chmod/{resource_id})"""
+    """Change a file/directory's permissions. (IRI: PUT /api/v1/filesystem/chmod/{resource_id})
+
+    Args:
+        facility: Facility slug, e.g. "rikyu". See get_facilities().
+        path: File or directory on the cluster.
+        mode: Passed to chmod unchanged, so any form chmod accepts: octal
+            digits as a string ("755", "640") or a symbolic mode
+            ("u+x", "go-w", "a=r"). Not an integer.
+    """
     return run_command(facility, f"chmod {shlex.quote(mode)} {quote_path(path)}")
 
 

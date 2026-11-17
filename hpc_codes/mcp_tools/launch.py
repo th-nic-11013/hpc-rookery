@@ -74,10 +74,14 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
         code: code pack, e.g. "cp2k".
         run_type: aimd_step, md_step (MLIP or classical MD), single_point,
             geo_opt, cell_opt or train (GPU packs).
-        system: {"atoms": int} at least; "label" (e.g. "UiO-66-conv")
-            finds an exact record, "electrons" sharpens "similar".
-        method: optional exact filters on the recorded method, e.g.
-            {"functional": "revPBE", "hybrid": false, "cutoff_ry": 450}.
+        system: mapping with key "atoms" (int, required); optional "label"
+            (str, e.g. "UiO-66-conv") finds an exact record, "electrons"
+            (int) sharpens "similar". e.g. {"atoms": 456, "label": "UiO-66-conv"}.
+        method: optional mapping of exact filters on the recorded method;
+            keys are the benchmarks method fields: functional (str), hybrid
+            (bool), basis (str), cutoff_ry (float), dispersion (str), model
+            (str, MLIP), e.g. {"functional": "revPBE", "hybrid": false,
+            "cutoff_ry": 450}.
         build_id: a software_registry build_id; omit for the default build.
         nodes: fix the node count; omit to choose one.
         optimize: "cost" (fewest core-hours, the default) or "time"
