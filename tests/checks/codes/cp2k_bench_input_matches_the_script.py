@@ -35,10 +35,11 @@ def cp2k_bench_input_matches_the_script():
         server.records_append("hokusai", "software_registry", build)
         tmp = pathlib.Path(tmp)
         cases = [("clean.xyz", {}), ("ch2o.xyz", {"xc": "PBE", "d3": "bj", "charge": 1,
-                                                     "steps": 20, "cutoff": 500})]
+                                                     "steps": 20, "cutoff_ry": 500})]
         for xyz, kw in cases:
             old, new = tmp / f"old-{xyz}", tmp / f"new-{xyz}"
-            flags = [f"--{k.replace('_', '-')}={v}" for k, v in kw.items()]
+            script_kw = {k.removesuffix("_ry"): v for k, v in kw.items()}   # the script's flag names
+            flags = [f"--{k.replace('_', '-')}={v}" for k, v in script_kw.items()]
             subprocess.run([sys.executable, "-I", str(script), str(fx / xyz), "--name", "sys",
                             "--data-dir", str(data), "--out-dir", str(old), *flags],
                            check=True, capture_output=True, timeout=60)

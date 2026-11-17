@@ -134,13 +134,15 @@ class ResourceSpec(BaseModel):
     or must be set explicitly is a per-machine SchedulerBackend concern —
     see that machine's compute/ module and config.
     """
-    node_count: int = Field(1, gt=0)
+    node_count: int = Field(1, gt=0, description="Number of nodes", examples=[1])
     process_count: int | None = Field(
         None, gt=0,
         description="Total processes (alternative to processes_per_node × node_count)",
     )
-    processes_per_node: int = Field(1, gt=0)
-    cpu_cores_per_process: int | None = Field(None, gt=0)
+    processes_per_node: int = Field(1, gt=0, description="MPI processes (ranks) per node", examples=[8])
+    cpu_cores_per_process: int | None = Field(
+        None, gt=0, description="CPU cores (threads) per process", examples=[14],
+    )
     gpu_cores_per_process: int | None = Field(
         None, gt=0,
         description="PSI/J standard GPU field; prefer gpus where a machine supports it",
@@ -177,6 +179,7 @@ class JobAttributes(BaseModel):
     duration: int | str = Field(
         3600,
         description="Wall time as integer seconds or HH:MM:SS / D-HH:MM:SS string",
+        examples=[10800, "03:00:00", "1-00:00:00"],
     )
     queue_name: str = Field("", description="Scheduler partition/queue; machine-specific default applied by the tool layer if omitted")
     account: str | None = Field(None, description="Account/project to charge")
@@ -268,8 +271,8 @@ class JobSpec(BaseModel):
     pre_launch / post_launch are script lines inserted before / after.
     If container is set, the command is wrapped in 'singularity exec'.
     """
-    name: str = "agent-job"
-    executable: str
+    name: str = Field("agent-job", description="Job name: letters, digits, dot, underscore, hyphen", examples=["cp2k-aimd-1"])
+    executable: str = Field(description="Command to run, may be a shell line", examples=["bash run.sh", "./app input.in"])
 
     @field_validator("directory", "stdout_path", "stderr_path", "stdin_path", "launcher")
     @classmethod
@@ -337,8 +340,15 @@ class JobSpec(BaseModel):
             "an absolute path is used as given."
         ),
     )
-    resources: ResourceSpec = Field(default_factory=ResourceSpec)
-    attributes: JobAttributes = Field(default_factory=JobAttributes)
+    resources: ResourceSpec = Field(
+        default_factory=ResourceSpec,
+        description='Nested object, e.g. {"node_count": 1, "processes_per_node": 8, "cpu_cores_per_process": 14}',
+    )
+    attributes: JobAttributes = Field(
+        default_factory=JobAttributes,
+        description='Nested object, e.g. {"duration": "03:00:00", "queue_name": "mpc", "account": "rb000000"}; '
+                    "duration and queue_name go here, not at the top level",
+    )
     pre_launch: str | None = Field(None, description="Script lines to insert before executable")
     post_launch: str | None = Field(None, description="Script lines to insert after executable")
     launcher: str | None = Field(None, description="Launcher prefix, e.g. 'srun' or 'mpirun -np 4'")

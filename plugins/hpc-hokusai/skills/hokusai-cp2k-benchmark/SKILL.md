@@ -121,8 +121,8 @@ this machine, from the extended XYZ:
    ```
 
    - Defaults: revPBE-D3 (zero damping), 450/60 Ry, Gamma point,
-     OT/DIIS with `FULL_SINGLE_INVERSE`. Set `xc`, `d3`, `cutoff`,
-     `rel_cutoff`, `charge` and `steps` to match production.
+     OT/DIIS with `FULL_SINGLE_INVERSE`. Set `xc`, `d3`, `cutoff_ry`,
+     `rel_cutoff_ry`, `charge` and `steps` to match production.
    - q and the GTH-PBE potential come from the build's own data folder,
      the same lookup as `cp2k_kinds`; an element it lacks stops the tool.
    - Read its `warnings` to the user: an odd electron count needs UKS

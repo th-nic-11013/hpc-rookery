@@ -20,7 +20,9 @@ long docstrings here.
 """
 import shlex
 import sys
+import json
 from functools import wraps
+from typing import Annotated
 from pathlib import Path
 
 import hpc_mcp  # noqa: F401 -- import for its side effect: registers every facility
@@ -34,6 +36,7 @@ from hpc_agent_core.middleware import (
     upload_file,
 )
 from hpc_agent_core.models import CompressionType, Job, JobSpec
+from pydantic import BeforeValidator
 from hpc_agent_core.serving import serve
 from facilities.registry import get_backend
 
@@ -229,11 +232,25 @@ def get_user_allocations(facility: str, project_id: str) -> dict:
 # Job submit / status / cancel / update
 # ---------------------------------------------------------------------------
 
+def _spec_from_json(value):
+    """Some clients send the spec as a JSON string; parse it, then let
+    JobSpec validate it exactly as for an object."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"spec is not valid JSON ({e}); pass spec as an object, not a string")
+    return value
+
+
+SpecArg = Annotated[JobSpec, BeforeValidator(_spec_from_json)]
+
+
 @mcp.tool()
 # Not gated: apply_defaults/validate_spec/render_script are pure local
 # work for every facility (asserted in tests/conformance.py), so this
 # stays useful before SSH is configured.
-def render_job_script(facility: str, spec: JobSpec) -> str:
+def render_job_script(facility: str, spec: SpecArg) -> str:
     """Render the batch script for a JobSpec *without* submitting it, with
     that facility's defaults already applied. Use this to show the user
     exactly what will run before calling submit_job (the "show before you
@@ -248,7 +265,7 @@ def render_job_script(facility: str, spec: JobSpec) -> str:
 
 @mcp.tool()
 @_configured_facility_tool
-def submit_job(facility: str, spec: JobSpec) -> dict:
+def submit_job(facility: str, spec: SpecArg) -> dict:
     """Submit a job to a facility's scheduler. Show the user the spec
     before submitting unless they asked to just run it — use
     render_job_script for an exact preview.

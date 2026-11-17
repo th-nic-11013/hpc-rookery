@@ -117,12 +117,12 @@ def cp2k_kinds(facility: str, elements: list[str], basis: str | None = None,
 def cp2k_bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
                      build_id: str | None = None, steps: int = 10, smoke_steps: int = 3,
                      xc: Literal["revPBE", "PBE"] = "revPBE",
-                     d3: Literal["zero", "bj", "none"] = "zero", cutoff: int = 450,
-                     rel_cutoff: int = 60, basis: str = "DZVP-MOLOPT-SR-GTH",
+                     d3: Literal["zero", "bj", "none"] = "zero", cutoff_ry: int = 450,
+                     rel_cutoff_ry: int = 60, basis: str = "DZVP-MOLOPT-SR-GTH",
                      charge: int = 0, overwrite: bool = False) -> dict:
     """Write a CP2K NVE AIMD benchmark input (NAME.inp, `steps` MD steps)
     and a smoke version (NAME-smoke.inp, `smoke_steps`) from an extended
-    xyz on this machine, coordinates inline. revPBE-D3, 450/60 Ry, Gamma
+    xyz on this machine, coordinates inline. revPBE-D3, 450/60 Ry (cutoff_ry/rel_cutoff_ry), Gamma
     point, NVE 0.5 fs from 300 K, OT/DIIS with FULL_SINGLE_INVERSE,
     IGNORE_CONVERGENCE_FAILURE. Reads each element's valence and GTH-PBE
     potential from the build's data folder on the login node (as
@@ -146,14 +146,14 @@ def cp2k_bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
         smoke_steps: MD steps of the smoke input.
         xc: "revPBE" or "PBE".
         d3: "zero", "bj" or "none".
-        cutoff: MGRID CUTOFF in Ry.
-        rel_cutoff: MGRID REL_CUTOFF in Ry.
+        cutoff_ry: MGRID CUTOFF in Ry.
+        rel_cutoff_ry: MGRID REL_CUTOFF in Ry.
         basis: basis set name in BASIS_MOLOPT, for every element.
         charge: total charge.
         overwrite: replace the inputs if they exist.
     """
     return cp2k.bench_input(facility, xyz_path, name, out_dir, build_id, steps, smoke_steps,
-                            xc, d3, cutoff, rel_cutoff, basis, charge, overwrite)
+                            xc, d3, cutoff_ry, rel_cutoff_ry, basis, charge, overwrite)
 
 
 @_tool
