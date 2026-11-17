@@ -13,32 +13,6 @@
         "hpc-mcp"
       ],
       "env": {}
-    },
-    "yagura": {
-      "type": "stdio",
-      "command": "uv",
-      "env": {},
-      "args": [
-        "tool",
-        "run",
-        "--quiet",
-        "--from",
-        "yagura[cif] @ git+https://github.com/th-nic-11013/yagura.git@main",
-        "yagura-mcp"
-      ]
-    },
-    "hyogo": {
-      "type": "stdio",
-      "command": "uv",
-      "env": {},
-      "args": [
-        "tool",
-        "run",
-        "--quiet",
-        "--from",
-        "hyogo[gromacs] @ git+https://github.com/th-nic-11013/hyogo.git@main",
-        "hyogo-mcp"
-      ]
     }
   }
 }

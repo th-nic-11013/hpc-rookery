@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "hpc",
   "version": "0.9.0",
-  "description": "Shared HPC MCP servers and facility discovery. Install only the facility skill packs you use.",
+  "description": "Shared HPC MCP server and facility discovery. Install only the facility skill packs you use; yagura and hyogo are plugins of their own.",
   "author": {
     "name": "William Dawson",
     "email": "william.dawson@riken.jp"

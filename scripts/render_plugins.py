@@ -34,11 +34,15 @@ from pathlib import Path
 REPO_URL, INSTALL_REF = "https://github.com/th-nic-11013/hpc-rookery", "hokusai-probed-facts"
 REPO_GIT_URL = f"{REPO_URL}.git"
 INSTALL_SOURCE = f"git+{REPO_GIT_URL}@{INSTALL_REF}"
-# yagura and hyogo are their own repositories (split 2026-11-13); the
-# plugin starts their servers from there, with the extra that brings ASE
-SIBLING_SOURCES = {
-    "yagura": "yagura[cif] @ git+https://github.com/th-nic-11013/yagura.git@main",
-    "hyogo": "hyogo[gromacs] @ git+https://github.com/th-nic-11013/hyogo.git@main",
+# yagura and hyogo are their own repositories (split 2026-11-13), each its
+# own Claude Code plugin (.claude-plugin/plugin.json at its root, which
+# starts its server); this marketplace lists them by GitHub repository, so
+# the hpc plugin starts hpc-mcp alone and each sibling owns its version.
+SIBLING_PLUGINS = {
+    "yagura": ("th-nic-11013/yagura",
+               "Structures and analysis: build, check and convert structures; RDF, MSD, VDOS, PDOS, band gaps."),
+    "hyogo": ("th-nic-11013/hyogo",
+              "Methods and inputs: write and parse CP2K, VASP, LAMMPS, PLUMED, MACE and GROMACS inputs and outputs."),
 }
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -147,7 +151,7 @@ def base_plugin(version: str) -> dict:
     return {
         "name": "hpc",
         "version": version,
-        "description": "Shared HPC MCP servers and facility discovery. Install only the facility skill packs you use.",
+        "description": "Shared HPC MCP server and facility discovery. Install only the facility skill packs you use; yagura and hyogo are plugins of their own.",
         "author": OWNER,
         "repository": REPO_URL,
         "keywords": ["hpc", "slurm", "supercomputer", "multi-facility"],
@@ -155,7 +159,7 @@ def base_plugin(version: str) -> dict:
         "mcpServers": "./.mcp.json",
         "interface": {
             "displayName": "HPC",
-            "shortDescription": "Shared HPC MCP servers and facility discovery.",
+            "shortDescription": "Shared HPC MCP server and facility discovery.",
             "longDescription": "Adds shared HPC MCP servers and discovery. Install an hpc-<facility> skill pack only for a facility you choose to use.",
             "developerName": "William Dawson",
             "category": "Productivity",
@@ -220,6 +224,13 @@ def claude_marketplace(manifests: list[dict]) -> dict:
                 "description": manifest["description"],
             }
             for manifest in manifests
+        ] + [
+            {
+                "name": name,
+                "source": {"source": "github", "repo": repo},
+                "description": description,
+            }
+            for name, (repo, description) in SIBLING_PLUGINS.items()
         ],
     }
 
@@ -233,12 +244,6 @@ def portable_mcp() -> dict:
         "mcpServers": {
             # hpc-mcp serves the scheduler, docs-search and code-pack tools
             "hpc": {"type": "stdio", "command": "uv", "args": [*args_prefix, "hpc-mcp"], "env": {}},
-            # structures and analysis ([cif]: ASE for the CIF tools)
-            "yagura": {"type": "stdio", "command": "uv", "env": {},
-                       "args": [*args_prefix[:-1], SIBLING_SOURCES["yagura"], "yagura-mcp"]},
-            # methods and inputs ([gromacs]: ASE for build_system)
-            "hyogo": {"type": "stdio", "command": "uv", "env": {},
-                      "args": [*args_prefix[:-1], SIBLING_SOURCES["hyogo"], "hyogo-mcp"]},
         },
     }
 

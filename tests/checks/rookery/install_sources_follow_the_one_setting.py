@@ -19,16 +19,15 @@ def install_sources_follow_the_one_setting():
     """G34: every repository field and install source names REPO_URL and
     INSTALL_REF from scripts/render_plugins.py, so switching between this
     fork and upstream is one line and a hard-coded URL cannot come back.
-    yagura's and hyogo's servers start from their own repositories, named
-    once in SIBLING_SOURCES."""
+    yagura and hyogo are plugins of their own repositories, listed in the
+    marketplace from SIBLING_PLUGINS; the hpc plugin starts hpc-mcp alone."""
     spec = importlib.util.spec_from_file_location(
         "render_plugins", ROOT / "scripts" / "render_plugins.py")
     plugins = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(plugins)
     repo, source = plugins.REPO_URL, plugins.INSTALL_SOURCE
     assert source == f"git+{repo}.git@{plugins.INSTALL_REF}", source
-    siblings = plugins.SIBLING_SOURCES
-    allowed = {source} | {s.split(" @ ")[-1] for s in siblings.values()}
+    allowed = {source}
 
     manifests = [p for p in (ROOT / "plugins").glob("*/plugin.json")]
     manifests += (ROOT / "plugins").glob("*/.*-plugin/plugin.json")
@@ -39,13 +38,10 @@ def install_sources_follow_the_one_setting():
 
     for name in ("mcp.json", ".mcp.json"):
         servers = json.loads((ROOT / "plugins" / "hpc" / name).read_text())["mcpServers"]
-        assert servers, f"plugins/hpc/{name} has no servers"
-        for server, entry in servers.items():
-            args = entry["args"]
-            pinned = args[args.index("--from") + 1]
-            # "git+<url>@<ref>", or "<repo>[extra] @ git+<url>@<ref>" for yagura and hyogo
-            want = siblings.get(server, source)
-            assert pinned == want, f"plugins/hpc/{name} {server}: {pinned}, not {want}"
+        assert list(servers) == ["hpc"], f"plugins/hpc/{name} starts {list(servers)}, not hpc alone"
+        args = servers["hpc"]["args"]
+        pinned = args[args.index("--from") + 1]
+        assert pinned == source, f"plugins/hpc/{name} hpc: {pinned}, not {source}"
 
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     assert project["urls"]["Repository"] == repo, project["urls"]

@@ -97,6 +97,17 @@ has a portable OpenPlugin `plugin.json`; the base `hpc` package has its
 portable `mcp.json`. In every harness, install `hpc` first and only the
 facility packs the user selected.
 
+yagura and hyogo are plugins of their own repositories. The Claude Code
+marketplace lists them by GitHub repository, so add them alongside `hpc`:
+
+```
+claude plugin install yagura@hpc-marketplace
+claude plugin install hyogo@hpc-marketplace
+```
+
+The `hpc` plugin starts `hpc-mcp` alone. In Codex and other harnesses,
+register `yagura-mcp` and `hyogo-mcp` as described below.
+
 ### Manual installation for any MCP-capable harness
 
 If the harness does not support plugins, register `hpc-mcp`,

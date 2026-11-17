@@ -19,13 +19,14 @@ def facility_skill_packs_are_isolated_and_discoverable():
     assert names == ["hpc", *(f"hpc-{fac.slug}" for fac in facilities)]
     claude_marketplace = json.loads(
         (root / ".claude-plugin" / "marketplace.json").read_text())
-    assert [entry["name"] for entry in claude_marketplace["plugins"]] == names
+    # Claude's also lists yagura and hyogo, each from its own repository
+    assert [entry["name"] for entry in claude_marketplace["plugins"]] == [*names, "yagura", "hyogo"]
 
     base_portable = json.loads((root / "plugins" / "hpc" / "plugin.json").read_text())
     assert base_portable["$schema"].endswith("plugin.schema.json")
     portable_mcp = json.loads((root / "plugins" / "hpc" / "mcp.json").read_text())
     assert portable_mcp["$schema"].endswith("mcp.schema.json")
-    assert set(portable_mcp["mcpServers"]) == {"hpc", "yagura", "hyogo"}
+    assert set(portable_mcp["mcpServers"]) == {"hpc"}
     # .mcp.json (the harnesses load it) is derived from mcp.json; it must
     # name the same servers, or one harness silently lacks a server
     harness_mcp = json.loads((root / "plugins" / "hpc" / ".mcp.json").read_text())

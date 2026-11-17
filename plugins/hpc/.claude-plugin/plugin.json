@@ -1,6 +1,6 @@
 {
   "name": "hpc",
-  "description": "Shared HPC MCP servers and facility discovery. Install only the facility skill packs you use.",
+  "description": "Shared HPC MCP server and facility discovery. Install only the facility skill packs you use; yagura and hyogo are plugins of their own.",
   "version": "0.9.0",
   "author": {
     "name": "William Dawson",

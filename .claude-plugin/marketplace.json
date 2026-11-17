@@ -8,7 +8,7 @@
     {
       "name": "hpc",
       "source": "./plugins/hpc",
-      "description": "Shared HPC MCP servers and facility discovery. Install only the facility skill packs you use."
+      "description": "Shared HPC MCP server and facility discovery. Install only the facility skill packs you use; yagura and hyogo are plugins of their own."
     },
     {
       "name": "hpc-cell2026",
@@ -59,6 +59,22 @@
       "name": "hpc-tsubame",
       "source": "./plugins/hpc-tsubame",
       "description": "Facility-specific HPC workflow skills for TSUBAME4.0 (Science Tokyo). Install the hpc base plugin first for MCP tools."
+    },
+    {
+      "name": "yagura",
+      "source": {
+        "source": "github",
+        "repo": "th-nic-11013/yagura"
+      },
+      "description": "Structures and analysis: build, check and convert structures; RDF, MSD, VDOS, PDOS, band gaps."
+    },
+    {
+      "name": "hyogo",
+      "source": {
+        "source": "github",
+        "repo": "th-nic-11013/hyogo"
+      },
+      "description": "Methods and inputs: write and parse CP2K, VASP, LAMMPS, PLUMED, MACE and GROMACS inputs and outputs."
     }
   ]
 }
