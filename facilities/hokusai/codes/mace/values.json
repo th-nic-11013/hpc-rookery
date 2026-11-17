@@ -13,8 +13,10 @@
       "r_max": 6.0,
       "dtype": "float64",
       "replay": {
-        "path": null,
-        "source": "mace_matpes_0 release: matpes-r2scan-replay-data.extxyz (1.18 GB); not on the cluster yet"
+        "path": "~/software/mlip/2026.10/models/mace-matpes-r2scan-0/matpes-r2scan-replay-data.extxyz",
+        "bytes": 1181884898,
+        "keys": {"energy_key": "dft_energy", "forces_key": "dft_forces", "stress_key": "dft_stress"},
+        "source": "mace_matpes_0 release: matpes-r2scan-replay-data.extxyz (downloaded 2026-11-17; keys dft_energy, dft_forces, dft_stress)"
       },
       "lammps": {
         "f32": "~/software/mlip/2026.10/models/mace-matpes-r2scan-0/mace-matpes-r2scan-0-f32.pt"

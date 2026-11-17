@@ -88,7 +88,7 @@ to the user (ground state not reached, boxes differing by more than
 | method | `multihead` | replay keeps the foundation model's behaviour; `naive` forgets it; `scratch` is the baseline; `lora` needs a newer mace-torch than some clusters have (the tool refuses) |
 | foundation model | ask | from the model table below; its level of theory should match the labels |
 | E0s | **must be stated** | step 2's `e0s.json`, or `{Z: eV}` computed the same way. `"foundation"` and `"average"` are stated shortcuts; both get a warning, and with labels from another code than the foundation model's they leave an energy offset of eV/atom |
-| replay | pool + 10,000 samples | multihead only; the pool is the foundation model's replay data on the cluster |
+| replay | pool + 10,000 samples + keys | multihead only; the pool is the foundation model's replay data on the cluster; `keys` are its label names from the model table (`replay.keys`; MATPES: `dft_*`, whose plain `energy`/`stress` are a model's prediction) |
 | split | 10 % validation, per `config_type` | `test_fraction`, or `holdout=[config_types]` for a test set the model never sees |
 | GPUs | 1 | each GPU is billed as 28 cores; `batch_size` is per process, so more GPUs means a larger effective batch |
 
@@ -105,7 +105,8 @@ mace_make_finetune(paths=["labels.extxyz"], out_dir="<local>/<name>", name="<nam
                    mace_version=plan["build"]["version"], e0s=<{Z: eV} | path>,
                    method="multihead",
                    foundation={"model": "<model path on the cluster>", "dtype": "<its dtype>"},
-                   replay={"pool": "<replay data on the cluster>", "num_samples": 10000},
+                   replay={"pool": "<replay data on the cluster>", "num_samples": 10000,
+                           "keys": <the model table's replay.keys>},
                    distributed=plan["layout"]["distributed"])
 ```
 
