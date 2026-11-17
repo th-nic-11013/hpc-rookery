@@ -16,6 +16,8 @@
         "path": "~/software/mlip/2026.10/models/mace-matpes-r2scan-0/matpes-r2scan-replay-data.extxyz",
         "bytes": 1181884898,
         "keys": {"energy_key": "dft_energy", "forces_key": "dft_forces", "stress_key": "dft_stress"},
+        "stress_sign": -1,
+        "stress_sign_source": "dft_stress has the opposite sign to the file's own mace_mp_stress in 5 checked frames (notebook 2026-11-17-6ead; job 9819753's pt_head RMSE_stress ~271 meV/A^3)",
         "source": "mace_matpes_0 release: matpes-r2scan-replay-data.extxyz (downloaded 2026-11-17; keys dft_energy, dft_forces, dft_stress)"
       },
       "lammps": {

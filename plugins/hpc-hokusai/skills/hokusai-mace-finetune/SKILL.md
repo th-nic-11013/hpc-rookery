@@ -88,7 +88,7 @@ to the user (ground state not reached, boxes differing by more than
 | method | `multihead` | replay keeps the foundation model's behaviour; `naive` forgets it; `scratch` is the baseline; `lora` needs a newer mace-torch than some clusters have (the tool refuses) |
 | foundation model | ask | from the model table below; its level of theory should match the labels |
 | E0s | **must be stated** | step 2's `e0s.json`, or `{Z: eV}` computed the same way. `"foundation"` and `"average"` are stated shortcuts; both get a warning, and with labels from another code than the foundation model's they leave an energy offset of eV/atom |
-| replay | pool + 10,000 samples + keys | multihead only; the pool is the foundation model's replay data on the cluster; `keys` are its label names from the model table (`replay.keys`; MATPES: `dft_*`, whose plain `energy`/`stress` are a model's prediction) |
+| replay | pool + 10,000 samples + keys | multihead only; the pool is the foundation model's replay data on the cluster; `keys` are its label names from the model table (`replay.keys`; MATPES: `dft_*`, whose plain `energy`/`stress` are a model's prediction); `stress_sign` -1 when the table says the file's stress has the opposite sign (MATPES): `train.sh` then trains the replay head on a flipped copy |
 | split | 10 % validation, per `config_type` | `test_fraction`, or `holdout=[config_types]` for a test set the model never sees |
 | GPUs | 1 | each GPU is billed as 28 cores; `batch_size` is per process, so more GPUs means a larger effective batch |
 
@@ -106,7 +106,8 @@ mace_make_finetune(paths=["labels.extxyz"], out_dir="<local>/<name>", name="<nam
                    method="multihead",
                    foundation={"model": "<model path on the cluster>", "dtype": "<its dtype>"},
                    replay={"pool": "<replay data on the cluster>", "num_samples": 10000,
-                           "keys": <the model table's replay.keys>},
+                           "keys": <the model table's replay.keys>,
+                           "stress_sign": <the model table's replay.stress_sign, if any>},
                    distributed=plan["layout"]["distributed"])
 ```
 
