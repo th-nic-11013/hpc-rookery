@@ -62,7 +62,7 @@ foundation model's own E0s are on its training code's energy zero, and
 # one atom in a >= 15 A cubic box, written by hand as a 3-line extxyz
 cp2k_make_subsys(xyz_path="<El>-15/atom.xyz", kinds=<labels' cp2k_kinds>, periodic="NONE", ...)
 cp2k_make_input("sp", <labels' functional>, <that subsys>, <labels' kinds>,
-                purpose="atom", multiplicity=<m>, cutoff=<labels'>, rel_cutoff=<labels'>)
+                purpose="atom", multiplicity=<m>, cutoff_ry=<labels'>, rel_cutoff_ry=<labels'>)
 ```
 
 Run the free atom's ground-state multiplicity (H 2, C 3, N 4, O 3, Zr 3)

@@ -50,7 +50,7 @@ text is written here, and the file goes up next to the run input.
 4. `fs_upload` `subsys.inc` into the run folder.
 
 Short X-ray C-H bonds are fixed before step 2, on the xyz:
-`structure_stretch_xh(path, out_path, length=1.08)` (`structure_check`
+`structure_stretch_xh(path, out_path, length_a=1.08)` (`structure_check`
 flags them as `short_xh`).
 
 **By hand, without the hyogo and yagura servers:** `make_subsys.py` (next

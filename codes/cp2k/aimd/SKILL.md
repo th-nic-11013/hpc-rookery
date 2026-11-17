@@ -86,7 +86,7 @@ cp2k_make_input(run_type="md_nvt", functional=<as the single point>,
 ```
 
 It writes `aimd_nvt.inp` beside `subsys.inc`, with the single point's DFT
-block (pass the same `functional`, `cutoff`, `scf`, `multiplicity`) plus:
+block (pass the same `functional`, `cutoff_ry`, `scf`, `multiplicity`) plus:
 - ASPC extrapolation (order 3), which makes later steps several times cheaper;
 - trajectory and velocities every step;
 - a restart file every 10 steps;

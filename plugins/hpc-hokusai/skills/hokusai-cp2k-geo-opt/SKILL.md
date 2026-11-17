@@ -55,7 +55,7 @@ cp2k_make_input(run_type="geo_opt", functional=<as the single point>,
 ```
 
 It writes the single point's DFT block plus ASPC wavefunction
-extrapolation between steps. Pass the same `functional`, `cutoff`, `scf`
+extrapolation between steps. Pass the same `functional`, `cutoff_ry`, `scf`
 and `multiplicity` as the single point, or the energies won't be
 comparable. Read its `warnings` to the user.
 

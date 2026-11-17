@@ -84,7 +84,7 @@ work through `cif_inspect` (its `partial` and `partial_groups`):
   Compare the atom count with Z × the primitive count.
 - **X-ray hydrogens are short** (C-H ≈ 0.95 Å instead of ~1.08). Say so.
   Either relax them, or stretch them for a timing run
-  (`structure_stretch_xh(path, out_path, length=1.08)`).
+  (`structure_stretch_xh(path, out_path, length_a=1.08)`).
 
 `examples/build_uio66.py` is a complete worked build (ideal hydroxylated
 UiO-66 from CCDC 1405739), and `references/uio66-1405739.md` records each
