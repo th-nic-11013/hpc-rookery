@@ -1,0 +1,1 @@
+**Decision card** — a small file a worker agent writes when it hits a choice above its tier (question, options, recommendation, evidence); the master answers it in a matching file and the worker resumes.

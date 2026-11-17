@@ -16,6 +16,7 @@
 - **Contract test** — a test in one repo that pins the names and arguments of the tools it calls in another, so a change on either side fails loudly instead of silently breaking a skill.
 - **Core dump** — a snapshot of a crashed program's memory written to disk for debugging; for a large MPI job it can be tens of GB.
 - **D3(BJ)** — Grimme's dispersion correction with Becke–Johnson damping; the r²SCAN-family parameters exist only in this form.
+- **Decision card** — a small file a worker agent writes when it hits a choice above its tier (question, options, recommendation, evidence); the master answers it in a matching file and the worker resumes.
 - **Delta learning (Δ-learning)** — training an ML model on the difference between a cheap method and an expensive one, then adding that correction to the cheap result to get near-expensive accuracy at near-cheap cost.
 - **dpdata / cp2kdata** — existing Python libraries that read DFT outputs (CP2K among them) into training-data formats; both need `PRINT_LEVEL MEDIUM` CP2K outputs.
 - **E0s** — the per-element energies of isolated atoms that MACE subtracts before learning; they must match the level of theory of the labels.
