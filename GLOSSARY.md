@@ -9,6 +9,7 @@
 - **Band groups (VASP)** — the MPI ranks split into teams that each work on a share of the bands: ranks / (KPAR × NCORE). VASP silently rounds NBANDS up to a multiple of it, so a new NCORE can change the band count; `vasp_make_incar` checks it.
 - **Block averaging** — splitting a run into consecutive blocks and using the spread between block results as the error, so correlated frames aren't counted as independent.
 - **Block hold-out** — keep whole time windows of a run (e.g. its last 50 ps) out of training, because MD frames 25 fs apart are near copies and a random split would leak.
+- **CFCMC** — continuous fractional component Monte Carlo: a molecule is inserted gradually (its interactions scaled by λ from 0 to 1) instead of all at once, so insertions into dense or strongly binding pores (water in a MOF) still get accepted.
 - **Collective variable (CV)** — one number that summarises a configuration (a distance, a torsion angle, a coordination number), chosen so it tells apart the states you care about.
 - **Constrain-then-release** — a short VASP pre-run with the total moment fixed (NUPDOWN), whose wavefunction (WAVECAR) starts a second run with the moment free: it steers the SCF into a spin state without biasing the final result.
 - **Constrained decoding** — forcing a model's output to fit a given JSON schema token by token, so a tool call can never be malformed (it can still be wrong).
@@ -31,6 +32,8 @@
 - **Frontier model** — one of the largest hosted models (Claude Sonnet or Opus class), as opposed to a small model you can run on your own GPU.
 - **Gap (G1, G2, …)** — a numbered entry in a personal "tool audit" note (local `notes/`, not committed): a step the repo's tools couldn't do, with its owner and proposed fix; numbers run on across notes.
 - **Gap card** — one small file per gap saying what it may edit, what it depends on and which few files to load; the unit one session claims.
+- **GCMC** — grand canonical Monte Carlo: fixes chemical potential (≈ gas pressure or humidity), volume and T, and inserts/deletes molecules until the pore loading is at equilibrium; gives adsorption isotherms.
+- **Generation** — in the agent framework (after LARA), the model writes and runs its own analysis or report code instead of calling a fixed tool; useful code is later promoted to a tool.
 - **GTH pseudopotential** — replaces each atom's core electrons and nucleus with a smooth effective potential, so only valence electrons are computed; each is fitted to one functional (GTH-PBE, GTH-PBE0, GTH-SCAN).
 - **Guess run** — a cheap GGA calculation whose only product is the starting wavefunction for a hybrid, in the hybrid's own basis; its energy is not a result.
 - **Hand-up** — when the small model fails a step a set number of times and passes it to the frontier model (also called escalation).
@@ -39,6 +42,7 @@
 - **hybrid/overlay** — LAMMPS pair style that adds several potentials on the same atoms, e.g. MACE plus a D3 dispersion correction.
 - **Job dependency (afterok)** — `sbatch --dependency=afterok:<id>` holds a job until job `<id>` ends with exit 0; a clean CP2K WALLTIME stop also counts, so the job script must check the earlier run converged.
 - **Joint file** — a shared file many gaps must edit (one big test file, a central server, a version number); joints are what make parallel work collide.
+- **kairo** — the stage runner for the hand-off: runs the S0–S5 loop over the five MCP servers, with gates, approvals, the soft monitor and decision records (`~/Downloads/research/kairo`).
 - **KS gap vs optical gap** — the Kohn–Sham HOMO–LUMO gap is an orbital-energy difference; the optical gap is a measured absorption edge, and exciton effects lower it, so the two are not strictly the same quantity.
 - **Label run (CP2K)** — a single point written with `cp2k_make_input(purpose="label")`: energy, forces and analytical stress all printed in the `.out`, with the D3 choice stated explicitly.
 - **Label sensitivity** — how much the training targets (energies, forces) change when you swap the DFT functional used to compute them; if small, use the cheaper functional.
@@ -47,6 +51,7 @@
 - **MatPES** — a public ~400k-structure DFT dataset (PBE and r²SCAN, no dispersion) sampled from 300 K MD, used to train foundation MLIPs such as MACE-MATPES-r2SCAN-0.
 - **Meta-GGA (e.g. r²SCAN)** — a functional that also uses the kinetic-energy density, one rung above GGA (PBE/revPBE); better bonding at modest extra cost.
 - **Metadynamics** — enhanced sampling that adds small energy "hills" where the CV has already been, so the system is pushed over barriers it would rarely cross on its own; well-tempered metadynamics shrinks the hills over time.
+- **metatensor / metatrain** — wrappers that connect machine-learned potentials to MD engines (for example a MACE model exported for LAMMPS).
 - **metatomic** — the model format and LAMMPS `pair_style` that let LAMMPS (and PLUMED) call an exported ML potential such as MACE.
 - **MLMD** — molecular dynamics driven by a machine-learned interatomic potential (e.g. MACE) instead of DFT forces.
 - **MSD (mean-squared displacement)** — average squared distance atoms have moved after time t; a straight-line rise means diffusion, a plateau means atoms are caged.
@@ -61,6 +66,7 @@
 - **Plugin vs repo** — a repo is who owns and versions the code; a plugin is how a user installs its tools and skills. One repo can ship one plugin, and one marketplace can list plugins from many repos.
 - **PMIx psec** — the PMIx security plugin that checks which process is talking to the MPI launcher; on HOKUSAI `PMIX_MCA_psec=native` picks the built-in one and stops the "munge component not found" log noise.
 - **PostToolUse hook** — a command Claude Code runs after every tool call; agent-notes uses one to log each call of an open run.
+- **Power law** — a relation y = a·x^(−b) that is a straight line on a log–log plot; in ML, test error falls this way as data, model size or compute grows (a "scaling law").
 - **Pressure-transmitting medium** — the fluid around a sample in a diamond-anvil cell; a penetrating one (e.g. methanol) fills a MOF's pores and stiffens it, while a non-penetrating one (silicone oil, mercury) squeezes the empty framework.
 - **Print key (CP2K)** — an input section such as `&FORCES` that controls one block of output; its `FILENAME` sends that block to its own file instead of the main output.
 - **Prompt injection** — text the agent reads (a web page, job output, a doc) that contains instructions trying to make it misuse its tools.
@@ -68,20 +74,27 @@
 - **Quasi-harmonic approximation (QHA)** — treat the crystal as harmonic springs at each fixed volume, then let the volume change with temperature, so phonons give a free energy F(V, T); cheap but wrong for soft, anharmonic modes.
 - **Query by committee (QbC)** — active learning that trains several models (differing only in seed) and sends to DFT the frames where their predictions disagree most.
 - **RAG (retrieval-augmented generation)** — indexing documents so the agent looks up the relevant passage and quotes it, instead of answering from memory.
+- **RASPA** — open-source Monte Carlo/MD code for adsorption in porous materials (GCMC isotherms, Widom insertion, heats of adsorption); RASPA3 is the current C++ rewrite, gRASPA the GPU version.
 - **RDF (radial distribution function)** — how likely you are to find atom B at distance r from atom A, relative to random; peaks are bond/shell distances.
+- **Redact** — replace private words (account name, project id, email, other projects) with `[redacted]` in files before sharing them; densho reads the words from the gitignored `agent-notes/redact.txt`.
 - **Registering an MCP server** — adding one line to the agent's settings that says "this tool server exists, start it with this command" (like saving a contact so the phone knows whom to call).
+- **REPEAT charges** — atomic partial charges fitted to a periodic DFT electrostatic potential outside the atoms (CP2K `&PROPERTIES/&RESP` with `USE_REPEAT_METHOD`); the usual input charges for MOF GCMC.
 - **Reweighting** — recovering unbiased averages from a biased run by giving each frame the weight exp(V/kT) of the bias it felt.
+- **RiVault** — RIKEN R-CCS's hosted LLM service: an Anthropic-style API serving Reasoning-Large, Agentic-Medium and Agentic-Small, usable as kairo's planner or worker.
 - **Robust z-score** — how far a value sits from the running median, measured in MADs (median absolute deviations), so one big spike can't inflate its own threshold the way it would with mean and σ.
 - **Run chaining** — starting a CP2K run from a previous run's outputs (its final structure and its `-RESTART.wfn`); hyogo's `guess_from` does the wavefunction half and refuses one that can't fit.
 - **Run state** — the agent-notes summary of one campaign (goal, current step, next step, what was tried, live jobs), kept on disk so an agent can resume after its context fills up.
 - **r²SCANh** — r²SCAN hybrid with 10 % exact exchange (r²SCAN0 has 25 %); hyogo preset `r2scanh`.
 - **Screened hybrid (HSE06)** — a hybrid whose exact exchange is switched off at long range, so it converges well in periodic solids.
+- **Scripted backend** — a stand-in "model" that replays fixed tool calls per stage, so the agent loop can be tested with no model and no cost.
 - **SessionStart hook** — a command Claude Code runs when a session opens; agent-notes uses it to print the project's notebook index.
 - **Shared H** — an H still nearest its own atom but also within bond distance of a second one (a very short hydrogen bond, e.g. the μ3-OH proton half-way to another O in a collapsed cell); reported, not treated as a proton transfer.
+- **Soft monitor** — watching a running job on a schedule that saves tokens: frequent log probes at first, sparser later, none once the run looks smooth.
 - **Spin multiplicity** — 2S+1 for an atom's unpaired electrons (H 2, C/O/Zr 3); an isolated-atom reference must use the lowest-energy one.
 - **Spin-state trap** — a magnetic run that converges cleanly but to another spin state than intended or than its neighbours in a label set (a flipped metal moment, a stray moment on water O); the energy moves little, the forces a lot. Found with `labels_compare` and `sites_by_environment`, steered with constrain-then-release.
 - **Spinodal** — the pressure (at a given T) where a phase stops being even metastable: its free-energy basin flattens out and vanishes, so the structure must collapse without needing to cross a barrier.
 - **SSH multiplexing** — reusing one open SSH connection for many commands, instead of logging in afresh each time (like keeping a phone call open rather than redialling).
+- **Stage gate** — the check a stage must pass before the loop moves on: the last verdict of named check tools (e.g. `cp2k_check_input`), plus the core-hour budget; a second failure goes to a human.
 - **Stage toolset** — the handful of tools (about 5) a model is shown for one step of a workflow, such as "monitor a job", instead of every tool at once.
 - **stdio transport (MCP)** — the agent starts the tool server as a local child process and talks to it over stdin/stdout, so nothing listens on the network (like an intercom wired between two rooms, not a phone line).
 - **Stokes shift** — the energy gap between the absorption peak and the (lower) emission peak, caused by the molecule relaxing in the excited state before it emits.

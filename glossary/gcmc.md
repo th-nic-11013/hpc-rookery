@@ -1,0 +1,1 @@
+**GCMC** — grand canonical Monte Carlo: fixes chemical potential (≈ gas pressure or humidity), volume and T, and inserts/deletes molecules until the pore loading is at equilibrium; gives adsorption isotherms.

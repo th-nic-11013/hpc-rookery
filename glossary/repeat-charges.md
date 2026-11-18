@@ -1,0 +1,1 @@
+**REPEAT charges** — atomic partial charges fitted to a periodic DFT electrostatic potential outside the atoms (CP2K `&PROPERTIES/&RESP` with `USE_REPEAT_METHOD`); the usual input charges for MOF GCMC.

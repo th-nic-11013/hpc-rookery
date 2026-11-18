@@ -1,0 +1,1 @@
+**CFCMC** — continuous fractional component Monte Carlo: a molecule is inserted gradually (its interactions scaled by λ from 0 to 1) instead of all at once, so insertions into dense or strongly binding pores (water in a MOF) still get accepted.

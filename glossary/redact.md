@@ -1,0 +1,1 @@
+**Redact** — replace private words (account name, project id, email, other projects) with `[redacted]` in files before sharing them; densho reads the words from the gitignored `agent-notes/redact.txt`.
