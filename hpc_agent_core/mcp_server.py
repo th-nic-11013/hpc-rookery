@@ -19,6 +19,13 @@ accepted names from the public `list_tools()` input schema, so it touches
 no SDK internals. If that ever stops working it logs to stderr once and
 falls back to the SDK's behaviour; it can never stop the server starting.
 
+A second rule, for the listing: each tool's input schema is listed with its
+`$ref`s inlined and `$defs` dropped (G89). With a `$ref` argument (a JobSpec
+`spec`, hyogo's typed `md`), RiVault's models sent the argument as a
+JSON-encoded string, 12 of 16 L1 misses for two of them on 2026-11-18; with
+the definition inline they sent an object every time. Validation is
+unchanged: the SDK checks calls against the same pydantic models.
+
 yagura/mcp_server.py and hyogo/mcp_server.py, in their own repositories,
 carry a deliberate copy of this check: the three import nothing from each
 other. scripts/sibling_sync.py --check compares the copies when those
@@ -37,6 +44,38 @@ except ImportError:  # the SDK turns any exception into an is_error result
 __all__ = ["MCPServer"]
 
 _warned = False
+_warned_listing = False
+
+
+def _inline_refs(schema: Any) -> Any:
+    """`schema` with every local `#/$defs/<name>` reference replaced by that
+    definition and `$defs` dropped. A recursive definition stays a `$ref`
+    (and `$defs` is kept for it); anything else is returned unchanged."""
+    if not isinstance(schema, dict) or not isinstance(schema.get("$defs"), dict):
+        return schema
+    defs = schema["$defs"]
+    kept = False
+
+    def walk(node: Any, seen: tuple[str, ...]) -> Any:
+        nonlocal kept
+        if isinstance(node, list):
+            return [walk(x, seen) for x in node]
+        if not isinstance(node, dict):
+            return node
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            name = ref[len("#/$defs/"):]
+            if name in defs and name not in seen:
+                rest = {k: walk(v, seen) for k, v in node.items() if k != "$ref"}
+                return {**walk(defs[name], seen + (name,)), **rest}
+            kept = True
+            return dict(node)
+        return {k: walk(v, seen) for k, v in node.items() if k != "$defs"}
+
+    out = walk(schema, ())
+    if kept:
+        out["$defs"] = defs
+    return out
 
 
 def _unknown_argument_message(tools: list[Any], name: str,
@@ -59,7 +98,21 @@ def _unknown_argument_message(tools: list[Any], name: str,
 
 
 class MCPServer(_SDKServer):
-    """The SDK's MCPServer, refusing tool arguments a tool does not take."""
+    """The SDK's MCPServer, refusing tool arguments a tool does not take and
+    listing input schemas with their `$ref`s inlined."""
+
+    async def list_tools(self):
+        global _warned_listing
+        tools = await super().list_tools()
+        try:
+            return [t.model_copy(update={"input_schema": _inline_refs(t.input_schema)})
+                    for t in tools]
+        except Exception as e:  # never let the rewrite break the listing
+            if not _warned_listing:
+                _warned_listing = True
+                print(f"{type(self).__name__}: $ref inlining disabled ({e!r}); "
+                      "tool schemas are listed as the SDK builds them", file=sys.stderr)
+            return tools
 
     async def call_tool(self, name: str, arguments: dict[str, Any], *args: Any, **kwargs: Any):
         global _warned
