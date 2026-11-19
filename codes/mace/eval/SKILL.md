@@ -59,8 +59,11 @@ submit_job(facility="{{SLUG}}", spec=spec)
 
 On a GPU add `--device cuda`; `launch_plan(code="mace", run_type="single_point",
 system={"atoms": <n>}, gpus=1)` gives the resources and launch line.
-A model with several heads (a multihead fine-tune: `Default`, `pt_head`)
-takes `--head`; the default is the model's first head.
+A multihead fine-tune lists `pt_head` (the replay head) first; leaving
+`--head` out scores its other head (`Default`), never `pt_head`. A model
+with several non-replay heads needs `--head`. `--head` applies to every
+`--model` in the call, so score models with different head names in
+separate calls.
 
 ## 3. Compare
 

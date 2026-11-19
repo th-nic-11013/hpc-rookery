@@ -69,6 +69,14 @@ def predict(frames, path, name, head, device, dtype, dispersion, labels, digits)
     t0 = time.time()
     calc = MACECalculator(**kw)
     heads = list(getattr(calc.models[0], "heads", []) or [])
+    if not head and len(heads) > 1:
+        # A multihead fine-tune lists the replay head first (["pt_head", "Default"]);
+        # scoring it by default silently measures the wrong head.
+        own = [h for h in heads if h != "pt_head"]
+        if len(own) != 1:
+            raise SystemExit(f"{name}: model has heads {heads}; pass --head")
+        head = own[0]
+        calc = MACECalculator(**kw, head=head)
     used = head or (heads[0] if heads else None)
     e0s, e0_warn = model_e0s(calc, used)
     out = []
@@ -115,7 +123,7 @@ def main(argv=None) -> int:
     p.add_argument("--dispersion", required=True, choices=("none", "included"),
                    help="what the models' energies contain: 'none' (trained on D3-free labels, "
                         "e.g. the MatPES and MP foundation models) or 'included'")
-    p.add_argument("--head", default=None, help="model head (default: the model's first)")
+    p.add_argument("--head", default=None, help="model head (default: the only head, or the one head that is not pt_head; several others: required)")
     p.add_argument("--device", default="cpu", choices=("cpu", "cuda"))
     p.add_argument("--dtype", default="float64", choices=("float64", "float32"))
     p.add_argument("--digits", type=int, default=7, help="decimals kept on forces (eV/A)")
