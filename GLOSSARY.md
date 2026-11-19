@@ -6,6 +6,7 @@
 - **Affine-scaled reference** — the reference structure stretched with the cell, keeping each atom's fractional coordinates, so a frame's displacement from it shows atoms moving, not the box changing size.
 - **AppleDouble (`._*` files)** — hidden companion files macOS adds when it copies or tars a file, holding its Finder metadata; junk on a Linux cluster, so folder uploads skip them.
 - **AUX_FIT** — the per-kind line in CP2K that names the small auxiliary basis ADMM uses for exact exchange.
+- **Bagging** — training each ensemble member on a different resample of the data, so members disagree most where the data are thin.
 - **Band groups (VASP)** — the MPI ranks split into teams that each work on a share of the bands: ranks / (KPAR × NCORE). VASP silently rounds NBANDS up to a multiple of it, so a new NCORE can change the band count; `vasp_make_incar` checks it.
 - **Block averaging** — splitting a run into consecutive blocks and using the spread between block results as the error, so correlated frames aren't counted as independent.
 - **Block hold-out** — keep whole time windows of a run (e.g. its last 50 ps) out of training, because MD frames 25 fs apart are near copies and a random split would leak.
@@ -24,6 +25,7 @@
 - **ECV (expansion collective variable)** — in OPES_EXPANDED, the per-target-ensemble energy shift ΔUᵢ(x) that tells the bias how much more likely x is at (Tᵢ, Pᵢ) than at the simulated T₀, P₀.
 - **Embedding endpoint** — the server that turns text into vectors so `search_docs` can rank guide sections by meaning, not just keywords.
 - **EOS fit** — fitting a volume-vs-pressure curve (typically Birch–Murnaghan) to get the bulk modulus K0 and its pressure derivative K0′.
+- **Error floor** — the error a model keeps even on frames it trained on; like a ruler's smallest tick, more of the same data does not get below it, only a better model or longer training does.
 - **Experience record** — a proposed record type holding one symptom → cause → fix lesson, looked up before a run (and matched against the error if one fails).
 - **F(V) profile** — the Helmholtz free energy of a framework as a function of its cell volume at fixed T; adding PV gives which volume (phase) is stable at each pressure.
 - **Farthest-point sampling (FPS)** — pick frames one at a time, each the one farthest (in descriptor space) from everything picked so far, so a small set covers the pool's spread instead of its crowded middle.
@@ -103,6 +105,7 @@
 - **Thermodynamic integration** — get a free-energy difference by integrating an average you can measure along a path, e.g. F(V) = −∫⟨P⟩ dV over a series of fixed-volume MD runs.
 - **Tool manifest** — a repo's `tool_manifest.json`: every MCP tool it serves and its argument names; rookery keeps yagura's and hyogo's copies (`scripts/sibling_sync.py`) to check its skills call real tools.
 - **Truncated Coulomb (HFX)** — cutting exact exchange off at a radius below half the cell width so a periodic cell does not see its own images.
+- **Trust window** — two committee-disagreement thresholds: frames below the lower one are already known, frames above the upper one are probably unphysical, and only frames in between are sent to DFT.
 - **UZH basis/PP family** — the newer Zurich-made set of matched Gaussian basis sets, GTH pseudopotentials and ADMM auxiliary bases, fitted per functional; it replaced MOLOPT for hybrids in this study.
 - **Validation gate** — a check that must pass before a workflow moves on, such as a CP2K dry run before submitting; on failure the error goes back to the model to fix.
 - **VDOS (vibrational density of states)** — the spectrum of vibration frequencies in an MD run, like an unweighted IR/Raman spectrum.
