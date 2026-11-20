@@ -373,7 +373,12 @@ def run_command_on_cluster(facility: str, command: str) -> str:
 @mcp.tool()
 @_configured_facility_tool
 def fs_ls(facility: str, path: str = ".", show_hidden: bool = True) -> str:
-    """List a directory's contents (long form). (IRI: GET /api/v1/filesystem/ls/{resource_id})"""
+    """List a directory's contents (long form). (IRI: GET /api/v1/filesystem/ls/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
+    """
     flags = "-la" if show_hidden else "-l"
     return run_command(facility, f"ls {flags} {quote_path(path)}")
 
@@ -381,21 +386,36 @@ def fs_ls(facility: str, path: str = ".", show_hidden: bool = True) -> str:
 @mcp.tool()
 @_configured_facility_tool
 def fs_stat(facility: str, path: str) -> str:
-    """File/directory metadata: size, permissions, timestamps, owner. (IRI: GET /api/v1/filesystem/stat/{resource_id})"""
+    """File/directory metadata: size, permissions, timestamps, owner. (IRI: GET /api/v1/filesystem/stat/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
+    """
     return run_command(facility, f"stat {quote_path(path)}")
 
 
 @mcp.tool()
 @_configured_facility_tool
 def fs_view(facility: str, path: str) -> str:
-    """Read a whole text file's contents. (IRI: GET /api/v1/filesystem/view/{resource_id})"""
+    """Read a whole text file's contents. (IRI: GET /api/v1/filesystem/view/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
+    """
     return run_command(facility, f"cat {quote_path(path)}")
 
 
 @mcp.tool()
 @_configured_facility_tool
 def fs_head(facility: str, path: str, lines: int = 20) -> str:
-    """Read the first N lines of a file. (IRI: GET /api/v1/filesystem/head/{resource_id})"""
+    """Read the first N lines of a file. (IRI: GET /api/v1/filesystem/head/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
+    """
     return run_command(facility, f"head -n {int(lines)} {quote_path(path)}")
 
 
@@ -403,14 +423,24 @@ def fs_head(facility: str, path: str, lines: int = 20) -> str:
 @_configured_facility_tool
 def fs_tail(facility: str, path: str, lines: int = 20) -> str:
     """Read the last N lines of a file — useful for checking a running
-    job's stdout/stderr. (IRI: GET /api/v1/filesystem/tail/{resource_id})"""
+    job's stdout/stderr. (IRI: GET /api/v1/filesystem/tail/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
+    """
     return run_command(facility, f"tail -n {int(lines)} {quote_path(path)}")
 
 
 @mcp.tool()
 @_configured_facility_tool
 def fs_mkdir(facility: str, path: str) -> str:
-    """Create a directory, including parents as needed. (IRI: POST /api/v1/filesystem/mkdir/{resource_id})"""
+    """Create a directory, including parents as needed. (IRI: POST /api/v1/filesystem/mkdir/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
+    """
     return run_command(facility, f"mkdir -p {quote_path(path)}")
 
 
@@ -428,7 +458,13 @@ def fs_upload(facility: str, local_path: str, remote_path: str) -> dict:
     are not sent; the result lists them under `skipped`.
 
     Stage uploads under `~/agent/work/...` (the agent's visible scratch
-    area), never in the home-directory root."""
+    area), never in the home-directory root.
+
+    Cluster paths (remote_path only, not local_path): keep a leading ~/
+    exactly as written (the server resolves it to your home on the
+    cluster). Never replace ~ with a guessed absolute home such as
+    /home/<name>.
+    """
     if Path(local_path).is_dir():
         return middleware.upload_dir(facility, Path(local_path), remote_path)
     return upload_file(facility, Path(local_path), remote_path)
@@ -442,6 +478,11 @@ def fs_download(facility: str, remote_path: str, local_path: str | None = None) 
 
     local_path defaults to the same filename in the current working
     directory.
+
+    Cluster paths (remote_path only, not local_path): keep a leading ~/
+    exactly as written (the server resolves it to your home on the
+    cluster). Never replace ~ with a guessed absolute home such as
+    /home/<name>.
     """
     dest = Path(local_path) if local_path else Path.cwd() / Path(remote_path).name
     return download_file(facility, remote_path, dest)
@@ -475,6 +516,10 @@ def fs_rm(facility: str, path: str, recursive: bool = False) -> str:
     That guard catches mistakes made *through this tool*; it is not a
     security boundary, because `run_command_on_cluster` can run `rm`
     directly. Treat the confirmation above as the real protection.
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
     """
     normalized = middleware.norm_path(path).strip().rstrip("/")
     if normalized in _RM_REFUSED or path.strip() in _RM_REFUSED:
@@ -495,7 +540,12 @@ def fs_rm(facility: str, path: str, recursive: bool = False) -> str:
 @mcp.tool()
 @_configured_facility_tool
 def fs_checksum(facility: str, path: str) -> str:
-    """SHA-256 checksum of a remote file. (IRI: GET /api/v1/filesystem/checksum/{resource_id})"""
+    """SHA-256 checksum of a remote file. (IRI: GET /api/v1/filesystem/checksum/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
+    """
     return run_command(facility, f"sha256sum {quote_path(path)}", timeout=LONG_FS_TIMEOUT_S)
 
 
@@ -503,7 +553,12 @@ def fs_checksum(facility: str, path: str) -> str:
 @_configured_facility_tool
 def fs_cp(facility: str, source: str, dest: str, recursive: bool = False) -> str:
     """Copy a file or (with recursive=True) a directory tree on the
-    cluster. (IRI: POST /api/v1/filesystem/cp/{resource_id})"""
+    cluster. (IRI: POST /api/v1/filesystem/cp/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
+    """
     flag = "-r " if recursive else ""
     return run_command(facility, f"cp {flag}{quote_path(source)} {quote_path(dest)}",
                        timeout=LONG_FS_TIMEOUT_S)
@@ -512,7 +567,12 @@ def fs_cp(facility: str, source: str, dest: str, recursive: bool = False) -> str
 @mcp.tool()
 @_configured_facility_tool
 def fs_mv(facility: str, source: str, dest: str) -> str:
-    """Move or rename a file/directory on the cluster. (IRI: POST /api/v1/filesystem/mv/{resource_id})"""
+    """Move or rename a file/directory on the cluster. (IRI: POST /api/v1/filesystem/mv/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
+    """
     return run_command(facility, f"mv {quote_path(source)} {quote_path(dest)}",
                        timeout=LONG_FS_TIMEOUT_S)
 
@@ -521,6 +581,10 @@ def fs_mv(facility: str, source: str, dest: str) -> str:
 @_configured_facility_tool
 def fs_chmod(facility: str, path: str, mode: str) -> str:
     """Change a file/directory's permissions. (IRI: PUT /api/v1/filesystem/chmod/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
 
     Args:
         facility: Facility slug, e.g. "rikyu". See get_facilities().
@@ -538,14 +602,24 @@ def fs_chown(facility: str, path: str, owner: str) -> str:
     """Change a file/directory's owner (and optionally group, as
     "user:group"). Most users can only chown within their own group's
     permissions — the scheduler's filesystem still enforces the actual ACL.
-    (IRI: PUT /api/v1/filesystem/chown/{resource_id})"""
+    (IRI: PUT /api/v1/filesystem/chown/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
+    """
     return run_command(facility, f"chown {shlex.quote(owner)} {quote_path(path)}")
 
 
 @mcp.tool()
 @_configured_facility_tool
 def fs_symlink(facility: str, target: str, link_name: str) -> str:
-    """Create a symbolic link at link_name pointing to target. (IRI: POST /api/v1/filesystem/symlink/{resource_id})"""
+    """Create a symbolic link at link_name pointing to target. (IRI: POST /api/v1/filesystem/symlink/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
+    """
     return run_command(facility, f"ln -s {quote_path(target)} {quote_path(link_name)}")
 
 
@@ -557,6 +631,10 @@ def fs_compress(facility: str, paths: list[str], archive_path: str,
                  dereference: bool = False) -> str:
     """Create a tar archive from one or more remote paths.
     (IRI: POST /api/v1/filesystem/compress/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
 
     match_pattern: archive only the files beneath `paths` that match this
         POSIX extended regex (GNU `find -regextype posix-extended -regex`).
@@ -595,7 +673,12 @@ def fs_compress(facility: str, paths: list[str], archive_path: str,
 @_configured_facility_tool
 def fs_extract(facility: str, archive_path: str, dest_dir: str = ".") -> str:
     """Extract an archive on the cluster into dest_dir (created if needed).
-    Compression format is auto-detected by tar. (IRI: POST /api/v1/filesystem/extract/{resource_id})"""
+    Compression format is auto-detected by tar. (IRI: POST /api/v1/filesystem/extract/{resource_id})
+
+    Cluster paths: keep a leading ~/ exactly as written (the server
+    resolves it to your home on the cluster). Never replace ~ with a
+    guessed absolute home such as /home/<name>.
+    """
     return run_command(
         facility,
         f"mkdir -p {quote_path(dest_dir)} && tar -xf {quote_path(archive_path)} -C {quote_path(dest_dir)}",
