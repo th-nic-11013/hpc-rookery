@@ -265,8 +265,8 @@ def cp2k_record_from_run(facility: str, parsed: dict, nodes: int, like: str | No
     with a benchmarks_provenance record for the job ID. Local only: no
     cluster command.
 
-    Before it: fs_download the .out, then hyogo's cp2k_parse_output; pass
-    that whole result as `parsed`.
+    Before it: hyogo's cp2k_parse_output on the .out (fs_download it first
+    only if it is still on the cluster); pass that whole result as `parsed`.
 
     From the parse: run_type, ranks and threads (ranks_per_node = ranks /
     nodes), atoms and electrons, the date the run started, the timing
