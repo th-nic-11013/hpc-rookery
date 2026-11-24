@@ -59,6 +59,34 @@ def model_e0s(calc, head):
         return None, f"model E0s not read: {exc!r}"
 
 
+def _load_on_cpu(calculator, kw):
+    """Build the calculator on a machine with no GPU from a model saved on one.
+
+    A model trained on a GPU pickles e3nn's compiled TorchScript modules with
+    CUDA tensors, and e3nn's __setstate__ calls torch.jit.load(buffer) with no
+    map_location, so MACECalculator's own map_location="cpu" never reaches them
+    ("Found no NVIDIA driver", HOKUSAI mpc job 9895283). Default that inner
+    torch.jit.load to the CPU while the model loads.
+    """
+    import torch
+
+    orig = torch.jit.load
+
+    def jit_load_cpu(f, map_location=None, *a, **k):
+        return orig(f, map_location if map_location is not None else "cpu", *a, **k)
+
+    torch.jit.load = jit_load_cpu
+    try:
+        return calculator(**kw)
+    finally:
+        torch.jit.load = orig
+
+
+def _build(calculator, kw, device):
+    """Every MACECalculator in this script is built here, so the CPU fix applies to all."""
+    return _load_on_cpu(calculator, kw) if device == "cpu" else calculator(**kw)
+
+
 def predict(frames, path, name, head, device, dtype, dispersion, labels, digits):
     import numpy as np
     from mace.calculators import MACECalculator
@@ -67,7 +95,7 @@ def predict(frames, path, name, head, device, dtype, dispersion, labels, digits)
     if head:
         kw["head"] = head
     t0 = time.time()
-    calc = MACECalculator(**kw)
+    calc = _build(MACECalculator, kw, device)
     heads = list(getattr(calc.models[0], "heads", []) or [])
     if not head and len(heads) > 1:
         # A multihead fine-tune lists the replay head first (["pt_head", "Default"]);
@@ -76,7 +104,7 @@ def predict(frames, path, name, head, device, dtype, dispersion, labels, digits)
         if len(own) != 1:
             raise SystemExit(f"{name}: model has heads {heads}; pass --head")
         head = own[0]
-        calc = MACECalculator(**kw, head=head)
+        calc = _build(MACECalculator, {**kw, "head": head}, device)
     used = head or (heads[0] if heads else None)
     e0s, e0_warn = model_e0s(calc, used)
     out = []

@@ -197,6 +197,10 @@ refuses descriptors computed on other files.
 - **GPUs:** partition `gpu` (bwgpu1-3, 4 x H100 each, one node per job,
   72 h); `gpu_i` (bwgpu4, 24 h) for short tests. The queue is usually
   full: a 1-GPU, 5-minute job has waited 17 h. Plan for hours of waiting.
+- **Job spec:** put resources under `resources` and the partition and
+  time under `attributes` (`queue_name`, `duration`); flat keys such as
+  `nodes` or `memory: "48G"` are silently dropped. `memory` is a bytes
+  int. Check the rendered script before submitting.
 - **Budget:** GPU hours come from the project's `gpu` budget
   (`get_project_allocations`), separate from `mpc`. One GPU-hour is
   billed as 28 core-hours.

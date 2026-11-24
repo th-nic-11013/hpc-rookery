@@ -64,8 +64,10 @@ minutes and a 1-GPU `gpu_i` job wait 17.5 hours. Short, accurate
 - **No project / core-time exhausted** — check
   `get_projects(facility="hokusai")`; a project's new jobs stop starting
   once its allowance is spent.
-- **Out of memory** (`native_state` OUT_OF_MEMORY) — raise the memory
-  share, or move to the `lmc` partition (2880 GiB nodes). Remember memory
+- **Out of memory** (`native_state` OUT_OF_MEMORY; `sacct` truncates it
+  to `OUT_OF_ME+`) — check `ReqMem` first: 1G means `resources.memory`
+  was never set (often a flat `memory` key, silently dropped). Raise the
+  memory share, or move to the `lmc` partition (2880 GiB nodes). Remember memory
   above 1 GiB/core on `mpc` is billed as extra cores.
 - **Hit wall time** (`native_state` TIMEOUT) — raise `duration`, or move
   from `mpc` (24 h) to `mpc_l` (72 h, max 8 nodes). The job actually ran up
@@ -109,6 +111,19 @@ memory or GPU request set the price.
 The login nodes are shared by hundreds of users. Poll `get_job_status` at
 most about once a minute, and prefer a single check when you expect the job
 to have finished.
+
+## Waiting for a job without polling by hand
+
+For a job you submitted and want to know about the moment it ends, run a
+background Bash loop on your own machine; it exits (and so notifies you)
+when the job finishes, at one `sacct` a minute:
+
+```bash
+while :; do s=$(ssh -o BatchMode=yes hokusai "sacct -j <id> -X -n -o State" | tr -d ' '); case "$s" in COMPLETED*|FAILED*|CANCELLED*|TIMEOUT*|OUT_OF_ME*|NODE_FAIL*) echo "$s"; break;; esac; sleep 60; done
+```
+
+`hokusai` is the SSH host alias from `~/.ssh/config`. Then read the
+result with `get_job_status` and `fs_tail`.
 
 ## Cancelling and updating
 

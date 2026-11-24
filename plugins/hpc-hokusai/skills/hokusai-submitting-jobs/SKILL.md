@@ -88,6 +88,13 @@ one CPU is one physical core.
   threaded library such as MKL starts one thread per core in every rank.
 - Keep ranks × threads per node ≤ 112 on MPC and GPU nodes, ≤ 96 on LMC.
 
+**Unknown keys are silently dropped.** Flat keys such as `nodes`,
+`cpus_per_task` or `memory: "48G"` are ignored without a warning, and the
+job runs on the defaults (1 CPU, 1 GiB on `mpc`): job 9895283 was
+OOM-killed that way. Use only the nested names above, with `memory` as a
+bytes int (48 GiB = `51539607552`), and check that the rendered script has
+the `--mem` and `--cpus-per-task` you meant.
+
 ## Launching: `srun` needs `--cpus-per-task` repeated
 
 HBW2 runs **Slurm 23.02**. Since 22.05, `srun` no longer inherits
@@ -205,7 +212,10 @@ passed literally and never expands.
    the start because backfill can't place it.
 4. Threaded jobs have `OMP_NUM_THREADS` **and** `--cpus-per-task` on the
    `srun` launcher.
-5. `resources.memory` is no larger than needed (it is billed as cores).
+5. `resources.memory` is no larger than needed (it is billed as cores),
+   and is set when a rank needs more than 1 GiB per core. The
+   `render_job_script` output shows `--mem` and `--cpus-per-task`; if
+   either is missing, a key was misspelled or flat.
 6. The job loads the same modules the binary was built with.
 7. Tell the user the worst-case cost in core-hours (billed cores ×
    `duration`) for anything larger than a smoke test, and run a few-minute

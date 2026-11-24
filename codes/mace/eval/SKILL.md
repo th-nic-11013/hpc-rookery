@@ -65,6 +65,18 @@ with several non-replay heads needs `--head`. `--head` applies to every
 `--model` in the call, so score models with different head names in
 separate calls.
 
+**GPU-trained models on CPU.** A model trained on a GPU (most fine-tunes)
+holds e3nn TorchScript pieces pickled with CUDA tensors, and e3nn's
+`__setstate__` calls `torch.jit.load` with no `map_location`, so on a CPU
+node loading fails with "Found no NVIDIA driver" even though
+`MACECalculator(device="cpu")` was asked for. `predict.py` handles this
+(`_load_on_cpu`, used by `_build` for every calculator it creates, with or
+without `--head`), so CPU scoring of GPU-trained fine-tunes works. Any new
+script that loads such a model on CPU needs the same patch; copy it from
+`predict.py`. A quick load test on a login node must take the same path as
+the job (leave `--head` out if the job does): a first fix that covered only
+the `--head` path still failed in the job.
+
 ## 3. Compare
 
 ```text
@@ -78,5 +90,10 @@ Report per model and per config_type: the relative energy error
 (meV/atom, against the reference frame), the absolute one after E0s when
 `e0s` was given, force RMSE and cosine, stress RMSE, and the worst frames.
 Read every warning. `out_path` keeps the full report with every frame.
+
+`mlip_compare` (and hyogo's other label tools) read local files only. When
+the frames or predictions are large, the low-bandwidth option is to run
+hyogo's own compare functions inside the job on the cluster and download
+only a small summary; the facility notes say how, where it has been done.
 
 {{CODE_NOTES}}
