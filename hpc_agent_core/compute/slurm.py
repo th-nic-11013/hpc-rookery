@@ -50,6 +50,7 @@ RCCS-Cloud's CloudSlurmBackend, which overrides only render_script to inject
 from __future__ import annotations
 
 import posixpath
+import re
 import shlex
 import time
 
@@ -65,6 +66,14 @@ from .base import (
 )
 
 _SACCT_FIELDS = "JobID,JobName,Partition,State,Elapsed,Start,End,ExitCode,NodeList,WorkDir"
+#: Appended when the facility's sacct knows them (SubmitLine is Slurm >= 23.02;
+#: an older sacct refuses the whole query, so get_statuses retries without).
+#: They answer "why was it OOM-killed" (ReqMem vs the steps' peak MaxRSS) and
+#: "which script ran" (the sbatch line's script path), which agents otherwise
+#: dug out with run_command (G-AL18 follow-up, UiO-66 campaign 2026-11).
+#: SubmitLine stays last: it is a command line and may itself contain "|".
+_SACCT_USAGE_FIELDS = "ReqMem,MaxRSS,SubmitLine"
+_MEM_RE = re.compile(r"(\d+(?:\.\d+)?)([KMGTP]?)")
 _SQUEUE_FIELDS = "%i|%T|%R|%P|%Z|%S"  # id|state|reason|partition|workdir(cwd at submit)|start
 
 
@@ -78,10 +87,43 @@ def _expected_start(raw: str) -> str | None:
 _GPU_REQUEST_STYLES = ("gpus_total", "gres")
 
 
+def _mem_bytes(raw: str) -> int | None:
+    """sacct memory ("581456K", "56G", "1.50G"; binary units) -> bytes."""
+    m = _MEM_RE.fullmatch(raw.strip())
+    if not m:
+        return None
+    return int(float(m[1]) * 1024 ** " KMGTP".index(m[2] or " "))
+
+
+def _human_bytes(n: int) -> str:
+    for unit, size in (("T", 1024 ** 4), ("G", 1024 ** 3), ("M", 1024 ** 2)):
+        if n >= size:
+            return f"{n / size:.1f}{unit}"
+    return f"{n / 1024:.0f}K"
+
+
+def _script_from_submit_line(line: str) -> str | None:
+    """The batch script of an `sbatch ... <script>` submit line, or None."""
+    try:
+        words = shlex.split(line)
+    except ValueError:
+        return None
+    if not words or not words[0].endswith("sbatch") or words[-1].startswith("-") or len(words) < 2:
+        return None
+    return words[-1]
+
+
 def _parse_sacct(output: str) -> list[Job]:
     jobs = []
-    for line in output.strip().splitlines():
-        parts = line.split("|")
+    peak: dict[str, int] = {}
+    lines = [line.split("|") for line in output.strip().splitlines()]
+    for parts in lines:   # job steps (15614.batch, 15614.0) carry MaxRSS
+        if len(parts) >= 13 and "." in parts[0]:
+            rss = _mem_bytes(parts[11])
+            if rss is not None:
+                job = parts[0].split(".", 1)[0]
+                peak[job] = max(peak.get(job, 0), rss)
+    for parts in lines:
         if len(parts) < 10 or parts[0] == "JobID":
             continue
         if "." in parts[0]:  # skip job steps (e.g. 15614.batch)
@@ -106,6 +148,10 @@ def _parse_sacct(output: str) -> list[Job]:
                     "end_time": parts[6],
                     "nodes": parts[8],
                     "workdir": parts[9],
+                    **({"req_mem": parts[10] or None,
+                        "max_rss": _human_bytes(peak[parts[0]]) if parts[0] in peak else None,
+                        "script_path": _script_from_submit_line("|".join(parts[12:]))}
+                       if len(parts) >= 13 else {}),
                 },
             ),
         ))
@@ -460,6 +506,22 @@ class SlurmBackend(SchedulerBackend):
         live = {j.id: j for j in _parse_squeue(squeue_out)}
         return [live[jid] if jid in live else self._scontrol_fallback(jid) for jid in job_ids]
 
+    def _sacct(self, selection: str) -> str:
+        """sacct for `selection` with the usage fields (req_mem, max_rss,
+        script_path in meta_data) when this facility's sacct knows them. An
+        older sacct refuses an unknown field for the whole query ("Invalid
+        field requested"), so that answer is remembered and the query re-run
+        with the base fields: status never breaks over the extras."""
+        base = f"sacct {selection} --parsable2 --noheader --format={_SACCT_FIELDS}"
+        if getattr(self, "_sacct_usage_ok", True):
+            try:
+                return run_command(self.facility, f"{base},{_SACCT_USAGE_FIELDS}")
+            except RuntimeError as exc:
+                if "invalid field" not in str(exc).lower():
+                    raise
+                self._sacct_usage_ok = False
+        return run_command(self.facility, base)
+
     def get_statuses(self, job_ids: list[str]) -> list[Job]:
         """Fetch normalized statuses for one or more jobs.
 
@@ -479,9 +541,7 @@ class SlurmBackend(SchedulerBackend):
         if not self.has_accounting:
             return self._get_statuses_no_accounting(job_ids)
         ids = ",".join(shlex.quote(j) for j in job_ids)
-        output = run_command(
-            self.facility, f"sacct --jobs={ids} --format={_SACCT_FIELDS} --parsable2 --noheader"
-        )
+        output = self._sacct(f"--jobs={ids}")
         found = {j.id: j for j in _parse_sacct(output)}
         missing = [jid for jid in job_ids if jid not in found]
         for jid in missing:
@@ -503,10 +563,7 @@ class SlurmBackend(SchedulerBackend):
         if not self.has_accounting:
             output = run_command(self.facility, f"squeue -u $USER --format='{_SQUEUE_FIELDS}' --noheader")
             return _parse_squeue(output)
-        output = run_command(
-            self.facility,
-            f"sacct --starttime={shlex.quote(since)} --format={_SACCT_FIELDS} --parsable2 --noheader",
-        )
+        output = self._sacct(f"--starttime={shlex.quote(since)}")
         return self._attach_reasons(_parse_sacct(output))
 
     def cancel(self, job_id: str) -> Job | str:

@@ -36,6 +36,11 @@ handling noted below.
   spec set `directory` writes its output there, not in the home directory.
   Then read it with `fs_tail(facility="hokusai", path=...)` for a running
   job, or `fs_view` once it has finished.
+- **What it asked for and used** (Slurm with accounting): `meta_data.req_mem`
+  (memory requested), `meta_data.max_rss` (peak memory of its largest step)
+  and `meta_data.script_path` (the batch script that ran: `fs_view` it to
+  see exactly what was submitted). Read these before `run_command_on_cluster`
+  with `sacct` or `scontrol`.
 
 ## Fair-share is why a job waits
 
@@ -70,7 +75,8 @@ minutes and a 1-GPU `gpu_i` job wait 17.5 hours. Short, accurate
   `get_projects(facility="hokusai")`; a project's new jobs stop starting
   once its allowance is spent.
 - **Out of memory** (`native_state` OUT_OF_MEMORY; `sacct` truncates it
-  to `OUT_OF_ME+`) — check `ReqMem` first: 1G means `resources.memory`
+  to `OUT_OF_ME+`) — check `meta_data.req_mem` first (and `max_rss`, the
+  peak the steps reached): 1G means `resources.memory`
   was never set (before 2026-11-25 a flat `memory` key was dropped without
   a word; now it is refused). Raise the
   memory share, or move to the `lmc` partition (2880 GiB nodes). Remember memory

@@ -36,6 +36,11 @@ handling noted below.
   spec set `directory` writes its output there, not in the home directory.
   Then read it with `fs_tail(facility="miyabi", path=...)` for a running
   job, or `fs_view` once it has finished.
+- **What it asked for and used** (Slurm with accounting): `meta_data.req_mem`
+  (memory requested), `meta_data.max_rss` (peak memory of its largest step)
+  and `meta_data.script_path` (the batch script that ran: `fs_view` it to
+  see exactly what was submitted). Read these before `run_command_on_cluster`
+  with `sacct` or `scontrol`.
 
 Miyabi's live view is `qstat -f <jobid>`. Its compact history is
 `qstat -H --hday 2 --hnum 100` and retains at most three days. A history state

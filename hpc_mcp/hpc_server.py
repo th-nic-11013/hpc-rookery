@@ -331,6 +331,7 @@ def _job_row(job: Job) -> dict:
     return {"id": job.id, "state": st.state.value if st else JobState.UNKNOWN.value,
             "native_state": meta.get("native_state"), "exit_code": st.exit_code if st else None,
             "elapsed": meta.get("elapsed"), "workdir": meta.get("workdir"),
+            "req_mem": meta.get("req_mem"), "max_rss": meta.get("max_rss"),
             "message": st.message if st else None}
 
 
@@ -394,7 +395,7 @@ def wait_for_jobs(facility: str, job_ids: list[str], timeout_s: int = 600, poll_
 
     Returns {"done" (the jobs ended as `until` asks), "timed_out",
     "waited_s", "polls", "jobs": [{id, state, native_state, exit_code,
-    elapsed, workdir, message}], "failed", "still_waiting", "not_found",
+    elapsed, workdir, req_mem, max_rss, message}], "failed", "still_waiting", "not_found",
     "next"}. Not done after timeout_s: call it again with still_waiting.
     A job ID the scheduler doesn't know for 3 polls ends the wait.
 

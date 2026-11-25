@@ -36,6 +36,11 @@ handling noted below.
   spec set `directory` writes its output there, not in the home directory.
   Then read it with `fs_tail(facility="rccs-cloud", path=...)` for a running
   job, or `fs_view` once it has finished.
+- **What it asked for and used** (Slurm with accounting): `meta_data.req_mem`
+  (memory requested), `meta_data.max_rss` (peak memory of its largest step)
+  and `meta_data.script_path` (the batch script that ran: `fs_view` it to
+  see exactly what was submitted). Read these before `run_command_on_cluster`
+  with `sacct` or `scontrol`.
 
 > **sacct lag** (handled for you now): this cluster's `sacct` trails
 > `sbatch` by a second or two, so `get_job_status` fired *immediately*

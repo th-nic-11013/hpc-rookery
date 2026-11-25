@@ -36,6 +36,11 @@ handling noted below.
   spec set `directory` writes its output there, not in the home directory.
   Then read it with `fs_tail(facility="crux", path=...)` for a running
   job, or `fs_view` once it has finished.
+- **What it asked for and used** (Slurm with accounting): `meta_data.req_mem`
+  (memory requested), `meta_data.max_rss` (peak memory of its largest step)
+  and `meta_data.script_path` (the batch script that ran: `fs_view` it to
+  see exactly what was submitted). Read these before `run_command_on_cluster`
+  with `sacct` or `scontrol`.
 
 `get_job_status` reads the full `qstat -fx` record — including finished
 jobs, since ALCF keeps about two weeks of history, and the exit status of a
