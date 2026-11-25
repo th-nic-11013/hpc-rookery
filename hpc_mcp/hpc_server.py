@@ -40,7 +40,17 @@ from pydantic import BeforeValidator
 from hpc_agent_core.serving import serve
 from facilities.registry import get_backend
 
-mcp = MCPServer("hpc-mcp")
+#: The server's MCP `instructions`, sent once at initialize: routing only,
+#: at most 5 lines (a small worker treats every line as a step to take; see
+#: notes/skills-mcp-harmony.md). A plain string constant so other repos
+#: (kairo's bench stub) can read it from this file without importing it.
+SERVER_INSTRUCTIONS = """\
+Every tool takes `facility` (a slug) as its first argument; there is no default facility.
+If you don't know the facility slug, call get_facilities() first.
+Facility how-to lives in the `<slug>-*` skills and in read_doc_section / search_docs.
+Prefer a typed tool (fs_*, submit_job, get_job_status, ...) over run_command_on_cluster."""
+
+mcp = MCPServer("hpc-mcp", instructions=SERVER_INSTRUCTIONS)
 
 #: Seconds an fs_* tool whose run time grows with the data (tar, cp, mv
 #: across filesystems, rm -r, sha256sum) lets its command run, instead of the
