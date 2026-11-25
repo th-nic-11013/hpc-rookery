@@ -1,6 +1,6 @@
 ---
 name: {{SLUG}}-records
-description: Read and write measured records for {{DISPLAY_NAME}}: benchmark timings (best MPI x OpenMP layout, s per step, node scaling), the user's software builds, the job IDs behind them, and snapshots of many-frame campaigns. Use whenever another skill says to query or append `benchmarks`, `software_registry`, `benchmarks_provenance` or `campaign` records, or the user asks what has already been measured or built on {{DISPLAY_NAME}} ("is there a benchmark for this", "which layout is fastest", "what builds do I have").
+description: Read and write measured records for {{DISPLAY_NAME}} - benchmark timings (best MPI x OpenMP layout, s per step, node scaling), the user's software builds, the job IDs behind them, and snapshots of many-frame campaigns. Use whenever another skill says to query or append `benchmarks`, `software_registry`, `benchmarks_provenance` or `campaign` records, or the user asks what has already been measured or built on {{DISPLAY_NAME}} ("is there a benchmark for this", "which layout is fastest", "what builds do I have").
 ---
 
 # Records on {{DISPLAY_NAME}}

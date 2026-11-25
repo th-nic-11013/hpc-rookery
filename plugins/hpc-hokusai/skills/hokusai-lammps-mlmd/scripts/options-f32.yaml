@@ -1,0 +1,32 @@
+# Export a single-head MACE model as a float32 metatomic model for LAMMPS:
+#   mtt train options-f32.yaml -o <name>-f32.pt
+# 0 epochs, so nothing trains; mtt only needs a dataset to start, any small
+# extxyz with an `energy` key (dummy_dataset.xyz). Replace SINGLE_HEAD_MODEL
+# with select_head_cpu.py's output. Units: eV and Angstrom.
+# Recipe of the UiO-66 round-2/3 exports (HOKUSAI jobs 9842098, 9922229).
+base_precision: 32
+device: cpu
+architecture:
+  name: experimental.mace
+  model:
+    mace_model: SINGLE_HEAD_MODEL
+    mace_head_target: energy
+  training:
+    num_epochs: 0
+    batch_size: 1
+training_set:
+  systems:
+    read_from: dummy_dataset.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: energy
+      unit: eV
+validation_set:
+  systems:
+    read_from: dummy_dataset.xyz
+    length_unit: angstrom
+  targets:
+    energy:
+      key: energy
+      unit: eV

@@ -8,7 +8,7 @@
  "cp2k_make_subsys": ["charge", "kinds", "out_path", "overwrite", "periodic", "symmetry", "xyz_path"],
  "cp2k_parse_output": ["out_path", "vectors"],
  "job_status": ["workdir"],
- "lammps_make_input": ["barostat", "data", "data_name", "device", "dispersion", "dump_every", "mode", "model", "out_path", "overwrite", "pdamp_fs", "plumed_path", "pressure_bar", "restart_every", "restart_from", "seed", "steps", "tdamp_fs", "temperature_k", "thermo_every", "timestep_fs"],
+ "lammps_make_input": ["barostat", "data", "data_name", "device", "dispersion", "dump_every", "mode", "model", "out_path", "overwrite", "pdamp_fs", "plumed_path", "pressure_bar", "pressure_end_bar", "restart_every", "restart_from", "seed", "steps", "tdamp_fs", "temperature_k", "thermo_every", "timestep_fs"],
  "lammps_parse_log": ["log_path"],
  "mace_make_finetune": ["distributed", "e0s", "energy_key", "forces_key", "foundation", "holdout", "lr", "mace_version", "method", "name", "out_dir", "overrides", "overwrite", "paths", "replay", "restart", "seed", "stratify", "stress_key", "stress_weight", "test_fraction", "valid_fraction"],
  "mace_parse_log": ["epochs", "log_path"],

@@ -1,6 +1,8 @@
 {
   "code": "lammps",
-  "stages": [],
+  "stages": [
+    "mlmd"
+  ],
   "values": {
     "LAMMPS_PARTITION": "Slurm partition MLIP molecular dynamics runs in",
     "LAMMPS_CORES_PER_NODE": "cores per node of that partition",
