@@ -78,12 +78,13 @@ one CPU is one physical core.
   threaded library such as MKL starts one thread per core in every rank.
 - Keep ranks × threads per node ≤ 112 on MPC and GPU nodes, ≤ 96 on LMC.
 
-**Unknown keys are silently dropped.** Flat keys such as `nodes`,
-`cpus_per_task` or `memory: "48G"` are ignored without a warning, and the
-job runs on the defaults (1 CPU, 1 GiB on `mpc`): job 9895283 was
-OOM-killed that way. Use only the nested names above, with `memory` as a
-bytes int (48 GiB = `51539607552`), and check that the rendered script has
-the `--mem` and `--cpus-per-task` you meant.
+**Use only the nested names above.** Flat or Slurm-named keys (`nodes`,
+`cpus_per_task`, `partition`, `memory` at the top level) are refused, and
+the error names where each one goes. Before that rule they were dropped
+without a word, and job 9895283 ran on the defaults (1 CPU, 1 GiB on
+`mpc`) and was OOM-killed. `resources.memory` takes bytes or a string such
+as `"48G"`. Check that the rendered script has the `--mem` and
+`--cpus-per-task` you meant.
 
 ## Launching: `srun` needs `--cpus-per-task` repeated
 

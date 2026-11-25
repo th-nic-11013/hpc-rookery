@@ -18,7 +18,7 @@ import re
 import shlex
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class JobState(str, Enum):
@@ -123,6 +123,53 @@ def _no_control_chars(value: str, field: str) -> str:
 #: narrowing it is not.
 _JOB_NAME_RE = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
+#: Keys agents put in the wrong place (or name the scheduler's way), and where
+#: each belongs in a JobSpec. Pydantic's default drops unknown keys without a
+#: word: a flat `"memory": "48G"` vanished, Slurm gave the job 1 GB and job
+#: 9895283 was OOM-killed (HOKUSAI, 2026-11-23). Every spec model now refuses
+#: an unknown key and names its place from this table.
+_SPEC_KEY_HOMES = {
+    "nodes": "resources.node_count", "node_count": "resources.node_count",
+    "ntasks": "resources.process_count", "process_count": "resources.process_count",
+    "processes_per_node": "resources.processes_per_node",
+    "ntasks_per_node": "resources.processes_per_node", "ranks_per_node": "resources.processes_per_node",
+    "cpus_per_task": "resources.cpu_cores_per_process", "threads": "resources.cpu_cores_per_process",
+    "cpu_cores_per_process": "resources.cpu_cores_per_process",
+    "gpus": "resources.gpus", "gres": "resources.gpus", "gpus_per_node": "resources.gpus (the job total)",
+    "memory": "resources.memory", "mem": "resources.memory", "memory_gb": "resources.memory (bytes, or \"48G\")",
+    "exclusive": "resources.exclusive_node_use", "exclusive_node_use": "resources.exclusive_node_use",
+    "duration": "attributes.duration", "time": "attributes.duration", "walltime": "attributes.duration",
+    "time_limit": "attributes.duration",
+    "queue_name": "attributes.queue_name", "partition": "attributes.queue_name", "queue": "attributes.queue_name",
+    "account": "attributes.account", "project": "attributes.account",
+    "reservation": "attributes.reservation_id", "reservation_id": "attributes.reservation_id",
+    "qos": "attributes.custom_attributes {\"qos\": ...}",
+    "custom_attributes": "attributes.custom_attributes",
+    "env": "environment", "environment": "environment", "workdir": "directory", "cwd": "directory",
+    "command": "executable", "cmd": "executable", "args": "arguments",
+    "output": "stdout_path", "stdout": "stdout_path", "error": "stderr_path", "stderr": "stderr_path",
+}
+
+
+def _refuse_unknown_keys(model: type, data, where: str):
+    """Refuse keys a spec model does not have, naming where each belongs."""
+    if not isinstance(data, dict):
+        return data
+    unknown = [k for k in data if k not in model.model_fields]
+    if not unknown:
+        return data
+    named = []
+    for k in unknown:
+        home = _SPEC_KEY_HOMES.get(k)
+        named.append(f"{k!r} -> {home}" if home else repr(k))
+    raise ValueError(
+        f"{where} has no key {', '.join(named)}. Unknown keys are refused, not dropped "
+        f"(a dropped memory key once left a job with 1 GB). {where} takes: "
+        f"{', '.join(model.model_fields)}.")
+
+
+_MEMORY_RE = re.compile(r"\s*(\d+(?:\.\d+)?)\s*([KMGT])(?:I?B)?\s*", re.I)
+
 
 class ResourceSpec(BaseModel):
     """Resources for a job (PSI/J ResourceSpec + a GPU extension).
@@ -152,7 +199,25 @@ class ResourceSpec(BaseModel):
         description="Total GPUs requested for the job (machine-specific extension); 0 means no GPU request",
     )
     exclusive_node_use: bool = Field(False, description="Request exclusive node allocation (--exclusive)")
-    memory: int | None = Field(None, gt=0, description="Memory per node in bytes (maps to --mem)")
+    memory: int | None = Field(None, gt=0, description='Memory per node in bytes (maps to --mem), or a string such as "48G" or "500M" (binary units)')
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _known_keys(cls, data):
+        return _refuse_unknown_keys(cls, data, "resources")
+
+    @field_validator("memory", mode="before")
+    @classmethod
+    def _memory_with_unit(cls, value):
+        """"48G" -> bytes (binary, as Slurm's --mem reads G); ints pass through."""
+        if isinstance(value, str):
+            m = _MEMORY_RE.fullmatch(value)
+            if not m:
+                raise ValueError(f"memory {value!r}: give bytes, or a number with K, M, G or T, e.g. \"48G\"")
+            return int(float(m[1]) * 1024 ** " KMGT".index(m[2].upper()))
+        return value
 
     @field_validator(
         "node_count", "process_count", "processes_per_node",
@@ -187,6 +252,13 @@ class JobAttributes(BaseModel):
     custom_attributes: dict[str, str] = Field(default_factory=dict)
     scheduler: Scheduler | None = Field(None, description="Override which SchedulerBackend handles this job, on a machine with more than one; None means the machine's tool layer decides (e.g. from queue_name)")
     parallel_env: str = Field("smp", description="Grid Engine parallel environment (-pe); ignored by Slurm backends")
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _known_keys(cls, data):
+        return _refuse_unknown_keys(cls, data, "attributes")
 
     @field_validator("duration", mode="before")
     @classmethod
@@ -248,6 +320,13 @@ class VolumeMount(BaseModel):
     target: str = Field(description="Path inside the container")
     read_only: bool = Field(True, description="Mount as read-only")
 
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _known_keys(cls, data):
+        return _refuse_unknown_keys(cls, data, "container.volume_mounts[]")
+
 
 class Container(BaseModel):
     """Container specification (IRI Container); executed via singularity exec.
@@ -261,6 +340,13 @@ class Container(BaseModel):
     image: str = Field(description="Singularity image path or URI (e.g. docker://ubuntu:22.04)")
     volume_mounts: list[VolumeMount] = Field(default_factory=list)
 
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _known_keys(cls, data):
+        return _refuse_unknown_keys(cls, data, "container")
+
 
 class JobSpec(BaseModel):
     """Job specification (IRI/PSI/J JobSpec subset).
@@ -273,6 +359,13 @@ class JobSpec(BaseModel):
     """
     name: str = Field("agent-job", description="Job name: letters, digits, dot, underscore, hyphen", examples=["cp2k-aimd-1"])
     executable: str = Field(description="Command to run, may be a shell line", examples=["bash run.sh", "./app input.in"])
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _known_keys(cls, data):
+        return _refuse_unknown_keys(cls, data, "the job spec")
 
     @field_validator("directory", "stdout_path", "stderr_path", "stdin_path", "launcher")
     @classmethod

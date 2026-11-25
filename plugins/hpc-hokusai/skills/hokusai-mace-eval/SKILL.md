@@ -107,9 +107,9 @@ only a small summary; the facility notes say how, where it has been done.
   foundation ~8 s/frame (35 frames 278 s). Four fine-tunes on 66 frames
   plus the foundation on 35 took 4:49 min including the compare. Request
   1 h and 48 GB; the foundation dominates, so scale by its frame count.
-- **Job spec:** nest the resources, or they are silently dropped. Flat keys
-  such as `nodes`, `cpus_per_task` or `memory: "48G"` are ignored without a
-  warning; without `memory`, Slurm on `mpc` gives 1 GB and float64
+- **Job spec:** nest the resources (flat keys such as `nodes`,
+  `cpus_per_task` or `memory` are refused, with where each goes; they used to
+  be dropped without a word). Without `memory`, Slurm on `mpc` gives 1 GB and float64
   MACE-MATPES on a few hundred atoms is OOM-killed (job 9895283):
 
   ```text

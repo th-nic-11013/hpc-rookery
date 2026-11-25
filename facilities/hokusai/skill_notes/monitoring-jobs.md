@@ -32,7 +32,8 @@ minutes and a 1-GPU `gpu_i` job wait 17.5 hours. Short, accurate
   once its allowance is spent.
 - **Out of memory** (`native_state` OUT_OF_MEMORY; `sacct` truncates it
   to `OUT_OF_ME+`) — check `ReqMem` first: 1G means `resources.memory`
-  was never set (often a flat `memory` key, silently dropped). Raise the
+  was never set (before 2026-11-25 a flat `memory` key was dropped without
+  a word; now it is refused). Raise the
   memory share, or move to the `lmc` partition (2880 GiB nodes). Remember memory
   above 1 GiB/core on `mpc` is billed as extra cores.
 - **Hit wall time** (`native_state` TIMEOUT) — raise `duration`, or move
