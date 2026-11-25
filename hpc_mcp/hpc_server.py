@@ -18,6 +18,7 @@ bottom of this file, each in its own guard. Tools are thin verbs — workflow kn
 facility, how to read a failed job) lives in plugins/hpc/skills/, not in
 long docstrings here.
 """
+import posixpath
 import shlex
 import sys
 import json
@@ -548,7 +549,10 @@ def fs_tail(facility: str, path: str, lines: int = 20) -> str:
 @mcp.tool()
 @_configured_facility_tool
 def fs_mkdir(facility: str, path: str) -> str:
-    """Create a directory, including parents as needed. (IRI: POST /api/v1/filesystem/mkdir/{resource_id})
+    """Create a directory on the cluster, including parents as needed. (IRI: POST /api/v1/filesystem/mkdir/{resource_id})
+
+    A folder on this machine needs no call: fs_download creates the local
+    folder it writes into, and fs_compress the folder of its archive.
 
     Cluster paths: keep a leading ~/ exactly as written (the server
     resolves it to your home on the cluster). Never replace ~ with a
@@ -590,7 +594,9 @@ def fs_download(facility: str, remote_path: str, local_path: str | None = None) 
     with a SHA-256 verification of the transfer. (IRI: GET /api/v1/filesystem/download/{resource_id} — deviation: rsync/scp)
 
     local_path defaults to the same filename in the current working
-    directory.
+    directory. Its folder is created if missing (parents too), so the
+    download is the only call needed. A file that is already on this
+    machine needs no download: read it where it is.
 
     Cluster paths (remote_path only, not local_path): keep a leading ~/
     exactly as written (the server resolves it to your home on the
@@ -598,7 +604,17 @@ def fs_download(facility: str, remote_path: str, local_path: str | None = None) 
     /home/<name>.
     """
     dest = Path(local_path) if local_path else Path.cwd() / Path(remote_path).name
-    return download_file(facility, remote_path, dest)
+    try:
+        return download_file(facility, remote_path, dest)
+    except RuntimeError as e:
+        # A small worker asks to download a file it was told is already
+        # local (bench L2-S4-06): say so, and name the next step.
+        if not remote_path.startswith("~") and Path(remote_path).is_file():
+            raise RuntimeError(
+                f"remote file not found: {remote_path}. It is a file on this machine "
+                "already, so no download is needed: pass this path as it is to the "
+                "tool that reads it.") from e
+        raise
 
 
 #: Paths fs_rm refuses outright, after normalisation. Deleting any of these
@@ -742,8 +758,11 @@ def fs_compress(facility: str, paths: list[str], archive_path: str,
                  compression: CompressionType = CompressionType.GZIP,
                  match_pattern: str | None = None,
                  dereference: bool = False) -> str:
-    """Create a tar archive from one or more remote paths.
+    """Create a tar archive on the cluster from one or more remote paths.
     (IRI: POST /api/v1/filesystem/compress/{resource_id})
+
+    The archive's folder is created if missing (parents too). Fetch the
+    archive with one fs_download.
 
     Cluster paths: keep a leading ~/ exactly as written (the server
     resolves it to your home on the cluster). Never replace ~ with a
@@ -760,6 +779,8 @@ def fs_compress(facility: str, paths: list[str], archive_path: str,
     deref = "h" if dereference else ""
     flag = f"-{deref}{_TAR_FLAGS[compression]}"
     quoted_paths = " ".join(quote_path(p) for p in paths)
+    parent = posixpath.dirname(archive_path.rstrip("/"))
+    mkdir = f"mkdir -p {quote_path(parent)} && " if parent and parent != "~" else ""
     if match_pattern:
         # find's default regex syntax is emacs, where `(a|b)` is literal text,
         # and tar given an empty list writes an empty archive without a word
@@ -776,9 +797,9 @@ def fs_compress(facility: str, paths: list[str], archive_path: str,
                f'[ "$rc" -ne 0 ] && echo "fs_compress: find failed (exit $rc); '
                f'match_pattern needs GNU find (-regextype posix-extended)" >&2; '
                f"echo {shlex.quote(nothing)} >&2; exit 3; fi; "
-               f"{find} -print0 | tar {flag} {quote_path(archive_path)} --null -T -")
+               f"{mkdir}{find} -print0 | tar {flag} {quote_path(archive_path)} --null -T -")
     else:
-        cmd = f"tar {flag} {quote_path(archive_path)} {quoted_paths}"
+        cmd = f"{mkdir}tar {flag} {quote_path(archive_path)} {quoted_paths}"
     return run_command(facility, cmd, timeout=LONG_FS_TIMEOUT_S)
 
 
