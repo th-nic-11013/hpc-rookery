@@ -85,8 +85,12 @@ background Bash loop on your own machine; it exits (and so notifies you)
 when the job finishes, at one `sacct` a minute:
 
 ```bash
-while :; do s=$(ssh -o BatchMode=yes hokusai "sacct -j <id> -X -n -o State" | tr -d ' '); case "$s" in COMPLETED*|FAILED*|CANCELLED*|TIMEOUT*|OUT_OF_ME*|NODE_FAIL*) echo "$s"; break;; esac; sleep 60; done
+until s=$(ssh -o BatchMode=yes hokusai "sacct -j <id> -X -n -o State%20,Elapsed" 2>/dev/null | grep -E "COMPLETED|FAILED|CANCELLED|TIMEOUT|OUT_OF_ME|NODE_FAIL"); do sleep 60; done; echo "$s"
 ```
+
+HOKUSAI prints a login banner on stdout for every `ssh` command, so the
+state is not the first line of the output: grep for it, never `head -1`
+or a `case` on the whole output (both loop forever).
 
 `hokusai` is the SSH host alias from `~/.ssh/config`. Then read the
 result with `get_job_status` and `fs_tail`.
