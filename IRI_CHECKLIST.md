@@ -87,6 +87,9 @@ repo-wide, not a per-machine template.
 - `render_job_script` — preview the fully-defaulted batch script without
   submitting and without touching the scheduler.
 - `get_drained_nodes` — nodes currently down/drained, and why.
+- `wait_for_jobs` — block (at most an hour per call) until jobs end,
+  polling `get_statuses` no more than every 15 s; replaces hand-written
+  `sleep`/`sacct` loops. Built on the same backend call as `get_job_statuses`.
 - `run_command_on_cluster` — arbitrary login-node shell. **The one
   extension worth arguing about.** IRI has no such endpoint, and that is
   very likely deliberate: a facility REST API that exposed "run any shell

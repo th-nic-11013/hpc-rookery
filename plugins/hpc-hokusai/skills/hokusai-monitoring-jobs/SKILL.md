@@ -22,6 +22,11 @@ handling noted below.
   job's `message` explains the wait.
 - **My recent jobs**: `get_job_statuses(facility="hokusai", job_ids=[])`
   for roughly the last two days, or pass specific IDs.
+- **Waiting for jobs to end**: `wait_for_jobs(facility="hokusai", job_ids=[...], timeout_s=600)`
+  checks once a minute and returns when every job has ended (`until="any"`:
+  the first), or at `timeout_s` with `still_waiting`; call it again with
+  those. Don't write a `sleep`/`squeue`/`sacct` loop or call
+  `get_job_status` over and over.
 - **Cluster availability**: `get_resources(facility="hokusai")` —
   per-partition allocated/idle/other/total node counts. Idle nodes can
   start jobs immediately.
@@ -114,9 +119,14 @@ to have finished.
 
 ## Waiting for a job without polling by hand
 
-For a job you submitted and want to know about the moment it ends, run a
-background Bash loop on your own machine; it exits (and so notifies you)
-when the job finishes, at one `sacct` a minute:
+With nothing else to do until a job ends (minutes to an hour), call
+`wait_for_jobs(facility="hokusai", job_ids=[...])`: one `sacct` a minute,
+the login banner already handled.
+
+For a wait of hours while you keep working on something else, and only
+where you can run background shell commands, a background Bash loop on your
+own machine exits (and so notifies you) when the job finishes, at one
+`sacct` a minute:
 
 ```bash
 until s=$(ssh -o BatchMode=yes hokusai "sacct -j <id> -X -n -o State%20,Elapsed" 2>/dev/null | grep -E "COMPLETED|FAILED|CANCELLED|TIMEOUT|OUT_OF_ME|NODE_FAIL"); do sleep 60; done; echo "$s"
@@ -142,7 +152,7 @@ result with `get_job_status` and `fs_tail`.
 
 ## Polling until done, from a notebook
 
-Interactively, just call `get_job_status` again after a pause. If you're
+Interactively, use `wait_for_jobs` (above). If you're
 writing a reproducible notebook instead (see `hokusai-reproducing`), use
 `hpc_agent_core.client`'s `wait_for_job(job_id, facility="hokusai")`
 rather than a hand-rolled polling loop.

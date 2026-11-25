@@ -22,6 +22,11 @@ handling noted below.
   job's `message` explains the wait.
 - **My recent jobs**: `get_job_statuses(facility="irene", job_ids=[])`
   for roughly the last two days, or pass specific IDs.
+- **Waiting for jobs to end**: `wait_for_jobs(facility="irene", job_ids=[...], timeout_s=600)`
+  checks once a minute and returns when every job has ended (`until="any"`:
+  the first), or at `timeout_s` with `still_waiting`; call it again with
+  those. Don't write a `sleep`/`squeue`/`sacct` loop or call
+  `get_job_status` over and over.
 - **Cluster availability**: `get_resources(facility="irene")` —
   per-partition allocated/idle/other/total node counts. Idle nodes can
   start jobs immediately.
@@ -89,7 +94,7 @@ checking before blaming the queue.
 
 ## Polling until done, from a notebook
 
-Interactively, just call `get_job_status` again after a pause. If you're
+Interactively, use `wait_for_jobs` (above). If you're
 writing a reproducible notebook instead (see `irene-reproducing`), use
 `hpc_agent_core.client`'s `wait_for_job(job_id, facility="irene")`
 rather than a hand-rolled polling loop.

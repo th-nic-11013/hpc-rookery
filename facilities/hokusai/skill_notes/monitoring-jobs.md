@@ -80,9 +80,14 @@ to have finished.
 
 ## Waiting for a job without polling by hand
 
-For a job you submitted and want to know about the moment it ends, run a
-background Bash loop on your own machine; it exits (and so notifies you)
-when the job finishes, at one `sacct` a minute:
+With nothing else to do until a job ends (minutes to an hour), call
+`wait_for_jobs(facility="{{SLUG}}", job_ids=[...])`: one `sacct` a minute,
+the login banner already handled.
+
+For a wait of hours while you keep working on something else, and only
+where you can run background shell commands, a background Bash loop on your
+own machine exits (and so notifies you) when the job finishes, at one
+`sacct` a minute:
 
 ```bash
 until s=$(ssh -o BatchMode=yes hokusai "sacct -j <id> -X -n -o State%20,Elapsed" 2>/dev/null | grep -E "COMPLETED|FAILED|CANCELLED|TIMEOUT|OUT_OF_ME|NODE_FAIL"); do sleep 60; done; echo "$s"

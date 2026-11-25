@@ -21,8 +21,9 @@ long docstrings here.
 import shlex
 import sys
 import json
+import time
 from functools import wraps
-from typing import Annotated
+from typing import Annotated, Literal
 from pathlib import Path
 
 import hpc_mcp  # noqa: F401 -- import for its side effect: registers every facility
@@ -35,7 +36,7 @@ from hpc_agent_core.middleware import (
     run_command,
     upload_file,
 )
-from hpc_agent_core.models import CompressionType, Job, JobSpec
+from hpc_agent_core.models import CompressionType, Job, JobSpec, JobState
 from pydantic import BeforeValidator
 from hpc_agent_core.serving import serve
 from facilities.registry import get_backend
@@ -315,6 +316,107 @@ def get_job_statuses(facility: str, job_ids: list[str]) -> list[Job]:
     (IRI: POST /api/v1/compute/status/{resource_id})"""
     backend = get_backend(facility)
     return backend.get_statuses(job_ids) if job_ids else backend.get_recent_statuses()
+
+
+#: wait_for_jobs bounds: one call blocks at most WAIT_MAX_S, and polls the
+#: scheduler no more often than WAIT_MIN_POLL_S (shared login nodes).
+WAIT_MAX_S = 3600
+WAIT_MIN_POLL_S = 15
+_ENDED = {JobState.COMPLETED, JobState.FAILED, JobState.CANCELED}
+
+
+def _job_row(job: Job) -> dict:
+    st = job.status
+    meta = (st.meta_data or {}) if st else {}
+    return {"id": job.id, "state": st.state.value if st else JobState.UNKNOWN.value,
+            "native_state": meta.get("native_state"), "exit_code": st.exit_code if st else None,
+            "elapsed": meta.get("elapsed"), "workdir": meta.get("workdir"),
+            "message": st.message if st else None}
+
+
+def _wait_for_jobs(backend, job_ids: list[str], timeout_s: float, poll_s: float, until: str,
+                   sleep=time.sleep, clock=time.monotonic) -> dict:
+    """The polling behind wait_for_jobs, with sleep and clock injectable so the
+    offline checks can run it against a fake backend in no time."""
+    start, polls, failures, unseen, rows = clock(), 0, 0, {i: 0 for i in job_ids}, []
+    while True:
+        polls += 1
+        try:
+            by_id = {j.id: j for j in backend.get_statuses(job_ids)}
+            failures = 0
+        except Exception as e:  # a dropped SSH connection mid-wait is retried, not fatal
+            failures += 1
+            if failures >= 3:
+                raise RuntimeError(f"3 status queries in a row failed while waiting; last: {e}") from e
+            by_id = None
+        if by_id is not None:
+            rows = [_job_row(by_id[i]) if i in by_id else {"id": i, "state": "not_found"}
+                    for i in job_ids]
+            for r in rows:
+                unseen[r["id"]] = unseen[r["id"]] + 1 if r["state"] == "not_found" else 0
+            ended = [r["id"] for r in rows if r["state"] in {s.value for s in _ENDED}]
+            met = len(ended) == len(job_ids) if until == "all" else bool(ended)
+            lost = [i for i, n in unseen.items() if n >= 3]
+            if met or lost:
+                return _wait_result(rows, met, False, clock() - start, polls, until, lost)
+        if clock() - start + poll_s > timeout_s:
+            return _wait_result(rows, False, True, clock() - start, polls, until, [])
+        sleep(poll_s)
+
+
+def _wait_result(rows, met, timed_out, waited, polls, until, lost) -> dict:
+    ended_states = {s.value for s in _ENDED}
+    failed = [r["id"] for r in rows if r["state"] in (JobState.FAILED.value, JobState.CANCELED.value)]
+    waiting = [r["id"] for r in rows if r["state"] not in ended_states]
+    if lost:
+        nxt = (f"{', '.join(lost)} not found in 3 polls: check the ID, or get_job_statuses "
+               "with job_ids=[] for your recent jobs")
+    elif met:
+        nxt = ("read each job's output (fs_tail in its workdir)"
+               + (f"; {', '.join(failed)} failed or was cancelled: read why before any resubmit"
+                  if failed else ""))
+    else:
+        nxt = f"not ended yet: call wait_for_jobs again with job_ids={waiting}"
+    return {"done": met, "timed_out": timed_out, "until": until, "waited_s": round(waited),
+            "polls": polls, "jobs": rows, "failed": failed, "still_waiting": waiting,
+            "not_found": lost, "next": nxt}
+
+
+@mcp.tool()
+@_configured_facility_tool
+def wait_for_jobs(facility: str, job_ids: list[str], timeout_s: int = 600, poll_s: int = 60,
+                  until: Literal["all", "any"] = "all") -> dict:
+    """Wait for jobs to end (completed, failed or cancelled), checking the
+    scheduler every poll_s seconds, and return when they have ended or after
+    timeout_s, whichever comes first. Use it instead of a hand-written
+    sleep/sacct loop or repeated get_job_status calls. (Extension — no IRI
+    counterpart.)
+
+    Returns {"done" (the jobs ended as `until` asks), "timed_out",
+    "waited_s", "polls", "jobs": [{id, state, native_state, exit_code,
+    elapsed, workdir, message}], "failed", "still_waiting", "not_found",
+    "next"}. Not done after timeout_s: call it again with still_waiting.
+    A job ID the scheduler doesn't know for 3 polls ends the wait.
+
+    Args:
+        facility: Facility slug, e.g. "hokusai". See get_facilities().
+        job_ids: the jobs to wait for (at least one).
+        timeout_s: longest this call waits, 1 to 3600 s. The MCP client's
+            own tool timeout must be longer (Codex: tool_timeout_sec).
+        poll_s: seconds between checks, at least 15 (shared login nodes).
+        until: "all" (default) waits for every job; "any" returns as soon
+            as one ends.
+    """
+    ids = list(dict.fromkeys(str(i).strip() for i in job_ids if str(i).strip()))
+    if not ids:
+        raise ValueError("job_ids needs at least one job ID")
+    if not 0 < timeout_s <= WAIT_MAX_S:
+        raise ValueError(f"timeout_s is 1 to {WAIT_MAX_S}; for a longer wait call again")
+    if not WAIT_MIN_POLL_S <= poll_s:
+        raise ValueError(f"poll_s is at least {WAIT_MIN_POLL_S} s: login nodes are shared")
+    if until not in ("all", "any"):
+        raise ValueError("until is 'all' or 'any'")
+    return _wait_for_jobs(get_backend(facility), ids, timeout_s, min(poll_s, timeout_s), until)
 
 
 @mcp.tool()
