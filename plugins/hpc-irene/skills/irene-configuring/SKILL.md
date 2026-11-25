@@ -130,3 +130,10 @@ docs search runs on BM25 keyword matching. That is expected, not a fault.
   the `hpc` server restarted to be picked up.
 - Off-network or without a key, docs search transparently falls back to
   BM25 keyword search over the same content — the plugin still works.
+- A failed call names its cause after one quick SSH probe: **"down"**
+  (timed out, refused, no route: the machine or the network/VPN to it is
+  down; don't touch the settings or keys, wait and retry), **"does not
+  resolve"** (a mistyped host or missing `~/.ssh/config` alias, or off the
+  VPN whose DNS knows it; if it worked before from this computer, it is the
+  network), or the setup directions (a refused key or host key: the
+  settings). Only the last one is a reason to edit this file.

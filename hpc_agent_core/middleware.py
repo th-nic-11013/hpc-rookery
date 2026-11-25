@@ -34,6 +34,7 @@ import contextlib
 import hashlib
 import re
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -110,7 +111,65 @@ def get_frontend(facility: "Facility | str") -> Computer:
     this function.
     """
     fac = config.resolve(facility)
-    return Computer(host=config.ssh_host(fac), **config.computer_kwargs(fac))
+    kwargs = config.computer_kwargs(fac)
+    # A host that never answers used to hang ssh past the transport's ~30 s
+    # wait, which then read as "the cluster was reached, the command is slow"
+    # (2026-11-25). ConnectTimeout makes it fail inside the wait with ssh's
+    # own exit 255, and run_command then probes for the reason.
+    if "connecttimeout" not in str(kwargs.get("ssh_insert", "")).lower():
+        kwargs["ssh_insert"] = f"{kwargs.get('ssh_insert', '')} -o ConnectTimeout={SSH_CONNECT_TIMEOUT_S}".strip()
+    return Computer(host=config.ssh_host(fac), **kwargs)
+
+
+#: Seconds ssh may take to connect before giving up (see get_frontend). 10
+#: lines up with remotemanager's second poll (it checks at 5 s, then 10 s), so a
+#: dead host fails in ~10 s plus a ~10 s probe, inside the ~30 s transport wait;
+#: login nodes answer in ~1 s (HOKUSAI) to ~6 s (leapfrog over VPN).
+SSH_CONNECT_TIMEOUT_S = 10
+
+#: ssh's own words, by what they mean for the user. Checked against the
+#: probe's stderr (_probe_ssh), which is ssh without -q, so the text is there.
+_SSH_DOWN = ("operation timed out", "connection timed out", "no route to host",
+             "network is unreachable", "connection refused", "connection closed by",
+             "connection reset", "kex_exchange_identification", "host is down")
+_SSH_NO_NAME = ("could not resolve hostname", "name or service not known",
+                "nodename nor servname", "temporary failure in name resolution")
+_SSH_SETTINGS = ("permission denied (", "host key verification failed",
+                 "too many authentication failures", "no such identity", "bad configuration option",
+                 "identity file")
+
+
+def _ssh_failure_kind(text: str) -> str | None:
+    """'down', 'no_name' or 'settings' from ssh's error text; None if unknown."""
+    t = (text or "").lower()
+    for kind, markers in (("settings", _SSH_SETTINGS), ("no_name", _SSH_NO_NAME), ("down", _SSH_DOWN)):
+        if any(m in t for m in markers):
+            return kind
+    return None
+
+
+def _probe_ssh(frontend) -> tuple[int, str] | None:
+    """Connect once with the facility's own ssh line (its port, key and
+    options) minus -q, run `true`, and return (exit code, ssh's stderr), so a
+    failure can say why. Only called after a call has already failed. None
+    when the line isn't a plain ssh (sshpass, a local host) or can't be run."""
+    try:
+        words = shlex.split(str(frontend.ssh))
+    except (AttributeError, ValueError):
+        return None
+    if not words or Path(words[0]).name != "ssh":
+        return None
+    words = [w for w in words if w != "-q"]
+    cmd = [words[0], "-o", "BatchMode=yes", "-o", f"ConnectTimeout={SSH_CONNECT_TIMEOUT_S}",
+           *words[1:], "true"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           timeout=SSH_CONNECT_TIMEOUT_S + 10, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return 255, f"ssh: connection timed out (no answer within {SSH_CONNECT_TIMEOUT_S + 10} s)"
+    except OSError:
+        return None
+    return r.returncode, (r.stderr or "").strip()
 
 
 #: Substrings that mean "we never got a shell on the cluster", as opposed to
@@ -152,6 +211,53 @@ def _looks_unreachable(detail: str, returncode: int | None = None) -> bool:
         return True
     text = (detail or "").lower()
     return any(marker in text for marker in _UNREACHABLE_MARKERS)
+
+
+def _host_down_message(fac, detail: str) -> str:
+    """The machine or the network to it is down; the settings are not the
+    problem (2026-11-23: leapfrog, a campus-only address, read as "settings
+    probably wrong" and the agent went to check the config)."""
+    host = config.ssh_host(fac)
+    return (f"Could not reach {fac.display_name} ({fac.slug!r}) at {host}: {detail}. "
+            f"The machine or the network path to it is down: this is not a settings "
+            f"problem, so don't change {config.config_path(fac)} or the SSH keys for it. "
+            f"Check that the machine is up and that you are on the network it needs "
+            f"(a campus-only or 10.x address needs that campus network or its VPN); "
+            f"`ssh {host} true` in a terminal answers once it is back. Then retry. "
+            f"Jobs already submitted there keep running on their own.")
+
+
+def _no_name_message(fac, detail: str) -> str:
+    host = config.ssh_host(fac)
+    return (f"Could not reach {fac.display_name} ({fac.slug!r}): the name in {host!r} does not "
+            f"resolve ({detail}). Either it is mistyped or an SSH alias missing from "
+            f"~/.ssh/config (the host setting is in {config.config_path(fac)}), or this "
+            f"computer is off the network or VPN whose DNS knows the name. If it worked "
+            f"before from this computer, it is the network: check the VPN, don't edit the settings.")
+
+
+_NOT_PROBED = object()
+
+
+def _connection_failure(fac, frontend, detail: str, returncode: int | None,
+                        probe=_NOT_PROBED) -> RuntimeError:
+    """Why we couldn't run a command on `fac`: probe once for ssh's own words,
+    then say down / name / settings. A probe that connects means the cluster
+    answered and the command failed by itself, so its own text is returned."""
+    if not config.config_path(fac).exists():
+        return RuntimeError(_unreachable_message(fac, detail or f"ssh exited {returncode}"))
+    if probe is _NOT_PROBED:
+        probe = _probe_ssh(frontend)
+    if probe is not None and probe[0] == 0:
+        return RuntimeError(detail or f"command exited with code {returncode} "
+                            "(the cluster answers ssh, so the command itself failed)")
+    text = (probe[1] if probe else "") or detail or f"ssh exited {returncode}"
+    kind = _ssh_failure_kind(text) or _ssh_failure_kind(detail)
+    if kind == "down":
+        return RuntimeError(_host_down_message(fac, text))
+    if kind == "no_name":
+        return RuntimeError(_no_name_message(fac, text))
+    return RuntimeError(_unreachable_message(fac, text))
 
 
 def _unreachable_message(fac, detail: str) -> str:
@@ -240,14 +346,17 @@ def run_command(facility: "Facility | str", cmd: str, timeout: float | None = No
             )
         except Exception as exc:
             if _TRANSPORT_TIMEOUT_TEXT in str(exc):
-                raise RuntimeError(_slow_command_message(fac, wait)) from exc
-            raise RuntimeError(_unreachable_message(fac, str(exc))) from exc
+                # "the cluster was reached" must be true before it is said
+                probe = _probe_ssh(frontend)
+                if probe is None or probe[0] == 0:
+                    raise RuntimeError(_slow_command_message(fac, wait)) from exc
+                raise _connection_failure(fac, frontend, probe[1], probe[0], probe) from exc
+            raise _connection_failure(fac, frontend, str(exc), None) from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
         if (_looks_unreachable(detail, result.returncode)
                 or not config.config_path(fac).exists()):
-            raise RuntimeError(_unreachable_message(
-                fac, detail or f"ssh exited {result.returncode}"))
+            raise _connection_failure(fac, frontend, detail, result.returncode)
         raise RuntimeError(detail or f"command exited with code {result.returncode}")
     output = result.stdout or ""
     if len(output) > OUTPUT_LIMIT_BYTES:
