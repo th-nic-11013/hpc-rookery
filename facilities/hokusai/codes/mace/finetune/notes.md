@@ -5,8 +5,9 @@
   full: a 1-GPU, 5-minute job has waited 17 h. Plan for hours of waiting.
 - **Job spec:** put resources under `resources` and the partition and
   time under `attributes` (`queue_name`, `duration`); flat keys such as
-  `nodes` or `memory: "48G"` are silently dropped. `memory` is a bytes
-  int. Check the rendered script before submitting.
+  `nodes` or `memory` are refused, and the error says where each goes.
+  `memory` takes bytes or a string such as `"48G"`. Check the rendered
+  script before submitting.
 - **Budget:** GPU hours come from the project's `gpu` budget
   (`get_project_allocations`), separate from `mpc`. One GPU-hour is
   billed as 28 core-hours.
