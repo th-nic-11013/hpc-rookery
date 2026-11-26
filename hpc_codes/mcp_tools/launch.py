@@ -5,17 +5,25 @@ a new group of tools is a new module beside this one.
 
 Launch planning. Local: reads records and pack values, never the cluster.
 """
-from typing import Literal
+from typing import Annotated, Literal
+
+from pydantic import Field
 
 from hpc_codes import launch
 from hpc_codes.mcp_tools import _tool
+
+
+# In the schema, not only the docstring: small models dropped `steps` on "a cell optimisation
+# of about 30 steps" (kairo L1-launch-01, 2/10 on 2026-11-26) and got no total estimate.
+STEPS = ("MD or optimisation steps the run will take; pass the count the user gives (\"about 30 "
+         "steps\" -> 30). Without it the estimate has no total.")
 
 
 @_tool
 def launch_plan(facility: str, code: str, run_type: str, system: dict,
                 method: dict | None = None, build_id: str | None = None,
                 nodes: int | None = None, optimize: Literal["cost", "time"] = "cost",
-                steps: int | None = None, hfx_memory_mb: int | None = None,
+                steps: Annotated[int | None, Field(description=STEPS)] = None, hfx_memory_mb: int | None = None,
                 gpus: int | None = None, device: Literal["gpu", "cpu"] | None = None) -> dict:
     """How to launch a run of `code` on this facility: the build, the
     ranks x threads layout and node count, a job-spec fragment for
@@ -92,7 +100,8 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
         nodes: fix the node count; omit to choose one.
         optimize: "cost" (fewest core-hours, the default) or "time"
             (fastest at >= 70 % parallel efficiency).
-        steps: MD or optimisation steps, for the total estimate.
+        steps: MD or optimisation steps the run will take; pass the count the
+            user gives ("about 30 steps" -> 30). Without it no total estimate.
         hfx_memory_mb: the HFX MAX_MEMORY per MPI rank the input will use
             (cp2k_make_input's hfx.memory_mb, 3000 by default there), to
             check the integrals fit in it.
