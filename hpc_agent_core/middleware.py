@@ -32,10 +32,13 @@ see config.COMPUTER_OPTION_NAMES for the full set.
 import base64
 import contextlib
 import hashlib
+import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from remotemanager import Computer
@@ -111,6 +114,7 @@ def get_frontend(facility: "Facility | str") -> Computer:
     this function.
     """
     fac = config.resolve(facility)
+    modern_rsync = _prefer_modern_rsync()
     kwargs = config.computer_kwargs(fac)
     # A host that never answers used to hang ssh past the transport's ~30 s
     # wait, which then read as "the cluster was reached, the command is slow"
@@ -118,7 +122,100 @@ def get_frontend(facility: "Facility | str") -> Computer:
     # own exit 255, and run_command then probes for the reason.
     if "connecttimeout" not in str(kwargs.get("ssh_insert", "")).lower():
         kwargs["ssh_insert"] = f"{kwargs.get('ssh_insert', '')} -o ConnectTimeout={SSH_CONNECT_TIMEOUT_S}".strip()
-    return Computer(host=config.ssh_host(fac), **kwargs)
+    if modern_rsync:
+        return Computer(host=config.ssh_host(fac), **kwargs)
+    # No rsync >= 3 anywhere: remotemanager still builds (and version-checks)
+    # an rsync transport inside every Computer, so without this every tool
+    # failed, not just transfers. Build it with the check off; _make_transport
+    # then hands file transfers to scp.
+    # import_module: the package re-exports the class under the module's name
+    import importlib
+    rm_rsync = importlib.import_module("remotemanager.transport.rsync")
+    saved, rm_rsync.RSYNC_MIN_VERSION = rm_rsync.RSYNC_MIN_VERSION, "0.0.0"
+    try:
+        return Computer(host=config.ssh_host(fac), **kwargs)
+    finally:
+        rm_rsync.RSYNC_MIN_VERSION = saved
+
+
+#: remotemanager needs rsync >= 3.0 (it runs plain `rsync`, from PATH).
+#: macOS's /usr/bin/rsync is 2.6.9, or Apple's openrsync, which reports
+#: itself "2.6.9 compatible"; with /usr/bin ahead of Homebrew on the server's
+#: PATH, every hpc tool failed (AL-14, 2026-11-20). These folders are
+#: searched after PATH for a newer one.
+RSYNC_MIN = (3, 0, 0)
+RSYNC_EXTRA_DIRS = ("/opt/homebrew/bin", "/usr/local/bin")
+_RSYNC_IN_USE: bool | None = None
+#: The private folder whose only file is an `rsync` link (see _prefer_modern_rsync).
+RSYNC_SHIM_DIR = Path(tempfile.gettempdir()) / f"hpc-rookery-rsync-{os.getuid()}"
+
+
+def _rsync_version(path: str | None) -> tuple[int, int, int] | None:
+    if not path:
+        return None
+    try:
+        out = subprocess.run([path, "--version"], capture_output=True, text=True,
+                             timeout=10, stdin=subprocess.DEVNULL).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    m = re.search(r"rsync\s+version\s+v?(\d+)\.(\d+)\.(\d+)", out or "")
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def local_rsync() -> dict:
+    """The rsync PATH finds on this computer and the one file transfers use:
+    {"on_path", "on_path_version", "use", "use_version"} (versions as
+    "3.5.1"). "use" is PATH's own when it is >= 3.0, else the first newer one
+    further down PATH or in RSYNC_EXTRA_DIRS, else None (transfers use scp)."""
+    first = shutil.which("rsync")
+    first_v = _rsync_version(first)
+    use, use_v = (first, first_v) if first_v and first_v >= RSYNC_MIN else (None, None)
+    if use is None:
+        dirs = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d] + list(RSYNC_EXTRA_DIRS)
+        for d in dict.fromkeys(dirs):
+            cand = os.path.join(d, "rsync")
+            if cand == first or not os.access(cand, os.X_OK):
+                continue
+            v = _rsync_version(cand)
+            if v and v >= RSYNC_MIN:
+                use, use_v = cand, v
+                break
+    fmt = lambda v: ".".join(map(str, v)) if v else None
+    return {"on_path": first, "on_path_version": fmt(first_v), "use": use, "use_version": fmt(use_v)}
+
+
+def _prefer_modern_rsync() -> bool:
+    """Once per process: make `rsync` resolve to one >= 3.0 if this computer
+    has one, by putting a private folder holding only an `rsync` link first
+    on this process's PATH (not Homebrew's whole bin: a Homebrew ssh there
+    would replace macOS's and reject options such as UseKeychain). True when
+    a modern rsync is in use; False means transfers go by scp."""
+    global _RSYNC_IN_USE
+    if _RSYNC_IN_USE is None:
+        r = local_rsync()
+        _RSYNC_IN_USE = bool(r["use"])
+        if r["use"] and r["use"] != r["on_path"]:
+            shim = RSYNC_SHIM_DIR
+            try:
+                shim.mkdir(mode=0o700, exist_ok=True)
+                link = shim / "rsync"
+                if not (link.is_symlink() and os.readlink(link) == r["use"]):
+                    tmp = shim / f".rsync-{os.getpid()}"
+                    tmp.unlink(missing_ok=True)
+                    tmp.symlink_to(r["use"])
+                    tmp.replace(link)
+                os.environ["PATH"] = f"{shim}{os.pathsep}{os.environ.get('PATH', '')}"
+                print(f"hpc: rsync on PATH is {r['on_path']} ({r['on_path_version']}); "
+                      f"using {r['use']} ({r['use_version']})", file=sys.stderr)
+            except OSError as exc:
+                print(f"hpc: could not prefer {r['use']}: {exc}; file transfers use scp",
+                      file=sys.stderr)
+                _RSYNC_IN_USE = False
+        elif not r["use"]:
+            print(f"hpc: no rsync >= 3.0 on this computer (PATH has {r['on_path']}, "
+                  f"{r['on_path_version']}); file transfers use scp. `brew install rsync` "
+                  "fixes it.", file=sys.stderr)
+    return _RSYNC_IN_USE
 
 
 #: Seconds ssh may take to connect before giving up (see get_frontend). 10
@@ -485,6 +582,8 @@ def _make_transport(facility: "Facility | str"):
     from remotemanager.transport.rsync import rsync
     from remotemanager.transport.scp import scp as Scp
     c = get_frontend(facility)
+    if not _prefer_modern_rsync():
+        return Scp(url=c)
     try:
         return rsync(url=c, flags="avh")
     except RuntimeError:

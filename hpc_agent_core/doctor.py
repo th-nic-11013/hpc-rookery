@@ -269,6 +269,28 @@ def check_docs_index(facility: str) -> bool:
     return True
 
 
+def check_local_rsync() -> bool:
+    """This computer's rsync, once for every facility: remotemanager needs
+    >= 3.0 and runs plain `rsync` from PATH. macOS's /usr/bin/rsync is 2.6.9
+    (or openrsync, "2.6.9 compatible"); with it first on the server's PATH
+    every hpc tool failed (AL-14, 2026-11-20). The server now uses a newer
+    one found further down PATH or in Homebrew's folders, or else scp for
+    transfers: a WARN, never a FAIL, since tools keep working."""
+    from hpc_agent_core.middleware import local_rsync
+    r = local_rsync()
+    if r["use"] and r["use"] == r["on_path"]:
+        print(f"{OK} local rsync: {r['use']} ({r['use_version']})")
+    elif r["use"]:
+        print(f"{WARN} local rsync: PATH finds {r['on_path']} ({r['on_path_version']}, below 3.0); "
+              f"the server uses {r['use']} ({r['use_version']}) instead. Put "
+              f"{r['use'].rsplit('/', 1)[0]} before /usr/bin on PATH to match.")
+    else:
+        print(f"{WARN} local rsync: no rsync >= 3.0 on this computer (PATH has "
+              f"{r['on_path']}, {r['on_path_version']}): file transfers use scp, without "
+              f"rsync's skip of unchanged files. `brew install rsync` (macOS) fixes it.")
+    return True
+
+
 def check_facility(facility: str) -> bool:
     """Run every check for one facility; return True iff all passed.
 
@@ -309,6 +331,8 @@ def main(facility: str | None = None) -> int:
     if not facilities:
         print(f"{FAIL} no facilities registered")
         return 1
+    print("\n=== this computer ===")
+    check_local_rsync()
     results = {fac.slug: check_facility(fac.slug) for fac in facilities}
     print()
     for slug, ok in results.items():
