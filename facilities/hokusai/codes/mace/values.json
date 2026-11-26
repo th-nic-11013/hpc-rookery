@@ -48,5 +48,18 @@
     "environment": {
       "OMP_NUM_THREADS": "8"
     }
+  },
+  "MACE_CPU": {
+    "partition": "mpc",
+    "cores_per_node": 112,
+    "threads": 56,
+    "exclusive": true,
+    "memory_gib": 100,
+    "launch": {
+      "pre_launch": "source {env_script}",
+      "launcher": "srun --ntasks=1 --cpus-per-task={T} --cpu-bind=cores",
+      "environment": {"OMP_NUM_THREADS": "{T}", "MKL_NUM_THREADS": "{T}", "OMP_PROC_BIND": "close", "OMP_PLACES": "cores"}
+    },
+    "source": "cpu-scan 2026-11-25/26, exclusive mpc node, threads bound. Round-2 settings at batch 16 (float32, 235 + 1,002 replay frames): 56 threads 128 s/epoch (job 9970023), 28 threads 167 (9976295; peak RSS 35.8 GB). Batch 1 float64 test: 28 threads 154 (9965820), 14 230 (9965819), 56 ~217 (9965512); unbound on a shared node 1645 (9819992), 112 threads 817 (9965511). 56 threads chosen because large batches train fastest. Notebook 2026-11-25-0e15."
   }
 }

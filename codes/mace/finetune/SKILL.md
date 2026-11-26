@@ -91,6 +91,7 @@ to the user (ground state not reached, boxes differing by more than
 | replay | pool + 10,000 samples + keys | multihead only; the pool is the foundation model's replay data on the cluster; `keys` are its label names from the model table (`replay.keys`; MATPES: `dft_*`, whose plain `energy`/`stress` are a model's prediction); `stress_sign` -1 when the table says the file's stress has the opposite sign (MATPES): `train.sh` then trains the replay head on a flipped copy |
 | split | 10 % validation, per `config_type` | `test_fraction`, or `holdout=[config_types]` for a test set the model never sees |
 | GPUs | 1 | each GPU is billed as {{MACE_CORES_PER_GPU}} cores; `batch_size` is per process, so more GPUs means a larger effective batch |
+| device, precision, batch | GPU, float32, largest batch that fits | see "Making training fast" below; CPU nodes are a real option when the GPU queue is long |
 
 Models installed on {{DISPLAY_NAME}} and what each was trained on are in
 the facility notes at the end. The mace-torch version is the `mace`
@@ -110,6 +111,12 @@ mace_make_finetune(paths=["labels.extxyz"], out_dir="<local>/<name>", name="<nam
                            "stress_sign": <the model table's replay.stress_sign, if any>},
                    distributed=plan["layout"]["distributed"])
 ```
+
+**On CPU nodes instead:** `launch_plan(..., device="cpu")` gives the
+facility's measured CPU layout (threads bound to cores; it refuses where
+none is measured), and `mace_make_finetune(..., overrides={"device":
+"cpu"})` writes both `train.sh` and `select_replay.sh` for the CPU. Use
+the CPU plan's `job_spec` in steps 5 and 6. See "Making training fast".
 
 Nothing runs. Read `warnings` to the user: every value that is not from
 a finished reference run is named there. Then
@@ -145,6 +152,59 @@ say so, and prefer a short first job. While it runs,
 **If the job hits the time limit:** `mace_make_finetune(..., restart=true,
 overwrite=true)` writes the same run with `--restart_latest`; upload only
 `train.sh` and submit again. It refuses to start without a checkpoint.
+
+## Making training fast
+
+Time per epoch is `epoch_wall_s` from `mace_parse_log`. Measure before a
+long run: a 2-epoch copy of the run folder (`overrides={"max_num_epochs":
+2}`) costs minutes and tells you the per-epoch time, memory and that the
+setup loads. Compare only like with like (same data, replay file, dtype
+and batch size), and check a baseline's setup before quoting a speed-up
+against it: one unbound CPU run here looked 7x slower than the hardware is.
+
+- **Precision:** train in float32 from a float32 copy of the foundation
+  model (`model.float()`, saved next to it; pass `foundation.dtype
+  "float32"`). It halves memory, is ~1.2-1.3x faster, and reached the
+  same errors as float64 after 20 epochs. A float64 model with
+  `--default_dtype float32` stops at the first evaluation.
+- **Batch size:** the largest that fits. Small frames leave the GPU
+  waiting on per-step overhead, so batch 2 was 1.4x faster than batch 1
+  and its replay head was calmer. On CPU a larger batch helps too (batch
+  16 was 1.7x faster per epoch than batch 2, similar errors after 3 epochs). Memory grows about linearly with batch
+  size and with atoms per frame; a GPU out-of-memory error says the batch
+  is too big. A larger batch means fewer optimizer steps per epoch, so
+  compare accuracy after the same number of steps, not epochs.
+- **GPU memory:** set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
+  `nvidia-smi` shows what PyTorch reserved, not what it needs; the live
+  peak is `torch.cuda.max_memory_allocated`.
+- **CPU training** (`--device cpu`, same errors as GPU, epoch for epoch).
+  Set up well, a CPU node came within 1.5x (P100) to 6.5x (H100) of a
+  GPU; set up badly it was 10x slower than that. `launch_plan(...,
+  device="cpu")` writes the setup below into the job spec.
+  - **Bind the threads to cores** (`OMP_PROC_BIND=close OMP_PLACES=cores`
+    and `srun --cpu-bind=cores`) and keep one run inside **one socket**.
+    Unbound threads on a shared node, or one run spread over both
+    sockets, were 4-10x slower.
+  - **Pick the thread count by measuring, in steps of the node's NUMA
+    domains** (`lscpu | grep -i numa`), **at the batch size you will
+    train with**. The best count moves with the batch: on a node with
+    14-core domains, 28 threads were fastest at batch 1, but 56 beat 28 by
+    1.3x at batch 16. Run 2-epoch copies at 1, 2 and 4 domains on a node
+    of their own and keep the fastest; record it in the facility's
+    `MACE_CPU` value.
+  - **The node to yourself** (`exclusive_node_use`), or neighbours'
+    jobs slow yours; record the binding (`cpuinfo.txt` from `lscpu` and
+    `taskset -cp $$`, or `OMP_DISPLAY_AFFINITY=TRUE`).
+  - **Several runs per node** (committee members, a scan): one `srun
+    --exact -n1 -c<threads> --mem=<share> --cpu-bind=cores` step each,
+    then `wait`. Two runs, one per socket, each kept full speed.
+  - **Memory:** at least 1.5x the measured peak per run (`sacct
+    MaxRSS`); it grows with the batch (12 GB at batch 1, 36 GB at batch
+    16 for 456-atom frames), so a default of 1 GB per core is too little.
+  - **Count the queue wait:** a short CPU job that starts now can finish
+    before a GPU job that waits hours.
+
+The facility notes below give the measured numbers here.
 
 ## 7. Read the result
 

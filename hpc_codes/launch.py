@@ -19,6 +19,9 @@ of every node, timings required), each only for the pack that sets it (G38):
   instead of refusing;
 - <CODE>_GPUS_PER_NODE (with <CODE>_CORES_PER_GPU): a GPU pack. The plan
   takes `gpus`, runs one process per GPU on one node, and needs no timing.
+  A GPU pack may also set <CODE>_CPU, the facility's measured CPU layout
+  for the same runs (device="cpu"): one process with threads bound to
+  cores, on a node of its own if the facility says so.
 """
 import math
 from collections import Counter
@@ -179,10 +182,53 @@ def _gpu_plan(facility, code, prefix, vals, launch, run_type, build_id, nodes, g
                          f"{gpus} GPU(s) are billed as {gpus * per_gpu} cores per hour"]}
 
 
+def _cpu_plan(facility, code, prefix, vals, run_type, build_id, nodes, gpus) -> dict:
+    """A GPU pack's runs on CPU nodes, from the facility's measured <CODE>_CPU layout:
+    one process, threads bound to cores, no timing needed."""
+    cpu = vals.get(f"{prefix}_CPU")
+    if not isinstance(cpu, dict):
+        raise ValueError(f"{facility}'s {code} pack has no {prefix}_CPU layout, so it plans GPU runs only. "
+                         f"Measure a CPU layout first (a short run with threads bound to cores), then "
+                         f"add {prefix}_CPU to facilities/{facility}/codes/{code}/values.json.")
+    if gpus:
+        raise ValueError('device="cpu" takes no gpus')
+    if nodes not in (None, 1):
+        raise ValueError(f"{facility}'s {code} pack runs on one node per job; nodes={nodes} is not possible")
+    threads, per_node = int(cpu["threads"]), int(cpu["cores_per_node"])
+    exclusive = bool(cpu.get("exclusive"))
+    build = packs.resolve_build(facility, code, build_id)
+    subs = {k: v for k, v in vals.items() if not isinstance(v, (dict, list))}
+    subs.update(R=1, T=threads, N=1, G=0, env_script=build["env_script"])
+    resources = {"node_count": 1, "processes_per_node": 1, "cpu_cores_per_process": threads}
+    if exclusive:
+        resources["exclusive_node_use"] = True
+    if cpu.get("memory_gib"):
+        resources["memory"] = int(float(cpu["memory_gib"]) * 2**30)
+    job_spec = {**_fill(cpu["launch"], subs), "resources": resources,
+                "attributes": {"queue_name": cpu["partition"]} if cpu.get("partition") else {}}
+    why = (f"{prefix}_CPU: {threads} threads bound to cores, the fastest layout measured here"
+           + (f" ({cpu['source']})" if cpu.get("source") else "")
+           + "; no timing is recorded for training, so there is no estimate")
+    warnings = [f"no {run_type} timing on CPU is recorded: set the walltime yourself (a 2-epoch copy "
+                "of the run gives s/epoch)"]
+    if exclusive:
+        warnings.append(f"the node is yours alone, so the job is billed for all {per_node} cores; "
+                        "other runs can share it only inside this job (one srun --exact step each)")
+    else:
+        warnings.append(f"uses {threads} of {per_node} cores; other jobs on the node can slow it")
+    return {"build": {k: build.get(k) for k in ("build_id", "version", "env_script", "data_dir")},
+            "layout": {"nodes": 1, "ranks_per_node": 1, "threads_per_rank": threads, "gpus": 0,
+                       "distributed": False, "device": "cpu"},
+            "basis": {"match": "none", "run_type": None, "record_ids": [], "options": [], "why": why},
+            "job_spec": job_spec, "estimate": None, "memory": None, "warnings": warnings}
+
+
 def plan(facility: str, code: str, run_type: str, system: dict, method: dict | None = None,
          build_id: str | None = None, nodes: int | None = None, optimize: str = "cost",
          steps: int | None = None, hfx_memory_mb: int | None = None,
-         gpus: int | None = None) -> dict:
+         gpus: int | None = None, device: str | None = None) -> dict:
+    if device not in (None, "gpu", "cpu"):
+        raise ValueError('device must be "gpu" or "cpu"')
     if run_type not in RUN_TYPES:
         raise ValueError(f"run_type must be one of {', '.join(RUN_TYPES)}")
     if optimize not in ("cost", "time"):
@@ -199,7 +245,11 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
     if not isinstance(launch, dict):
         raise ValueError(f"{facility}'s {code} pack values have no {prefix}_LAUNCH template")
     if vals.get(f"{prefix}_GPUS_PER_NODE"):
+        if device == "cpu":
+            return _cpu_plan(facility, code, prefix, vals, run_type, build_id, nodes, gpus)
         return _gpu_plan(facility, code, prefix, vals, launch, run_type, build_id, nodes, gpus)
+    if device == "gpu":
+        raise ValueError(f"{facility}'s {code} pack is a CPU pack (no {prefix}_GPUS_PER_NODE); drop device")
     if gpus:
         raise ValueError(f"{facility}'s {code} pack is a CPU pack (no {prefix}_GPUS_PER_NODE); drop gpus")
     cores = int(vals[f"{prefix}_CORES_PER_NODE"])

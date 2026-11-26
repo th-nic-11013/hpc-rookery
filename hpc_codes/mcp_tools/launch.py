@@ -16,7 +16,7 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
                 method: dict | None = None, build_id: str | None = None,
                 nodes: int | None = None, optimize: Literal["cost", "time"] = "cost",
                 steps: int | None = None, hfx_memory_mb: int | None = None,
-                gpus: int | None = None) -> dict:
+                gpus: int | None = None, device: Literal["gpu", "cpu"] | None = None) -> dict:
     """How to launch a run of `code` on this facility: the build, the
     ranks x threads layout and node count, a job-spec fragment for
     submit_job, and a cost estimate, from the recorded builds and
@@ -61,6 +61,11 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
       as. No timing is recorded for GPU runs, so `estimate` is null and
       the walltime is yours to set. `layout.distributed` is true for more
       than one GPU: pass it to mace_make_finetune's `distributed`.
+      device="cpu" plans the same runs on CPU nodes from the facility's
+      measured layout (<CODE>_CPU): one process, threads bound to cores
+      (OMP_PROC_BIND/OMP_PLACES and srun --cpu-bind), the node to itself
+      where the facility says so. Unbound or spread over both sockets,
+      MACE training ran 4-10x slower. Refused where nothing is measured.
 
     Returns {"build", "layout", "basis": {match, run_type, why, record_ids,
     options: [per node count: layout, value, core_hours_per_unit,
@@ -92,6 +97,8 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
             (cp2k_make_input's hfx.memory_mb, 3000 by default there), to
             check the integrals fit in it.
         gpus: GPUs for a GPU pack (default 1); refused for a CPU pack.
+        device: "cpu" to run a GPU pack's job (mace: training, replay
+            selection) on CPU nodes; omit (or "gpu") for GPUs.
     """
     return launch.plan(facility, code, run_type, system, method, build_id, nodes,
-                       optimize, steps, hfx_memory_mb, gpus)
+                       optimize, steps, hfx_memory_mb, gpus, device)

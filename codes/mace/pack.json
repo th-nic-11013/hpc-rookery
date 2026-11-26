@@ -10,6 +10,7 @@
     "MACE_CORES_PER_GPU": "cores that come with (and are billed for) one GPU",
     "MACE_WORK_DIR": "where fine-tuning run folders go on the cluster",
     "MACE_MODELS": "foundation models installed on the cluster: name -> {model (path), sha256, source (URL), theory, heads, r_max, dtype, replay: {path | null, source}, lammps: {precision: exported metatomic file}}",
-    "MACE_LAUNCH": "launch_plan's job-spec templates: {pre_launch, launcher, environment}, with {G} GPUs (= processes), {T} cores per process, {env_script} and other values by name"
+    "MACE_LAUNCH": "launch_plan's job-spec templates: {pre_launch, launcher, environment}, with {G} GPUs (= processes), {T} cores per process, {env_script} and other values by name",
+    "MACE_CPU": "optional: the measured CPU layout for the same runs, used by launch_plan(device=\"cpu\"): {partition, cores_per_node, threads (fastest measured, bound to cores), exclusive (node to itself), memory_gib, launch: {pre_launch, launcher, environment} with {T} threads, source (jobs and timings it came from)}; leave it out until a CPU layout is measured"
   }
 }
