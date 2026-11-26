@@ -207,18 +207,25 @@ def _parse_scontrol_show_job(output: str) -> Job | None:
     native_state = fields.get("JobState", "")
     end_epoch = to_epoch(fields.get("EndTime", ""))
     start_epoch = to_epoch(fields.get("StartTime", ""))
+    state = map_slurm_state(native_state)
+    meta = {
+        "native_state": native_state,
+        "partition": fields.get("Partition", ""),
+        "workdir": fields.get("WorkDir", ""),
+        "nodes": fields.get("NodeList", ""),
+    }
+    if state in (JobState.QUEUED, JobState.HELD):
+        # a waiting job's StartTime is the scheduler's estimate (Unknown when none)
+        expected = _expected_start(fields.get("StartTime", ""))
+        if expected:
+            meta["expected_start"] = expected
     return Job(
         id=job_id,
         status=JobStatus(
-            state=map_slurm_state(native_state),
+            state=state,
             time=end_epoch if end_epoch else start_epoch,
             exit_code=parse_exit_code(fields.get("ExitCode", "")),
-            meta_data={
-                "native_state": native_state,
-                "partition": fields.get("Partition", ""),
-                "workdir": fields.get("WorkDir", ""),
-                "nodes": fields.get("NodeList", ""),
-            },
+            meta_data=meta,
         ),
     )
 

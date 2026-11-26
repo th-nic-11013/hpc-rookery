@@ -13,7 +13,7 @@ def records_tools_follow_the_adapter_contract():
     from hpc_codes.records import RecordsError
     with tempfile.TemporaryDirectory() as tmp, \
             patch.dict(os.environ, {"HPC_RECORDS_USER_DIR": tmp}):
-        shared = server.records_query("hokusai", "benchmarks")
+        shared = server.records_query("hokusai", "benchmarks", full=True)
         assert shared and {r["_scope"] for r in shared} == {"facility"}, "no shared benchmarks"
         assert server.records_query("hokusai", "software_registry") == []
         assert server.records_query("rikyu", "benchmarks") == [], "a facility with no records"

@@ -28,3 +28,14 @@ def slurm_waiting_jobs_report_expected_start():
     meta = {j.id: j.status.meta_data for j in live}
     assert meta["21"]["expected_start"] == "2026-11-07T03:12:00"
     assert all("expected_start" not in meta[i] for i in ("22", "23", "24")), meta
+    # scontrol fallback (a job sacct does not know yet): a PENDING job's StartTime is the estimate
+    sc = slurm._parse_scontrol_show_job(
+        "JobId=31 JobName=a JobState=PENDING Reason=Priority StartTime=2026-11-07T03:12:00 "
+        "EndTime=2026-11-07T04:12:00 Partition=mpc WorkDir=/w NodeList=(null) ExitCode=0:0")
+    assert sc.status.meta_data["expected_start"] == "2026-11-07T03:12:00", sc.status.meta_data
+    sc = slurm._parse_scontrol_show_job(
+        "JobId=32 JobState=PENDING StartTime=Unknown EndTime=Unknown ExitCode=0:0")
+    assert "expected_start" not in sc.status.meta_data
+    sc = slurm._parse_scontrol_show_job(
+        "JobId=33 JobState=RUNNING StartTime=2026-11-06T10:00:00 EndTime=2026-11-06T11:00:00 ExitCode=0:0")
+    assert "expected_start" not in sc.status.meta_data

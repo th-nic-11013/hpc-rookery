@@ -6,10 +6,34 @@ a new group of tools is a new module beside this one.
 from hpc_codes import records, timings
 from hpc_codes.mcp_tools import _tool
 
+# records_query without `fields`: whole records up to LEAN_OVER hits, summary rows
+# above it (kairo live run 1, gap 17: 42 CP2K benchmarks in full were 77 k characters).
+LEAN_OVER = 5
+SUMMARY = {
+    "benchmarks": ("id", "_scope", "system.label", "method.functional", "method.dispersion",
+                   "method.model", "run_type", "nodes", "metric.value", "valid"),
+    "software_registry": ("build_id", "_scope", "code", "version", "default", "env_script"),
+    "benchmarks_provenance": ("id", "_scope", "benchmark_id", "job_ids"),
+    "campaign": ("id", "_scope", "campaign", "taken_at", "total", "counts"),
+}
+
+
+def _summary_row(r: dict, keep: tuple) -> dict:
+    """One record as its key fields (dotted paths flattened, as `fields`
+    returns them), unset ones left out."""
+    row = {}
+    for path in keep:
+        v = r
+        for part in path.split("."):
+            v = v.get(part) if isinstance(v, dict) else None
+        if v is not None:
+            row[path] = v
+    return {**row, "_summary": True}
+
 
 @_tool
 def records_query(facility: str, record_type: str, filters: dict | None = None,
-                  fields: list[str] | None = None) -> list[dict]:
+                  fields: list[str] | None = None, full: bool = False) -> list[dict]:
     """Read records of one type for a facility, from both scopes (the
     shared records shipped with the facility, and this user's own). Each
     result carries `_scope` ("facility" or "user").
@@ -23,9 +47,18 @@ def records_query(facility: str, record_type: str, filters: dict | None = None,
             {"system.label": "H2O-64", "nodes": 1}. A number or a version
             matches whether stored as text or as a number.
         fields: return only these fields (dotted paths allowed), plus the
-            id and `_scope`. Omit for whole records.
+            id and `_scope`. Omitted: whole records when 5 or fewer
+            match; more than 5 come back as summary rows (the id,
+            `_scope`, the record type's key fields, unset ones left out,
+            and `_summary: true`). Pick ids from them, then narrow with
+            filters (e.g. {"id": ...}) or ask for the fields you need.
+        full: true for whole records however many match (large).
     """
-    return records.query(facility, record_type, filters, fields)
+    hits = records.query(facility, record_type, filters, fields)
+    if fields or full or len(hits) <= LEAN_OVER:
+        return hits
+    keep = SUMMARY.get(record_type, ("id", "build_id", "_scope"))
+    return [_summary_row(r, keep) for r in hits]
 
 
 @_tool

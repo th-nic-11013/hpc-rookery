@@ -79,8 +79,9 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
             (int) sharpens "similar". e.g. {"atoms": 456, "label": "UiO-66-conv"}.
         method: optional mapping of exact filters on the recorded method;
             keys are the benchmarks method fields: functional (str), hybrid
-            (bool), basis (str), cutoff_ry (float), dispersion (str), model
-            (str, MLIP), e.g. {"functional": "revPBE", "hybrid": false,
+            (bool), basis (str), cutoff_ry (float), dispersion (str: records
+            say "D3", "D3BJ" or null; cp2k_make_input's d3 "zero", "bj",
+            "none" match them too), model (str, MLIP), e.g. {"functional": "revPBE", "hybrid": false,
             "cutoff_ry": 450}.
         build_id: a software_registry build_id; omit for the default build.
         nodes: fix the node count; omit to choose one.

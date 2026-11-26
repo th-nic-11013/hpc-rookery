@@ -54,7 +54,7 @@ def launch_plan_falls_back_and_names_the_method():
 
         # (2) a cell_opt record of the same system is preferred
         base = next(r for r in server.records_query("hokusai", "benchmarks",
-                                                    {"run_type": "single_point"})
+                                                    {"run_type": "single_point"}, full=True)
                     if r["id"] == sp["basis"]["record_ids"][0])
         cell = dict({k: v for k, v in base.items() if k != "_scope"},
                     id="launch-plan-cellopt-probe", run_type="cell_opt", job_id="1",

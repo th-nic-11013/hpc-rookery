@@ -47,6 +47,29 @@ def _same(a, b) -> bool:
     return str(a).strip().lower() == str(b).strip().lower()
 
 
+# Records say "D3" / "D3BJ" / null; hyogo's cp2k_make_input says d3="zero" / "bj" /
+# "none" (kairo live run 1, gap 20: method.dispersion="zero" matched nothing).
+DISPERSION_ALIASES = {"zero": "d3", "d3zero": "d3", "d30": "d3", "bj": "d3bj",
+                      "none": None, "null": None, "off": None, "no": None, "": None}
+DISPERSION_NOTE = ('dispersion: records say "D3" (zero damping; cp2k_make_input d3="zero"), '
+                   '"D3BJ" (d3="bj") or null (d3="none"); either spelling matches')
+
+
+def _dispersion(v):
+    """One spelling per dispersion correction: D3, d3="zero" and D3(0) are
+    the same; D3BJ, D3(BJ) and d3="bj" are the same; none/null/off are None."""
+    if v is None or v is False:
+        return None
+    key = "".join(c for c in str(v).lower() if c.isalnum())
+    return DISPERSION_ALIASES.get(key, key)
+
+
+def _method_matches(m: dict, k: str, v) -> bool:
+    if k == "dispersion":
+        return _dispersion(m.get(k)) == _dispersion(v)
+    return _same(m.get(k), v)
+
+
 def _fill(obj, subs: dict):
     if isinstance(obj, dict):
         return {k: _fill(v, subs) for k, v in obj.items()}
@@ -196,7 +219,8 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
     def groups_of(rt: str) -> list[list[dict]]:
         groups: dict[tuple, list[dict]] = {}
         for r in every:
-            if r["run_type"] == rt and all(_same(r["method"].get(k), v) for k, v in (method or {}).items()):
+            if r["run_type"] == rt and all(_method_matches(r["method"], k, v)
+                                           for k, v in (method or {}).items()):
                 groups.setdefault(_method_key(r), []).append(r)
         return list(groups.values())
 
@@ -366,10 +390,19 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
                     for k in method)
                 why = (f"{label} is recorded, but not with {wanted}; recorded for {label}: "
                        f"{recorded}. No timing is scaled across methods; {common}")
+                if "dispersion" in method:
+                    why += f". {DISPERSION_NOTE}"
                 warnings.append(f"no timing for {label} with {wanted}; run {facility}-{code}-benchmark "
                                 "first if the job is long")
             else:
                 why = f"no recorded system like this; {common}"
+                if method:
+                    pool = [r for r in every if r["run_type"] in rts] or every
+                    why += ("; recorded method values: " + "; ".join(
+                        f"{k}: " + ", ".join(sorted({str(r["method"].get(k)) for r in pool}))
+                        for k in method))
+                    if "dispersion" in method:
+                        why += f". {DISPERSION_NOTE}"
                 warnings.append(f"no timing for a system like this; run {facility}-{code}-benchmark "
                                 "first if the job is long")
         basis = {"match": "none", "run_type": None, "record_ids": [], "options": [], "why": why}

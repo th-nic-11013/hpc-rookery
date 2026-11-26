@@ -63,6 +63,21 @@ def command_line(spec: JobSpec, command: str) -> str:
     return f"exec {command}" if spec.exec_command else command
 
 
+def env_value(value: str) -> str:
+    """An environment value quoted for `export KEY=...`. A leading `~`,
+    `~/`, `$HOME/` or `${HOME}/` is the user's home: single quotes would
+    keep it literal (CP2K_DATA_DIR='~/software/...' points nowhere, gap
+    kairo-live-1 #10), so it becomes "$HOME" and the rest stays quoted.
+    `~user` and a `$HOME` elsewhere in the value are left as they are."""
+    for home in ("~", "$HOME", "${HOME}"):
+        if value == home:
+            return '"$HOME"'
+        if value.startswith(home + "/"):
+            rest = value[len(home) + 1:]
+            return '"$HOME"/' + (shlex.quote(rest) if rest else "")
+    return shlex.quote(value)
+
+
 def render_body(spec: JobSpec, gpu_requested: bool, gpu_vendor_flag: str = "--nv") -> str:
     """Render the scheduler-neutral body of a batch script.
 
@@ -80,7 +95,7 @@ def render_body(spec: JobSpec, gpu_requested: bool, gpu_vendor_flag: str = "--nv
     lines: list[str] = [""]  # blank line after headers
 
     for key, value in spec.environment.items():
-        lines.append(f"export {key}={shlex.quote(value)}")
+        lines.append(f"export {key}={env_value(value)}")
 
     if spec.pre_launch:
         lines.append(spec.pre_launch)

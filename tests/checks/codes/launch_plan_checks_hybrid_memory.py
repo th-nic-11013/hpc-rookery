@@ -31,7 +31,7 @@ def launch_plan_checks_hybrid_memory():
                  "default": True, "date": "2026-11-04"}
         server.records_append("hokusai", "software_registry", build)
         base = next(r for r in server.records_query("hokusai", "benchmarks",
-                                                    {"run_type": "single_point"})
+                                                    {"run_type": "single_point"}, full=True)
                     if r["system"]["label"] == "UiO-66-conv")
         base = {k: v for k, v in base.items() if k != "_scope"}
         m = {**base["method"], "functional": "PBE0", "hybrid": True}
