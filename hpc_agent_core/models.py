@@ -457,6 +457,13 @@ class JobSpec(BaseModel):
             "pre_launch)."
         ),
     )
+    plan_signature: str | None = Field(
+        None,
+        description=(
+            "Set by launch_plan's job_spec when the submit guard is on; keep it as "
+            "given. Not rendered into the script."
+        ),
+    )
 
     @model_validator(mode="after")
     def _exec_needs_one_command(self) -> "JobSpec":

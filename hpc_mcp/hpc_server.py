@@ -30,7 +30,7 @@ from pathlib import Path
 import hpc_mcp  # noqa: F401 -- import for its side effect: registers every facility
 from hpc_agent_core.mcp_server import MCPServer
 
-from hpc_agent_core import config, middleware
+from hpc_agent_core import config, middleware, submit_guard
 from hpc_agent_core.middleware import (
     download_file,
     quote_path,
@@ -288,13 +288,25 @@ def submit_job(facility: str, spec: SpecArg) -> dict:
     default (raising a clear, actionable error if none can be resolved).
     (IRI: POST /api/v1/compute/job/{resource_id})
 
+    When the server runs with HPC_SUBMIT_GUARD=1 (an unattended agent
+    harness), only a launch_plan job_spec is accepted: keep its
+    plan_signature, resources and attributes, add name, directory,
+    executable and attributes.duration. A job whose worst case
+    (walltime x nodes x cores per node) is over the facility's configured
+    core-hour budget is refused, with the numbers.
+
     Args:
         facility: Facility slug, e.g. "rikyu". See get_facilities().
         spec: The job to submit.
     """
     backend = get_backend(facility)
+    guarded = submit_guard.enabled()
+    if guarded:
+        submit_guard.check_signature(facility, spec)
     backend.apply_defaults(spec)
     backend.validate_spec(spec)
+    if guarded:
+        submit_guard.check_budget(facility, spec)
     return backend.submit(spec)
 
 
