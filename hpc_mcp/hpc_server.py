@@ -553,6 +553,9 @@ def fs_mkdir(facility: str, path: str) -> str:
 
     A folder on this machine needs no call: fs_download creates the local
     folder it writes into, and fs_compress the folder of its archive.
+    A destination on the cluster needs none either: fs_extract creates
+    dest_dir and fs_upload the folder of remote_path, parents too. Call
+    fs_mkdir only when an empty folder is the goal.
 
     Cluster paths: keep a leading ~/ exactly as written (the server
     resolves it to your home on the cluster). Never replace ~ with a
@@ -568,7 +571,11 @@ def fs_upload(facility: str, local_path: str, remote_path: str) -> dict:
     rsync (falling back to scp), with a SHA-256 verification of the
     transfer. (IRI: POST /api/v1/filesystem/upload/{resource_id} — deviation: rsync/scp, folders)
 
-    A file lands at remote_path. A folder's *contents* land in the folder
+    A file lands at remote_path, so remote_path names the file itself
+    (folder + file name, e.g. ~/agent/work/run1/job.sh), never just the
+    folder: a remote_path that is a folder is refused. Its folder is
+    created if missing (parents too), so no fs_mkdir is needed first.
+    A folder's *contents* land in the folder
     remote_path (created if needed; same-named files overwritten): it goes as
     one tar.gz, is extracted there, and every file's sha256 is checked on the
     cluster. macOS metadata (`._*`, .DS_Store), `__pycache__` and symlinks
@@ -806,8 +813,12 @@ def fs_compress(facility: str, paths: list[str], archive_path: str,
 @mcp.tool()
 @_configured_facility_tool
 def fs_extract(facility: str, archive_path: str, dest_dir: str = ".") -> str:
-    """Extract an archive on the cluster into dest_dir (created if needed).
-    Compression format is auto-detected by tar. (IRI: POST /api/v1/filesystem/extract/{resource_id})
+    """Extract an archive on the cluster into dest_dir (created if missing,
+    parents too, so no fs_mkdir is needed first). Compression format is
+    auto-detected by tar. (IRI: POST /api/v1/filesystem/extract/{resource_id})
+
+    dest_dir defaults to "." = your home folder on the cluster, not the
+    archive's folder: to unpack next to the archive, pass that folder.
 
     Cluster paths: keep a leading ~/ exactly as written (the server
     resolves it to your home on the cluster). Never replace ~ with a

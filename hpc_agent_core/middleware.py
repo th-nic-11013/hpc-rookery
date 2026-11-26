@@ -666,17 +666,27 @@ def upload_file(facility: "Facility | str", local_path: Path, remote_path: str) 
     local_sha = _sha256_local(local_path)
     remote_path = norm_path(remote_path)
 
-    run_command(facility, f"mkdir -p {quote_path(str(Path(remote_path).parent))}")
+    # remote_path names the file itself. A folder there would take the file
+    # inside it, and the checksum would then read a directory (L1 bench
+    # 2026-11-25: remote_path="<run folder>" for a job script, 6 of 10 tries).
+    folder = str(Path(remote_path).parent)
+    probe = run_command(facility, f"mkdir -p {quote_path(folder)} && "
+                                  f"if [ -d {quote_path(remote_path)} ]; then echo IS_A_FOLDER; fi")
+    if "IS_A_FOLDER" in (probe or ""):
+        raise ValueError(
+            f"remote_path {remote_path} is a folder on {facility}; name the file itself: "
+            f"remote_path={remote_path.rstrip('/')}/{local_path.name}. To send a whole "
+            "folder's contents, pass the local folder as local_path.")
 
     transport = _make_transport(facility)
     transport.queue_for_push(
         files=local_path.name,
         local=str(local_path.parent),
-        remote=str(Path(remote_path).parent),
+        remote=folder,
     )
     _transfer(transport)
 
-    landed = str(Path(remote_path).parent / local_path.name)
+    landed = str(Path(folder) / local_path.name)
     if landed != remote_path:
         run_command(facility, f"mv {quote_path(landed)} {quote_path(remote_path)}")
 
