@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
+from hpc_agent_core import submit_guard
 from hpc_codes import launch
 from hpc_codes.mcp_tools import _tool
 
@@ -32,7 +33,9 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
 
     Merge `job_spec` into the submit_job spec and add name, directory,
     executable and attributes.duration (`estimate.suggested_duration`
-    when present). `basis.match` says how good the timing is: "exact"
+    when present). Keep `job_spec.plan_signature` when there is one: the
+    server's submit guard is on and submit_job refuses a spec without it
+    or with other resources or attributes. `basis.match` says how good the timing is: "exact"
     (this system was benchmarked), "similar" (a system within 30 % in
     size; the time is rough) or "none" (a common layout and no estimate;
     benchmark first if the job is long). When the label is recorded but
@@ -109,5 +112,9 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
         device: "cpu" to run a GPU pack's job (mace: training, replay
             selection) on CPU nodes; omit (or "gpu") for GPUs.
     """
-    return launch.plan(facility, code, run_type, system, method, build_id, nodes,
-                       optimize, steps, hfx_memory_mb, gpus, device)
+    result = launch.plan(facility, code, run_type, system, method, build_id, nodes,
+                         optimize, steps, hfx_memory_mb, gpus, device)
+    if submit_guard.enabled():
+        # G95: submit_job then accepts only this job_spec's resources and attributes.
+        result["job_spec"]["plan_signature"] = submit_guard.sign(facility, result["job_spec"])
+    return result
