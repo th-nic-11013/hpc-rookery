@@ -10,7 +10,6 @@
 - **Band groups (VASP)** — the MPI ranks split into teams that each work on a share of the bands: ranks / (KPAR × NCORE). VASP silently rounds NBANDS up to a multiple of it, so a new NCORE can change the band count; `vasp_make_incar` checks it.
 - **Block averaging** — splitting a run into consecutive blocks and using the spread between block results as the error, so correlated frames aren't counted as independent.
 - **Block hold-out** — keep whole time windows of a run (e.g. its last 50 ps) out of training, because MD frames 25 fs apart are near copies and a random split would leak.
-- **CBMC** — configurational-bias Monte Carlo: a molecule is inserted or regrown by trying several positions and orientations and picking one by its Boltzmann weight, so insertions into crowded pores still get accepted.
 - **CFCMC** — continuous fractional component Monte Carlo: a molecule is inserted gradually (its interactions scaled by λ from 0 to 1) instead of all at once, so insertions into dense or strongly binding pores (water in a MOF) still get accepted.
 - **Collective variable (CV)** — one number that summarises a configuration (a distance, a torsion angle, a coordination number), chosen so it tells apart the states you care about.
 - **Constrain-then-release** — a short VASP pre-run with the total moment fixed (NUPDOWN), whose wavefunction (WAVECAR) starts a second run with the moment free: it steers the SCF into a spin state without biasing the final result.
@@ -67,7 +66,6 @@
 - **Packed job** — one batch job that runs K small runs one after another (a loop in the job script) instead of K separate jobs or a scheduler job array; keeps 100–200 CP2K label frames to a few jobs under a facility's job cap.
 - **Partial-node layout** — a run that uses only some of a node's cores (MLIP MD is fastest at 1 rank × 56 threads of 112); it is billed for the cores it uses and shares the node.
 - **PDOS (projected density of states)** — the density of states split by element or atom kind, showing which atoms the band edges sit on.
-- **Perpendicular width** — the distance between a cell's opposite faces; a cutoff above half the smallest one lets a molecule interact with its own periodic image (the minimum-image rule breaks).
 - **Plugin vs repo** — a repo is who owns and versions the code; a plugin is how a user installs its tools and skills. One repo can ship one plugin, and one marketplace can list plugins from many repos.
 - **PMIx psec** — the PMIx security plugin that checks which process is talking to the MPI launcher; on HOKUSAI `PMIX_MCA_psec=native` picks the built-in one and stops the "munge component not found" log noise.
 - **PostToolUse hook** — a command Claude Code runs after every tool call; agent-notes uses one to log each call of an open run.
@@ -107,7 +105,6 @@
 - **Tamm-Dancoff approximation (TDA)** — a simplification of TDDFT that keeps only excitations (drops de-excitations), turning the problem into an ordinary eigenvalue problem.
 - **TDDFPT** — CP2K's linear-response TDDFT module: it gets excited-state energies (and forces) as a perturbation of the ground state, without propagating in time.
 - **Thermodynamic integration** — get a free-energy difference by integrating an average you can measure along a path, e.g. F(V) = −∫⟨P⟩ dV over a series of fixed-volume MD runs.
-- **TIP4P/2005** — rigid four-site water model: Lennard-Jones on O, charges on the two H and on a massless M site 0.1546 Å from O along the bisector; the M site is dropped when frames go to DFT or an MLIP.
 - **Tool manifest** — a repo's `tool_manifest.json`: every MCP tool it serves and its argument names; rookery keeps yagura's and hyogo's copies (`scripts/sibling_sync.py`) to check its skills call real tools.
 - **Truncated Coulomb (HFX)** — cutting exact exchange off at a radius below half the cell width so a periodic cell does not see its own images.
 - **Trust window** — two committee-disagreement thresholds: frames below the lower one are already known, frames above the upper one are probably unphysical, and only frames in between are sent to DFT.
