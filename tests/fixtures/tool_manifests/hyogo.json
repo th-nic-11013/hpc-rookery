@@ -16,6 +16,8 @@
  "mlip_compare": ["d3_mismatch", "e0s", "energy_key", "forces_key", "labels", "out_path", "per_frame", "predictions", "reference_frame", "stress_key", "worst"],
  "mlip_select_frames": ["control_fraction", "descriptors", "exclude", "from_holdout", "holdout", "keys", "min_spacing_ps", "out_dir", "overwrite", "pool", "quotas", "scores", "seed", "strata", "volume_bins"],
  "plumed_make_input": ["bias", "cvs", "ecvs", "mode", "molinfo", "natoms", "out_path", "overwrite", "print_args", "print_path", "print_stride", "temperature_k", "units"],
+ "raspa_make_input": ["charges_path", "cutoff_A", "cycles", "equil_cycles", "framework_name", "framework_path", "init_cycles", "mode", "n_molecules", "out_dir", "overwrite", "p0_pa", "p_over_p0", "pressure_pa", "print_every", "restart_from", "seed", "temperature_k", "type_charges", "unit_cells", "window"],
+ "raspa_parse_output": ["config_type", "extxyz_out_path", "output_path", "overwrite", "restart_path", "run_dir"],
  "start_equilibration": ["avg_last_ps", "npt_ps", "nvt1_ps", "nvt2_ps", "pressure_bar", "protocol_json", "temperature_K", "workdir"],
  "stop_job": ["workdir"],
  "system_info": ["workdir"],
