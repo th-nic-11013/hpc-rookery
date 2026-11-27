@@ -305,7 +305,10 @@ def cp2k_record_from_run(facility: str, parsed: dict, nodes: int, like: str | No
             like's, or the whole block without like.
         job_id: the scheduler job ID (kept in benchmarks_provenance).
         build_id: the software_registry build; omit to use like's, or the default.
-        date: YYYY-MM-DD; omit for the date the run started.
+        date: YYYY-MM-DD; omit for the date CP2K stamped at its start.
+            That stamp is the compute node's clock, which can be hours off
+            (PARAM Seva: ~10 h): prefer the scheduler's start date
+            (get_job_status: status.meta_data.start_time) when you have it.
         tag: id part instead of the functional, e.g. "pbe0-hse06cell" when
             the same functional ran twice on one date.
         notes: appended to the generated notes.
