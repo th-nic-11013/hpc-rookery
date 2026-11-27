@@ -1,0 +1,1 @@
+**CBMC** — configurational-bias Monte Carlo: a molecule is inserted or regrown by trying several positions and orientations and picking one by its Boltzmann weight, so insertions into crowded pores still get accepted.

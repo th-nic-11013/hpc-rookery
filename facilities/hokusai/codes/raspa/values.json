@@ -1,0 +1,6 @@
+{
+  "RASPA_PARTITION": "mpc",
+  "RASPA_ENV_SCRIPT": "~/software/mlip/2026.10/raspa3/raspa3_env.sh",
+  "RASPA_VERSION": "3.0.30",
+  "RASPA_WORK_DIR": "~/agent/work/raspa"
+}

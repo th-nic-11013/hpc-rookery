@@ -1,0 +1,14 @@
+{
+  "code": "raspa",
+  "stages": [
+    "placement",
+    "gcmc",
+    "tmmc"
+  ],
+  "values": {
+    "RASPA_PARTITION": "Slurm partition RASPA3 Monte Carlo runs in (CPU)",
+    "RASPA_ENV_SCRIPT": "script to source before raspa3 (sets RASPA_DIR and the library path)",
+    "RASPA_VERSION": "the RASPA3 version installed (the manual and the tools were checked against it)",
+    "RASPA_WORK_DIR": "where RASPA3 run folders go on the cluster"
+  }
+}
