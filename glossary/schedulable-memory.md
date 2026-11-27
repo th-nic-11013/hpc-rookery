@@ -1,0 +1,1 @@
+**Schedulable memory** — what Slurm can still hand to a new job on a node (its configured memory minus what running jobs asked for, capped per job by MaxMemPerNode), not the memory the OS reports free.

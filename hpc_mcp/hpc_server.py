@@ -104,10 +104,10 @@ def get_facilities() -> list[dict]:
 
     It says nothing about a facility's contents. If the facility is already
     named, do not call this: for partitions and how busy they are use
-    get_resources, for one partition get_resource, for down nodes
-    get_drained_nodes, for a project's budget get_project_allocations, for
-    static limits/storage/modules get_facility, and for documentation
-    search_docs."""
+    get_resources, for one partition get_resource, for idle cores and free
+    memory per node get_node_availability, for down nodes get_drained_nodes,
+    for a project's budget get_project_allocations, for static
+    limits/storage/modules get_facility, and for documentation search_docs."""
     listing = [
         {"slug": f.slug, "display_name": f.display_name, "description": f.description}
         for f in config.list_facilities()
@@ -149,8 +149,9 @@ def get_resources(facility: str) -> list[dict]:
     IRI terms) with live allocated/idle/other/total node counts, i.e. "what
     partitions are there" and "will a job start soon". A live query, unlike
     get_facility's static data. For a single partition use get_resource; for
-    down nodes use get_drained_nodes; to learn which facilities exist use
-    get_facilities.
+    idle cores and free memory inside partly used nodes use
+    get_node_availability; for down nodes use get_drained_nodes; to learn
+    which facilities exist use get_facilities.
     (IRI: GET /api/v1/status/resources)
     """
     return get_backend(facility).get_live_resources()
@@ -161,7 +162,8 @@ def get_resources(facility: str) -> list[dict]:
 def get_resource(facility: str, name: str) -> dict:
     """Returns live occupancy (allocated/idle/other/total nodes) for one named
     partition, e.g. name="gpu". For all partitions at once use get_resources;
-    for static limits use get_facility.
+    for per-node idle cores and free memory use get_node_availability; for
+    static limits use get_facility.
     (IRI: GET /api/v1/status/resources/{resource_id})
 
     Args:
@@ -172,6 +174,40 @@ def get_resource(facility: str, name: str) -> dict:
         if p["partition"] == name:
             return p
     raise ValueError(f"No resource named {name!r} on facility {facility!r}")
+
+
+@mcp.tool()
+@_configured_facility_tool
+def get_node_availability(facility: str, partition: str, min_free_cores: int = 0,
+                          min_free_memory_gb: float = 0, max_nodes: int = 30) -> dict:
+    """Per node of one partition: idle cores and the memory still allocatable,
+    i.e. "can a partly used (mixed) node take a job of this size?". Read-only,
+    live. get_resources counts whole nodes and counts a mixed node as
+    allocated; this tool looks inside it, because a node with free cores may
+    have no memory left to give. For partition-level counts use
+    get_resources; for down nodes use get_drained_nodes. (Extension — not an
+    IRI endpoint.)
+
+    Returns the partition's sharing policy (whole-node allocation, per-job
+    memory cap per node, default memory per core), the job size checked
+    (`required`), a summary (idle cores on idle and on mixed nodes, how many
+    nodes have the cores but not the memory), and the matching nodes, most
+    idle cores first, each with cores {allocated, idle, other, total} and
+    memory_mb {total, allocated, schedulable, max_for_one_job, os_free}.
+
+    Args:
+        facility: Facility slug, e.g. "hokusai". See get_facilities().
+        partition: One partition name exactly as listed by get_resources.
+        min_free_cores: Idle cores the job needs on one node (at least 1 is
+            assumed).
+        min_free_memory_gb: GiB the job needs on one node. 0 = the
+            partition's default memory per core x min_free_cores, which is
+            what a job without --mem gets.
+        max_nodes: Most matching nodes to list (the summary counts them all).
+    """
+    return get_backend(facility).get_node_availability(
+        partition, min_free_cores=min_free_cores, min_free_memory_gb=min_free_memory_gb,
+        max_nodes=max_nodes)
 
 
 @mcp.tool()

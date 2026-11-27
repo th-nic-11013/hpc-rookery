@@ -56,6 +56,7 @@ import time
 
 from hpc_agent_core.middleware import norm_path, run_command, write_remote_file
 from hpc_agent_core.models import Job, JobSpec, JobState, JobStatus, map_slurm_state
+from . import availability
 from .base import (
     SchedulerBackend,
     duration_to_hms,
@@ -776,3 +777,81 @@ class SlurmBackend(SchedulerBackend):
             if len(parts) == 3:
                 drained.append({"nodes": parts[0], "state": parts[1], "reason": parts[2]})
         return drained
+
+    def get_node_availability(self, partition: str, min_free_cores: int = 0,
+                              min_free_memory_gb: float = 0, max_nodes: int = 30) -> dict:
+        """Per-node idle cores and allocatable memory for one partition, and
+        which nodes can take a job of the given size (see
+        availability.summarise). Two read-only queries in one SSH call:
+        `scontrol show partition -o` for the sharing policy (OverSubscribe,
+        ExclusiveUser, MaxMemPerNode, DefMemPerCPU) and `sinfo -N -O` for one
+        row per node (Slurm >= 20.11 for AllocMem in -O)."""
+        if not isinstance(partition, str) or not _PARTITION_RE.fullmatch(partition):
+            raise ValueError(
+                f"Invalid partition name {partition!r}: use one name exactly as get_resources "
+                "lists it (letters, digits, '_', '-', '.').")
+        q = shlex.quote(partition)
+        cmd = (f"scontrol show partition -o {q} && echo {_NODES_MARK} && "
+               f"sinfo -N -p {q} --noheader -O '{_SINFO_NODE_FIELDS}'")
+        try:
+            output = run_command(self.facility, cmd)
+        except RuntimeError as e:
+            if "not found" in str(e).lower():
+                raise ValueError(f"No partition named {partition!r} on facility "
+                                 f"{self.facility!r}; see get_resources.") from e
+            raise
+        head, _, rows = output.partition(_NODES_MARK)
+        policy = _parse_partition_policy(head)
+        nodes = _parse_sinfo_nodes(rows)
+        if not nodes:
+            raise ValueError(f"Partition {partition!r} on facility {self.facility!r} lists no nodes.")
+        return availability.summarise(partition, policy, nodes, min_free_cores=min_free_cores,
+                                      min_free_memory_gb=min_free_memory_gb, max_nodes=max_nodes)
+
+
+_PARTITION_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+_NODES_MARK = "@@ROOKERY_NODES@@"
+#: ":|" = no padding, "|" after each value; field order is what _parse_sinfo_nodes reads.
+_SINFO_NODE_FIELDS = "NodeList:|,StateLong:|,CPUsState:|,Memory:|,AllocMem:|,FreeMem:|"
+
+
+def _mb(raw: str) -> int | None:
+    raw = raw.strip()
+    return int(raw) if raw.isdigit() else None
+
+
+def _parse_partition_policy(text: str) -> dict:
+    """The sharing facts from one `scontrol show partition -o` line."""
+    kv = dict(tok.split("=", 1) for tok in text.split() if "=" in tok)
+    oversubscribe = kv.get("OverSubscribe", "")
+    return {
+        "oversubscribe": oversubscribe or None,
+        "whole_node": oversubscribe.upper().startswith("EXCLUSIVE"),
+        "exclusive_user": kv.get("ExclusiveUser", "NO").upper() == "YES",
+        "max_mem_per_node_mb": _mb(kv.get("MaxMemPerNode", "")),
+        "default_mem_per_cpu_mb": _mb(kv.get("DefMemPerCPU", "")),
+        "source": "scontrol show partition (live)",
+    }
+
+
+def _parse_sinfo_nodes(text: str) -> list[dict]:
+    """One dict per node from `sinfo -N -O` rows; a node listed twice (in
+    several partitions, or repeated) is kept once."""
+    nodes, seen = [], set()
+    for line in text.strip().splitlines():
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) < 6 or parts[0] in seen or not parts[0]:
+            continue
+        cpus = parts[2].split("/")
+        if len(cpus) != 4 or not all(x.isdigit() for x in cpus):
+            continue
+        alloc, idle, other, total = (int(x) for x in cpus)
+        seen.add(parts[0])
+        nodes.append({
+            "node": parts[0],
+            "state": parts[1].lower(),
+            "cores": {"allocated": alloc, "idle": idle, "other": other, "total": total},
+            "memory_mb": {"total": _mb(parts[3]) or 0, "allocated": _mb(parts[4]) or 0,
+                          "os_free": _mb(parts[5])},
+        })
+    return nodes

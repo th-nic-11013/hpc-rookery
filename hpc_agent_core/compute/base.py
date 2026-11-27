@@ -262,6 +262,16 @@ class SchedulerBackend(ABC):
         raise self._unsupported(
             "get_resources", f"its scheduler ({self.name}) exposes no live occupancy query")
 
+    def get_node_availability(self, partition: str, min_free_cores: int = 0,
+                              min_free_memory_gb: float = 0, max_nodes: int = 30) -> dict:
+        """Per-node idle cores and allocatable memory for one partition, and
+        which nodes can take a job of a given size (compute/availability.py
+        decides; a backend only reads the policy and the node rows). Optional,
+        same default-raises convention as get_live_resources()."""
+        raise self._unsupported(
+            "get_node_availability",
+            f"its scheduler ({self.name}) exposes no per-node core and memory query")
+
     def get_drained_nodes(self) -> list[dict]:
         """Nodes currently drained/down and why, if the scheduler exposes
         this. Optional, same default-raises convention as get_live_resources()."""
