@@ -18,6 +18,9 @@ unaffected. With it on:
   budget is ``submit_guard.budget_core_hours`` in ~/.hpc-agent/<slug>.json:
   a number, or a mapping from account to number with "*" for the rest.
   No budget configured means no budget check.
+- submit_job(dry_run=True) runs the same checks and the script render and
+  returns the verdict (every refusal, with the message a real submit would
+  raise first) and the would-be script, submitting nothing (``dry_run``).
 
 This guards against an agent inventing a job, not against someone who can
 read the key file. It moves kairo's submit guard (kairo/agent.py) and
@@ -225,3 +228,41 @@ def check_budget(facility: str, spec: JobSpec) -> None:
             + (f" account {spec.attributes.account}" if spec.attributes.account else "")
             + ". Shorten attributes.duration or use fewer nodes, or ask the user to raise "
             f"submit_guard.budget_core_hours in {config.config_path(facility)}.")
+
+
+def dry_run(facility: str, spec: JobSpec, backend) -> dict:
+    """submit_job(dry_run=True): what a real submit_job would do with `spec`,
+    without submitting. Runs the guard's signature check (on the spec as
+    sent), the facility's defaults and validation, the budget check and the
+    script render, in submit_job's order, and collects every refusal instead
+    of stopping at the first; `refusals[0]` is the error a real submit would
+    raise. With the guard off only the facility's validation can refuse; the
+    worst case and budget are still reported, for information."""
+    guarded = enabled()
+    refusals, script, wc, b = [], None, None, None
+    if guarded:
+        try:
+            check_signature(facility, spec)
+        except ValueError as e:
+            refusals.append(str(e))
+    try:
+        backend.apply_defaults(spec)
+        backend.validate_spec(spec)
+    except ValueError as e:
+        refusals.append(str(e))
+    else:
+        wc = worst_case(facility, spec)
+        try:
+            b = budget(facility, spec.attributes.account)
+            if guarded:
+                check_budget(facility, spec)
+        except ValueError as e:
+            refusals.append(str(e))
+        script = backend.render_script(spec)
+    return {"dry_run": True, "submitted": False,
+            "guard": "on" if guarded else "off",
+            "verdict": "refuse" if refusals else "accept",
+            "refusals": refusals,
+            "worst_case": wc, "budget_core_hours": b,
+            "account": spec.attributes.account, "queue_name": spec.attributes.queue_name,
+            "script": script}

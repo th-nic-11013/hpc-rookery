@@ -38,7 +38,7 @@ from hpc_agent_core.middleware import (
     upload_file,
 )
 from hpc_agent_core.models import CompressionType, Job, JobSpec, JobState
-from pydantic import BeforeValidator
+from pydantic import BeforeValidator, Field
 from hpc_agent_core.serving import serve
 from facilities.registry import get_backend
 
@@ -256,6 +256,10 @@ def _spec_from_json(value):
 
 
 SpecArg = Annotated[JobSpec, BeforeValidator(_spec_from_json)]
+#: In the schema, so a model sees it next to `spec` (G95 step 5b: refusal paths testable
+#: without a submit).
+DRY_RUN = ("true: run every check submit_job would (submit guard, facility validation, budget) "
+           "and render the script, return the verdict, and submit nothing.")
 
 
 @mcp.tool()
@@ -277,7 +281,7 @@ def render_job_script(facility: str, spec: SpecArg) -> str:
 
 @mcp.tool()
 @_configured_facility_tool
-def submit_job(facility: str, spec: SpecArg) -> dict:
+def submit_job(facility: str, spec: SpecArg, dry_run: Annotated[bool, Field(description=DRY_RUN)] = False) -> dict:
     """Submit a job to a facility's scheduler. Show the user the spec
     before submitting unless they asked to just run it — use
     render_job_script for an exact preview.
@@ -295,11 +299,21 @@ def submit_job(facility: str, spec: SpecArg) -> dict:
     (walltime x nodes x cores per node) is over the facility's configured
     core-hour budget is refused, with the numbers.
 
+    dry_run=True runs every check a submit would (guard signature and
+    unchanged resources/attributes, facility validation, budget) and the
+    script render, and returns the verdict instead of submitting:
+    {"verdict": "accept"|"refuse", "refusals": [...], "guard": "on"|"off",
+    "worst_case", "budget_core_hours", "script", "submitted": false}.
+    Nothing reaches the scheduler.
+
     Args:
         facility: Facility slug, e.g. "rikyu". See get_facilities().
         spec: The job to submit.
+        dry_run: Check and render only; never submit.
     """
     backend = get_backend(facility)
+    if dry_run:
+        return submit_guard.dry_run(facility, spec, backend)
     guarded = submit_guard.enabled()
     if guarded:
         submit_guard.check_signature(facility, spec)
