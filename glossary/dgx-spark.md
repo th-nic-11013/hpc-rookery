@@ -1,0 +1,1 @@
+**DGX Spark** — NVIDIA's desktop AI box (one GB10 Grace-Blackwell chip, 128 GB memory shared by CPU and GPU); "fits one Spark" here means a model that can be served on it, about ≤120 B total parameters at 4-bit.

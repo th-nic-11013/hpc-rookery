@@ -1,0 +1,1 @@
+**MCP server instructions** — a free-text field a server returns at connection time that every client puts into the model's context, like a cover letter sent with the tool catalog; the one routing hint that reaches an agent whether or not it has skills installed.

@@ -1,0 +1,1 @@
+**Mixture of experts (MoE)** — a model that uses only a few of its sub-networks per token, like a large firm sending each question to one small team; "35B-A3B" means 35 B parameters in total, about 3 B active per token.

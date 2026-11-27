@@ -10,6 +10,7 @@
 - **Band groups (VASP)** — the MPI ranks split into teams that each work on a share of the bands: ranks / (KPAR × NCORE). VASP silently rounds NBANDS up to a multiple of it, so a new NCORE can change the band count; `vasp_make_incar` checks it.
 - **Block averaging** — splitting a run into consecutive blocks and using the spread between block results as the error, so correlated frames aren't counted as independent.
 - **Block hold-out** — keep whole time windows of a run (e.g. its last 50 ps) out of training, because MD frames 25 fs apart are near copies and a random split would leak.
+- **CBMC** — configurational-bias Monte Carlo: a molecule is inserted or regrown by trying several positions and orientations and picking one by its Boltzmann weight, so insertions into crowded pores still get accepted.
 - **CFCMC** — continuous fractional component Monte Carlo: a molecule is inserted gradually (its interactions scaled by λ from 0 to 1) instead of all at once, so insertions into dense or strongly binding pores (water in a MOF) still get accepted.
 - **Collective variable (CV)** — one number that summarises a configuration (a distance, a torsion angle, a coordination number), chosen so it tells apart the states you care about.
 - **Constrain-then-release** — a short VASP pre-run with the total moment fixed (NUPDOWN), whose wavefunction (WAVECAR) starts a second run with the moment free: it steers the SCF into a spin state without biasing the final result.
@@ -20,6 +21,7 @@
 - **D3(BJ)** — Grimme's dispersion correction with Becke–Johnson damping; the r²SCAN-family parameters exist only in this form.
 - **Decision card** — a small file a worker agent writes when it hits a choice above its tier (question, options, recommendation, evidence); the master answers it in a matching file and the worker resumes.
 - **Delta learning (Δ-learning)** — training an ML model on the difference between a cheap method and an expensive one, then adding that correction to the cheap result to get near-expensive accuracy at near-cheap cost.
+- **DGX Spark** — NVIDIA's desktop AI box (one GB10 Grace-Blackwell chip, 128 GB memory shared by CPU and GPU); "fits one Spark" here means a model that can be served on it, about ≤120 B total parameters at 4-bit.
 - **dpdata / cp2kdata** — existing Python libraries that read DFT outputs (CP2K among them) into training-data formats; both need `PRINT_LEVEL MEDIUM` CP2K outputs.
 - **E0s** — the per-element energies of isolated atoms that MACE subtracts before learning; they must match the level of theory of the labels.
 - **ECV (expansion collective variable)** — in OPES_EXPANDED, the per-target-ensemble energy shift ΔUᵢ(x) that tells the bias how much more likely x is at (Tᵢ, Pᵢ) than at the simulated T₀, P₀.
@@ -36,9 +38,11 @@
 - **Gap card** — one small file per gap saying what it may edit, what it depends on and which few files to load; the unit one session claims.
 - **GCMC** — grand canonical Monte Carlo: fixes chemical potential (≈ gas pressure or humidity), volume and T, and inserts/deletes molecules until the pore loading is at equilibrium; gives adsorption isotherms.
 - **Generation** — in the agent framework (after LARA), the model writes and runs its own analysis or report code instead of calling a fixed tool; useful code is later promoted to a tool.
+- **Gibbs ensemble MC** — Monte Carlo with two linked boxes (e.g. MOF + bulk water) that exchange molecules until they are in equilibrium, avoiding a guessed reservoir pressure.
 - **GTH pseudopotential** — replaces each atom's core electrons and nucleus with a smooth effective potential, so only valence electrons are computed; each is fitted to one functional (GTH-PBE, GTH-PBE0, GTH-SCAN).
 - **Guess run** — a cheap GGA calculation whose only product is the starting wavefunction for a hybrid, in the hybrid's own basis; its energy is not a result.
 - **Hand-up** — when the small model fails a step a set number of times and passes it to the frontier model (also called escalation).
+- **Harness (agent harness)** — everything around an LLM agent except the model itself (prompts, tool list, control flow), like the cockpit around a pilot.
 - **Huang-Rhys factor** — a per-vibration number saying how strongly that vibration is shaken by an electronic transition; large values give a long vibrational progression in the band.
 - **Hybrid functional** — mixes a fraction of exact (Hartree–Fock) exchange into DFT exchange (PBE0, r²SCAN0: 25 %), which mainly fixes too-small band gaps.
 - **hybrid/overlay** — LAMMPS pair style that adds several potentials on the same atoms, e.g. MACE plus a D3 dispersion correction.
@@ -46,16 +50,20 @@
 - **Joint file** — a shared file many gaps must edit (one big test file, a central server, a version number); joints are what make parallel work collide.
 - **kairo** — the stage runner for the hand-off: runs the S0–S5 loop over the five MCP servers, with gates, approvals, the soft monitor and decision records (`~/Downloads/research/kairo`).
 - **KS gap vs optical gap** — the Kohn–Sham HOMO–LUMO gap is an orbital-energy difference; the optical gap is a measured absorption edge, and exciton effects lower it, so the two are not strictly the same quantity.
+- **L1 / L2 / L3 (small-model benchmark)** — the three test levels for whether a small model may run a kairo stage: one correct tool call, a full chain of calls, and recovery after an error.
 - **Label run (CP2K)** — a single point written with `cp2k_make_input(purpose="label")`: energy, forces and analytical stress all printed in the `.out`, with the D3 choice stated explicitly.
 - **Label sensitivity** — how much the training targets (energies, forces) change when you swap the DFT functional used to compute them; if small, use the cheaper functional.
+- **Lesson (kairo)** — a densho entry of at most 200 characters recording what went wrong, why, and the fix. kairo writes one whenever the planner or a human steps in, and shows a stage's lessons to the worker before that stage the next time (the self-improving loop).
 - **LoRA (fine-tuning)** — training only small added low-rank matrices while the foundation model's own weights stay frozen; cheap, and it forgets less than retraining everything.
 - **MACE descriptor** — the numbers a MACE model computes for each atom's local environment before predicting energy; averaged per element, they act as a fingerprint of a whole frame for picking diverse training frames.
 - **MatPES** — a public ~400k-structure DFT dataset (PBE and r²SCAN, no dispersion) sampled from 300 K MD, used to train foundation MLIPs such as MACE-MATPES-r2SCAN-0.
+- **MCP server instructions** — a free-text field a server returns at connection time that every client puts into the model's context, like a cover letter sent with the tool catalog; the one routing hint that reaches an agent whether or not it has skills installed.
 - **Meta-GGA (e.g. r²SCAN)** — a functional that also uses the kinetic-energy density, one rung above GGA (PBE/revPBE); better bonding at modest extra cost.
 - **Metadynamics** — enhanced sampling that adds small energy "hills" where the CV has already been, so the system is pushed over barriers it would rarely cross on its own; well-tempered metadynamics shrinks the hills over time.
 - **metatensor / metatrain** — wrappers that connect machine-learned potentials to MD engines (for example a MACE model exported for LAMMPS).
 - **metatomic** — the model format and LAMMPS `pair_style` that let LAMMPS (and PLUMED) call an exported ML potential such as MACE.
 - **Mixed node** — a node with some cores allocated and some idle; get_resources counts it as allocated, get_node_availability shows its idle cores and the memory it can still allocate.
+- **Mixture of experts (MoE)** — a model that uses only a few of its sub-networks per token, like a large firm sending each question to one small team; "35B-A3B" means 35 B parameters in total, about 3 B active per token.
 - **MLMD** — molecular dynamics driven by a machine-learned interatomic potential (e.g. MACE) instead of DFT forces.
 - **MSD (mean-squared displacement)** — average squared distance atoms have moved after time t; a straight-line rise means diffusion, a plateau means atoms are caged.
 - **Multihead replay** — fine-tuning with two output heads at once: one for the new labels and one that keeps being trained on a sample of the foundation model's original data, so the model doesn't forget it.
@@ -66,6 +74,7 @@
 - **Packed job** — one batch job that runs K small runs one after another (a loop in the job script) instead of K separate jobs or a scheduler job array; keeps 100–200 CP2K label frames to a few jobs under a facility's job cap.
 - **Partial-node layout** — a run that uses only some of a node's cores (MLIP MD is fastest at 1 rank × 56 threads of 112); it is billed for the cores it uses and shares the node.
 - **PDOS (projected density of states)** — the density of states split by element or atom kind, showing which atoms the band edges sit on.
+- **Perpendicular width** — the distance between a cell's opposite faces; a cutoff above half the smallest one lets a molecule interact with its own periodic image (the minimum-image rule breaks).
 - **Plugin vs repo** — a repo is who owns and versions the code; a plugin is how a user installs its tools and skills. One repo can ship one plugin, and one marketplace can list plugins from many repos.
 - **PMIx psec** — the PMIx security plugin that checks which process is talking to the MPI launcher; on HOKUSAI `PMIX_MCA_psec=native` picks the built-in one and stops the "munge component not found" log noise.
 - **PostToolUse hook** — a command Claude Code runs after every tool call; agent-notes uses one to log each call of an open run.
@@ -83,7 +92,7 @@
 - **Registering an MCP server** — adding one line to the agent's settings that says "this tool server exists, start it with this command" (like saving a contact so the phone knows whom to call).
 - **REPEAT charges** — atomic partial charges fitted to a periodic DFT electrostatic potential outside the atoms (CP2K `&PROPERTIES/&RESP` with `USE_REPEAT_METHOD`); the usual input charges for MOF GCMC.
 - **Reweighting** — recovering unbiased averages from a biased run by giving each frame the weight exp(V/kT) of the bias it felt.
-- **RiVault** — RIKEN R-CCS's hosted LLM service: an Anthropic-style API serving Reasoning-Large, Agentic-Medium and Agentic-Small, usable as kairo's planner or worker.
+- **RiVault** — RIKEN R-CCS's hosted LLM service: an Anthropic-style API serving Reasoning-Large, Agentic-Medium and Agentic-Small, usable as kairo's planner or worker. The names are aliases; on 2026-11-19 the `X-Litellm-Model-Name` response header gave Agentic-Small = Qwen/Qwen3.6-35B-A3B, Agentic-Medium = deepseek-ai/DeepSeek-V4-Flash, Reasoning-Large = XiaomiMiMo/MiMo-V2.6-Pro-RL (recheck before comparing runs).
 - **Robust z-score** — how far a value sits from the running median, measured in MADs (median absolute deviations), so one big spike can't inflate its own threshold the way it would with mean and σ.
 - **Run chaining** — starting a CP2K run from a previous run's outputs (its final structure and its `-RESTART.wfn`); hyogo's `guess_from` does the wavefunction half and refuses one that can't fit.
 - **Run state** — the agent-notes summary of one campaign (goal, current step, next step, what was tried, live jobs), kept on disk so an agent can resume after its context fills up.
@@ -91,8 +100,10 @@
 - **Schedulable memory** — what Slurm can still hand to a new job on a node (its configured memory minus what running jobs asked for, capped per job by MaxMemPerNode), not the memory the OS reports free.
 - **Screened hybrid (HSE06)** — a hybrid whose exact exchange is switched off at long range, so it converges well in periodic solids.
 - **Scripted backend** — a stand-in "model" that replays fixed tool calls per stage, so the agent loop can be tested with no model and no cost.
+- **Self-Improvement Memory (SIM)** — a log an agent-tuning loop rereads, holding each tried edit with its root cause, predicted and observed outcome (arXiv 2611.18856).
 - **SessionStart hook** — a command Claude Code runs when a session opens; agent-notes uses it to print the project's notebook index.
 - **Shared H** — an H still nearest its own atom but also within bond distance of a second one (a very short hydrogen bond, e.g. the μ3-OH proton half-way to another O in a collapsed cell); reported, not treated as a proton transfer.
+- **Skill card** — a ≤300-token per-stage rule sheet condensed from the full skills, shown to a small worker so it knows the procedure without reading whole SKILL.md files.
 - **Soft monitor** — watching a running job on a schedule that saves tokens: frequent log probes at first, sparser later, none once the run looks smooth.
 - **Spin multiplicity** — 2S+1 for an atom's unpaired electrons (H 2, C/O/Zr 3); an isolated-atom reference must use the lowest-energy one.
 - **Spin-state trap** — a magnetic run that converges cleanly but to another spin state than intended or than its neighbours in a label set (a flipped metal moment, a stray moment on water O); the energy moves little, the forces a lot. Found with `labels_compare` and `sites_by_environment`, steered with constrain-then-release.
@@ -102,10 +113,14 @@
 - **Stage toolset** — the handful of tools (about 5) a model is shown for one step of a workflow, such as "monitor a job", instead of every tool at once.
 - **stdio transport (MCP)** — the agent starts the tool server as a local child process and talks to it over stdin/stdout, so nothing listens on the network (like an intercom wired between two rooms, not a phone line).
 - **Stokes shift** — the energy gap between the absorption peak and the (lower) emission peak, caused by the molecule relaxing in the excited state before it emits.
+- **Sub-atlas** — the slice of the densho atlas covering one toolkit agent: its tools and the skills that call them, published as a manifest the main atlas reads.
 - **Tamm-Dancoff approximation (TDA)** — a simplification of TDDFT that keeps only excitations (drops de-excitations), turning the problem into an ordinary eigenvalue problem.
 - **TDDFPT** — CP2K's linear-response TDDFT module: it gets excited-state energies (and forces) as a perturbation of the ground state, without propagating in time.
 - **Thermodynamic integration** — get a free-energy difference by integrating an average you can measure along a path, e.g. F(V) = −∫⟨P⟩ dV over a series of fixed-volume MD runs.
+- **TIP4P/2005** — rigid four-site water model: Lennard-Jones on O, charges on the two H and on a massless M site 0.1546 Å from O along the bisector; the M site is dropped when frames go to DFT or an MLIP.
+- **TMMC** — transition-matrix Monte Carlo: samples every loading N and records move probabilities between them to get the free energy vs N, so the equilibrium adsorption step falls out directly instead of two stuck hysteresis branches.
 - **Tool manifest** — a repo's `tool_manifest.json`: every MCP tool it serves and its argument names; rookery keeps yagura's and hyogo's copies (`scripts/sibling_sync.py`) to check its skills call real tools.
+- **Toolkit agent** — one MCP server (rookery, yagura, hyogo, densho, lit-search) run as its own small-model agent with only its own tools and skills, like a specialist desk the planner hands work to.
 - **Truncated Coulomb (HFX)** — cutting exact exchange off at a radius below half the cell width so a periodic cell does not see its own images.
 - **Trust window** — two committee-disagreement thresholds: frames below the lower one are already known, frames above the upper one are probably unphysical, and only frames in between are sent to DFT.
 - **UZH basis/PP family** — the newer Zurich-made set of matched Gaussian basis sets, GTH pseudopotentials and ADMM auxiliary bases, fitted per functional; it replaced MOLOPT for hybrids in this study.

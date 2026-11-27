@@ -1,0 +1,1 @@
+**TMMC** — transition-matrix Monte Carlo: samples every loading N and records move probabilities between them to get the free energy vs N, so the equilibrium adsorption step falls out directly instead of two stuck hysteresis branches.

@@ -1,0 +1,1 @@
+**Lesson (kairo)** — a densho entry of at most 200 characters recording what went wrong, why, and the fix. kairo writes one whenever the planner or a human steps in, and shows a stage's lessons to the worker before that stage the next time (the self-improving loop).
