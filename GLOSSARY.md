@@ -49,6 +49,7 @@
 - **KS gap vs optical gap** — the Kohn–Sham HOMO–LUMO gap is an orbital-energy difference; the optical gap is a measured absorption edge, and exciton effects lower it, so the two are not strictly the same quantity.
 - **Label run (CP2K)** — a single point written with `cp2k_make_input(purpose="label")`: energy, forces and analytical stress all printed in the `.out`, with the D3 choice stated explicitly.
 - **Label sensitivity** — how much the training targets (energies, forces) change when you swap the DFT functional used to compute them; if small, use the cheaper functional.
+- **Layout override** — `launch_plan(nodes=N, layout="RxT")`: plan a run at one of the layouts the system was benchmarked at (a valid record, same label, method and run type) instead of the best one, so cost can be traded for time without guessing; any other layout is refused until it is benchmarked.
 - **LoRA (fine-tuning)** — training only small added low-rank matrices while the foundation model's own weights stay frozen; cheap, and it forgets less than retraining everything.
 - **MACE descriptor** — the numbers a MACE model computes for each atom's local environment before predicting energy; averaged per element, they act as a fingerprint of a whole frame for picking diverse training frames.
 - **MatPES** — a public ~400k-structure DFT dataset (PBE and r²SCAN, no dispersion) sampled from 300 K MD, used to train foundation MLIPs such as MACE-MATPES-r2SCAN-0.

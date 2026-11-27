@@ -25,7 +25,8 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
                 method: dict | None = None, build_id: str | None = None,
                 nodes: int | None = None, optimize: Literal["cost", "time"] = "cost",
                 steps: Annotated[int | None, Field(description=STEPS)] = None, hfx_memory_mb: int | None = None,
-                gpus: int | None = None, device: Literal["gpu", "cpu"] | None = None) -> dict:
+                gpus: int | None = None, device: Literal["gpu", "cpu"] | None = None,
+                layout: str | None = None) -> dict:
     """How to launch a run of `code` on this facility: the build, the
     ranks x threads layout and node count, a job-spec fragment for
     submit_job, and a cost estimate, from the recorded builds and
@@ -83,18 +84,42 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
       where the facility says so. Unbound or spread over both sockets,
       MACE training ran 4-10x slower. Refused where nothing is measured.
 
+    Layout override: layout="RxT" with nodes=N takes that layout instead
+    of the best one, only when this system (label), method and run type
+    has a valid record at R x T on N nodes ("exact" match); the plan is
+    signed for it. Anything else is refused, naming the recorded valid
+    layouts per node count: pick one of them, or benchmark first.
+
+    run_type="benchmark" (a CPU pack with benchmark scripts, e.g. cp2k)
+    plans the layout-scan benchmark job itself, as bench_job.sh asks: one
+    exclusive node, every core one process of one thread, no launcher
+    (the scripts launch each run), `attributes.duration` set from the
+    stage timeouts and the pack's smoke and scan layouts (at least
+    00:30:00, at most 00:53:00; also `estimate.suggested_duration`, with
+    the worst case in `estimate.worst_case_core_hours`), and
+    `benchmark.environment` (BENCH_LIMIT_S, SMOKE_LAYOUTS, SCAN_LAYOUTS,
+    SMOKE_TIMEOUT, SCAN_TIMEOUT), already in `job_spec.environment`. Submit
+    it as `job_spec` plus name, directory (the uploaded benchmark folder)
+    and cp2k_bench_input(scripts=true)'s `submit_fields`: its executable,
+    and its environment ADDED to job_spec.environment (keep
+    BENCH_LIMIT_S: the scripts' time guard reads it). nodes other than 1
+    is refused.
+
     Returns {"build", "layout", "basis": {match, run_type, why, record_ids,
     options: [per node count: layout, value, core_hours_per_unit,
     efficiency, memory (hybrids)]}, "job_spec", "estimate" | null,
     "memory": {eri_total_mib, eri_per_rank_mib, est_peak_mib_per_rank,
     limit_mib_per_rank, fits, suggested_hfx_memory_mb, record_id, rough}
-    | null, "warnings"}. Read the memory warnings to the user.
+    | null, "warnings"}, plus "benchmark": {environment, smoke_layouts,
+    scan_layouts, runs, needed_s, limit_s} for run_type="benchmark". Read
+    the memory warnings to the user.
 
     Args:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
         code: code pack, e.g. "cp2k".
         run_type: aimd_step, md_step (MLIP or classical MD), single_point,
-            geo_opt, cell_opt or train (GPU packs).
+            geo_opt, cell_opt, train (GPU packs) or benchmark (the
+            layout-scan benchmark job).
         system: mapping with key "atoms" (int, required); optional "label"
             (str, e.g. "UiO-66-conv") finds an exact record, "electrons"
             (int) sharpens "similar". e.g. {"atoms": 456, "label": "UiO-66-conv"}.
@@ -116,9 +141,11 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
         gpus: GPUs for a GPU pack (default 1); refused for a CPU pack.
         device: "cpu" to run a GPU pack's job (mace: training, replay
             selection) on CPU nodes; omit (or "gpu") for GPUs.
+        layout: "<ranks per node>x<threads per rank>", e.g. "16x7", with
+            nodes: use that recorded layout (see above); omit to choose.
     """
     result = launch.plan(facility, code, run_type, system, method, build_id, nodes,
-                         optimize, steps, hfx_memory_mb, gpus, device)
+                         optimize, steps, hfx_memory_mb, gpus, device, layout)
     if submit_guard.enabled():
         # G95: submit_job then accepts only this job_spec's resources and attributes.
         result["job_spec"]["plan_signature"] = submit_guard.sign(facility, result["job_spec"])

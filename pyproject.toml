@@ -64,4 +64,7 @@ include = ["hpc_agent_core*", "hpc_mcp*", "hpc_codes*", "facilities*"]
     # the hpc_codes cp2k_* tools
     "codes/*/values.json",
     "schemas/*.yaml",
+    # the cp2k benchmark scripts (hpc_codes/cp2k/bench_scripts/), rendered by
+    # cp2k_bench_input(scripts=true); the benchmark skill links to them
+    "bench_scripts/*.sh",
 ]

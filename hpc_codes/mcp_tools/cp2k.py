@@ -68,8 +68,16 @@ def cp2k_check_build(facility: str, build_id: str | None = None) -> dict:
     is missing (ldd), the version matches the record, and its data folder
     exists. Read-only, no permission step needed.
 
+    Also reports, for information (not part of ok): the pack's front-end
+    Python on the login node (python_ok: version >= 3.10), the login
+    node's stack limit (`ulimit -s`, KiB or "unlimited"; meta-GGA runs
+    need a big stack, set it in the job) and whether the submit guard has a
+    core-hour budget for this facility in the local config.
+
     Returns {"ok", "build_id", "env_script_ok", "binary", "version",
-    "cp2kflags", "missing_libs", "data_dir_ok"}.
+    "cp2kflags", "missing_libs", "data_dir_ok", "python_path",
+    "python_version", "python_ok", "stack_limit", "guard_budget_present",
+    "guard_budget_core_hours"}.
 
     Args:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
@@ -119,7 +127,7 @@ def cp2k_bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
                      xc: Literal["revPBE", "PBE"] = "revPBE",
                      d3: Literal["zero", "bj", "none"] = "zero", cutoff_ry: int = 450,
                      rel_cutoff_ry: int = 60, basis: str = "DZVP-MOLOPT-SR-GTH",
-                     charge: int = 0, overwrite: bool = False) -> dict:
+                     charge: int = 0, overwrite: bool = False, scripts: bool = False) -> dict:
     """Write a CP2K NVE AIMD benchmark input (NAME.inp, `steps` MD steps)
     and a smoke version (NAME-smoke.inp, `smoke_steps`) from an extended
     xyz on this machine, coordinates inline. revPBE-D3, 450/60 Ry (cutoff_ry/rel_cutoff_ry), Gamma
@@ -132,15 +140,29 @@ def cp2k_bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
     Before it: structure_check the xyz (and structure_stretch_xh on
     `short_xh`, e.g. X-ray C-H bonds).
 
+    scripts=true makes out_dir the whole benchmark folder: the inputs go
+    in out_dir/inputs/ and the benchmark scripts, rendered for this
+    facility (bench_job.sh, run_layouts.sh, stage1_smoke.sh,
+    stage2_scan.sh, stage3_validate.sh, dryrun.sh, parse_bench.py), in
+    out_dir, so one fs_upload of out_dir stages everything; then
+    cp2k_bench_dryrun it. The result adds "scripts" (paths) and
+    "submit_fields": {"executable": "bash bench_job.sh", "environment":
+    {SMOKE_INPUT, SCAN_INPUT, VALIDATE_INPUT ("none": stage 3 skipped),
+    CP2K_ENV (the build's env_script)}}: add them to launch_plan
+    run_type="benchmark"'s job_spec (environment merged into its
+    environment), with name and directory (the uploaded folder).
+
     Returns {"inputs", "build_id", "formula", "natoms", "electrons",
-    "widths", "kinds": {element: potential}, "warnings"}; read the
-    warnings to the user (odd electron count, cell thinner than 10 A).
+    "widths", "kinds": {element: potential}, "warnings"} (+ "scripts",
+    "submit_fields" with scripts=true); read the warnings to the user (odd
+    electron count, cell thinner than 10 A).
 
     Args:
         facility: Facility slug, e.g. "hokusai". See get_facilities().
         xyz_path: extended xyz (Lattice= on line 2) on this machine.
         name: project and file name, e.g. "UiO66-prim".
-        out_dir: local folder for the two inputs; created if missing.
+        out_dir: local folder for the two inputs (with scripts=true, the
+            benchmark folder: inputs in out_dir/inputs/); created if missing.
         build_id: a software_registry build_id; omit for the default build.
         steps: MD steps of the benchmark input.
         smoke_steps: MD steps of the smoke input.
@@ -150,10 +172,11 @@ def cp2k_bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
         rel_cutoff_ry: MGRID REL_CUTOFF in Ry.
         basis: basis set name in BASIS_MOLOPT, for every element.
         charge: total charge.
-        overwrite: replace the inputs if they exist.
+        overwrite: replace the inputs (and scripts) if they exist.
+        scripts: also write the facility's rendered benchmark scripts.
     """
     return cp2k.bench_input(facility, xyz_path, name, out_dir, build_id, steps, smoke_steps,
-                            xc, d3, cutoff_ry, rel_cutoff_ry, basis, charge, overwrite)
+                            xc, d3, cutoff_ry, rel_cutoff_ry, basis, charge, overwrite, scripts)
 
 
 @_tool

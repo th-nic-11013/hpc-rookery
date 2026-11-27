@@ -1,0 +1,1 @@
+**Layout override** — `launch_plan(nodes=N, layout="RxT")`: plan a run at one of the layouts the system was benchmarked at (a valid record, same label, method and run type) instead of the best one, so cost can be traded for time without guessing; any other layout is refused until it is benchmarked.
