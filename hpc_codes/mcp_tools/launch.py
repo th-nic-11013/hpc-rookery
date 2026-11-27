@@ -38,7 +38,12 @@ def launch_plan(facility: str, code: str, run_type: str, system: dict,
     or with other resources or attributes. `basis.match` says how good the timing is: "exact"
     (this system was benchmarked), "similar" (a system within 30 % in
     size; the time is rough) or "none" (a common layout and no estimate;
-    benchmark first if the job is long). When the label is recorded but
+    benchmark first if the job is long). With no timing of the code on the
+    facility at all (a new facility), "none" comes with
+    `basis.default_layout`: "pack" (the pack's default) or "generic" (every
+    core, 4/2/1 threads per rank, never measured; a warning says so). It is
+    signed like any plan, so a guarded harness can submit the short first
+    benchmark; set its duration yourself. When the label is recorded but
     not with the `method` asked for, `basis.why` says so and lists the
     recorded values; no time is scaled across methods.
 

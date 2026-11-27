@@ -11,12 +11,14 @@ The launch line is the pack value <CODE>_LAUNCH, a mapping of templates
 PBS or PJM facility, or another code, brings its own.
 
 Three optional pack values widen the CP2K-shaped default (fill every core
-of every node, timings required), each only for the pack that sets it (G38):
+of every node; with nothing recorded on the facility, a generic flagged
+layout), each only for the pack that sets it (G38):
 - <CODE>_PARTIAL_NODE true: a layout may use fewer cores than the node has
   (an MLIP MD run is fastest at 1 rank x 56 threads of 112), and cost is
   counted on the cores the layout uses;
 - <CODE>_DEFAULT_LAYOUT "RxT": the layout when nothing is recorded yet,
-  instead of refusing;
+  instead of the generic one (every core, 4, 2 or 1 threads per rank,
+  basis.default_layout "generic", flagged in the warnings);
 - <CODE>_GPUS_PER_NODE (with <CODE>_CORES_PER_GPU): a GPU pack. The plan
   takes `gpus`, runs one process per GPU on one node, and needs no timing.
   A GPU pack may also set <CODE>_CPU, the facility's measured CPU layout
@@ -33,6 +35,10 @@ RUN_TYPES = ("aimd_step", "md_step", "single_point", "geo_opt", "cell_opt", "tra
 SIMILAR_ATOMS = 0.30      # a "similar" system has atoms within +-30 %
 MIN_EFFICIENCY = 0.7      # optimize="time" won't buy speed below this
 MEM_HEADROOM = 0.9        # a rank may use this share of its slice of node memory
+#: threads per rank for the generic layout when nothing is recorded on a facility
+#: (the first that divides the cores per node): few enough ranks to stay clear of
+#: per-rank memory trouble, every core used (HOKUSAI 112 -> 28x4, Seva 48 -> 12x4)
+GENERIC_THREADS = (4, 2, 1)
 
 
 def _method_key(r: dict) -> tuple:
@@ -409,17 +415,30 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
     else:
         fallback = [r for r in every if r["run_type"] == run_type] or every
         default = vals.get(f"{prefix}_DEFAULT_LAYOUT")
+        default_layout = None
         if not fallback and default:
             R, T = (int(x) for x in str(default).split("x"))
             nodes = nodes or 1
-            fallback = None
+            default_layout = "pack"
         elif not fallback:
-            raise ValueError(f"No {code} timings at all on {facility}; run {facility}-{code}-benchmark "
-                             "first, it is what fills these records.")
-        if fallback is None:
+            # Nothing recorded at all: a new facility. Refusing here left a guarded
+            # harness (G95) no signed spec, so not even the benchmark that fills the
+            # records could run (kairo Seva probe). A generic, flagged layout instead.
+            T = next(t for t in GENERIC_THREADS if cores % t == 0)
+            R, nodes = cores // T, nodes or 1
+            default_layout = "generic"
+        if default_layout == "pack":
             why = (f"no {code} timing is recorded on {facility}; {R}x{T} is the pack's default layout "
                    f"({prefix}_DEFAULT_LAYOUT)")
             warnings.append(f"no {code} timing recorded; layout from the pack default, no estimate")
+        elif default_layout == "generic":
+            why = (f"no {code} timing is recorded on {facility} at all (a new facility?): {R}x{T} on "
+                   f"{nodes} node(s) is a generic default ({prefix}_CORES_PER_NODE {cores} split into "
+                   f"{T} threads per rank), not a measured layout, and there is no estimate")
+            warnings.append(f"NO {code} TIMINGS ON {facility}: generic default layout {R}x{T}, not measured. "
+                            f"Use it for a short first job only (the {facility}-{code}-benchmark run that "
+                            "fills the records); set attributes.duration short yourself, there is no "
+                            "estimate. Plan again once a timing is recorded.")
         else:
             firsts = Counter()
             for g in {_method_key(r) + (r["nodes"],): None for r in fallback}:
@@ -456,6 +475,8 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
                 warnings.append(f"no timing for a system like this; run {facility}-{code}-benchmark "
                                 "first if the job is long")
         basis = {"match": "none", "run_type": None, "record_ids": [], "options": [], "why": why}
+        if default_layout:
+            basis["default_layout"] = default_layout
         estimate = None
 
     subs = {k: v for k, v in vals.items() if not isinstance(v, (dict, list))}
