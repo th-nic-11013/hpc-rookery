@@ -53,6 +53,7 @@
 - **L1 / L2 / L3 (small-model benchmark)** — the three test levels for whether a small model may run a kairo stage: one correct tool call, a full chain of calls, and recovery after an error.
 - **Label run (CP2K)** — a single point written with `cp2k_make_input(purpose="label")`: energy, forces and analytical stress all printed in the `.out`, with the D3 choice stated explicitly.
 - **Label sensitivity** — how much the training targets (energies, forces) change when you swap the DFT functional used to compute them; if small, use the cheaper functional.
+- **Layout override** — `launch_plan(nodes=N, layout="RxT")`: plan a run at one of the layouts the system was benchmarked at (a valid record, same label, method and run type) instead of the best one, so cost can be traded for time without guessing; any other layout is refused until it is benchmarked.
 - **Lesson (kairo)** — a densho entry of at most 200 characters recording what went wrong, why, and the fix. kairo writes one whenever the planner or a human steps in, and shows a stage's lessons to the worker before that stage the next time (the self-improving loop).
 - **LoRA (fine-tuning)** — training only small added low-rank matrices while the foundation model's own weights stay frozen; cheap, and it forgets less than retraining everything.
 - **MACE descriptor** — the numbers a MACE model computes for each atom's local environment before predicting energy; averaged per element, they act as a fingerprint of a whole frame for picking diverse training frames.

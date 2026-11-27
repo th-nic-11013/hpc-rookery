@@ -24,14 +24,22 @@ layout), each only for the pack that sets it (G38):
   A GPU pack may also set <CODE>_CPU, the facility's measured CPU layout
   for the same runs (device="cpu"): one process with threads bound to
   cores, on a node of its own if the facility says so.
+
+run_type "benchmark" plans the layout-scan benchmark job itself (the pack's
+bench_job.sh): one exclusive node, <CODE>_CORES_PER_NODE processes of one
+core, no launcher (the scripts launch each run), a walltime from the stage
+scripts' timeouts and the pack's smoke and scan layouts, and the settings
+bench_job.sh reads from the environment. layout="RxT" (with nodes) picks
+one of the matched system's valid recorded layouts instead of the best one.
 """
 import math
+import re
 from collections import Counter
 
 from hpc_agent_core import config
 from hpc_codes import packs, records
 
-RUN_TYPES = ("aimd_step", "md_step", "single_point", "geo_opt", "cell_opt", "train")
+RUN_TYPES = ("aimd_step", "md_step", "single_point", "geo_opt", "cell_opt", "train", "benchmark")
 SIMILAR_ATOMS = 0.30      # a "similar" system has atoms within +-30 %
 MIN_EFFICIENCY = 0.7      # optimize="time" won't buy speed below this
 MEM_HEADROOM = 0.9        # a rank may use this share of its slice of node memory
@@ -39,6 +47,17 @@ MEM_HEADROOM = 0.9        # a rank may use this share of its slice of node memor
 #: (the first that divides the cores per node): few enough ranks to stay clear of
 #: per-rank memory trouble, every core used (HOKUSAI 112 -> 28x4, Seva 48 -> 12x4)
 GENERIC_THREADS = (4, 2, 1)
+#: the benchmark job (run_type "benchmark"; the pack's bench_job.sh): the stage
+#: scripts' default seconds per run (stage1_smoke.sh, stage2_scan.sh), the time a
+#: run needs left before it starts beyond its timeout (30 s kill grace + 60 s,
+#: run_layouts.sh), start-up and summary, and the template's --time (0:53:00).
+#: The walltime is the sum over the smoke and scan runs, in whole minutes, at
+#: least DURATION_FLOOR_S (what _duration never goes below) and at most BENCH_MAX_S.
+BENCH_TIMEOUTS = {"SMOKE_TIMEOUT": 120, "SCAN_TIMEOUT": 240}
+BENCH_RUN_MARGIN_S = 90
+BENCH_OVERHEAD_S = 120
+BENCH_MAX_S = 53 * 60
+DURATION_FLOOR_S = 1800
 
 
 def _method_key(r: dict) -> tuple:
@@ -89,6 +108,80 @@ def _duration(seconds: float) -> str:
     """Walltime with headroom: 1.5x plus 10 min, rounded up to 30 min."""
     s = math.ceil((seconds * 1.5 + 600) / 1800) * 1800
     return f"{s // 3600:02d}:{s % 3600 // 60:02d}:00"
+
+
+def _hms(seconds: int) -> str:
+    return f"{seconds // 3600:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
+
+
+def _benchmark_plan(facility, code, prefix, vals, build_id, nodes, steps, layout) -> dict:
+    """The layout-scan benchmark job as the pack's bench_job.sh asks for it:
+    one exclusive node, every core one process of one thread (each run is
+    launched by the scripts, so the plan has no launcher), a walltime that
+    covers the smoke and scan runs, and the settings bench_job.sh reads."""
+    if nodes not in (None, 1):
+        raise ValueError(f"a {code} benchmark job runs on one node (bench_job.sh); nodes={nodes} is not "
+                         "possible here. Multi-node layouts are timed with the benchmark skill's "
+                         "multinode_layouts_job.sh, outside launch_plan.")
+    if layout is not None:
+        raise ValueError('layout= picks a recorded layout for a run; a benchmark job scans the pack\'s '
+                         f'layouts ({prefix}_SCAN_LAYOUTS)')
+    if steps is not None:
+        raise ValueError("steps is not a benchmark setting: the MD steps are in the inputs "
+                         "(cp2k_bench_input steps / smoke_steps)")
+    smoke = str(vals.get(f"{prefix}_SMOKE_LAYOUTS") or "").split()
+    scan = str(vals.get(f"{prefix}_SCAN_LAYOUTS") or "").split()
+    if not smoke or not scan:
+        raise ValueError(f"{facility}'s {code} pack has no {prefix}_SMOKE_LAYOUTS and {prefix}_SCAN_LAYOUTS, "
+                         "so it has no benchmark job to plan")
+    cores = int(vals[f"{prefix}_CORES_PER_NODE"])
+    partition = vals.get(f"{prefix}_PARTITION")
+    build = packs.resolve_build(facility, code, build_id)
+    smoke_s, scan_s = BENCH_TIMEOUTS["SMOKE_TIMEOUT"], BENCH_TIMEOUTS["SCAN_TIMEOUT"]
+    need = (len(smoke) * (smoke_s + BENCH_RUN_MARGIN_S) + len(scan) * (scan_s + BENCH_RUN_MARGIN_S)
+            + BENCH_OVERHEAD_S)
+    limit = min(BENCH_MAX_S, max(DURATION_FLOOR_S, math.ceil(need / 60) * 60))
+    duration = _hms(limit)
+    env = {"BENCH_LIMIT_S": str(limit), "SMOKE_LAYOUTS": " ".join(smoke), "SCAN_LAYOUTS": " ".join(scan),
+           **{k: str(v) for k, v in BENCH_TIMEOUTS.items()}}
+    attributes = {"duration": duration}
+    if partition:
+        attributes["queue_name"] = partition
+    job_spec = {"environment": dict(env),
+                "resources": {"node_count": 1, "processes_per_node": cores, "cpu_cores_per_process": 1,
+                              "exclusive_node_use": True},
+                "attributes": attributes}
+    warnings = []
+    if need > limit:
+        warnings.append(f"the smoke and scan runs may need {need} s, more than the {limit} s cap: the "
+                        "scripts will not start the last scan layouts (NOT STARTED), so stage 2 fails "
+                        "with what finished recorded; scan fewer layouts (SCAN_LAYOUTS) to fit")
+    why = (f"the benchmark job (bench_job.sh): one exclusive node, {cores} processes of one core, "
+           f"{len(smoke)} smoke run(s) of up to {smoke_s} s and {len(scan)} scan run(s) of up to "
+           f"{scan_s} s, each needing {BENCH_RUN_MARGIN_S} s more left to start, plus "
+           f"{BENCH_OVERHEAD_S} s start-up; walltime {duration} (at least {_hms(DURATION_FLOOR_S)}, "
+           f"at most {_hms(BENCH_MAX_S)}). Stage 3 (VALIDATE_INPUT) is not budgeted: keep it none")
+    worst = round(limit * cores / 3600, 2)
+    return {"build": {k: build.get(k) for k in ("build_id", "version", "env_script", "data_dir")},
+            "layout": {"nodes": 1, "ranks_per_node": cores, "threads_per_rank": 1},
+            "basis": {"match": "none", "run_type": "benchmark", "record_ids": [], "options": [], "why": why},
+            "job_spec": job_spec,
+            "estimate": {"metric": "wall_s", "value": need, "rough": True, "core_hours_per_unit": None,
+                         "total_wall_s": float(min(need, limit)), "total_core_hours": worst,
+                         "worst_case_core_hours": worst, "suggested_duration": duration},
+            "memory": None,
+            "benchmark": {"environment": env, "smoke_layouts": smoke, "scan_layouts": scan,
+                          "runs": len(smoke) + len(scan), "needed_s": need, "limit_s": limit},
+            "warnings": warnings}
+
+
+def _layouts_text(rows: list[dict]) -> str:
+    by_nodes: dict[int, list[str]] = {}
+    for r in sorted(rows, key=lambda r: (r["nodes"], r["metric"]["value"])):
+        lt = f"{r['ranks_per_node']}x{r['threads_per_rank']}"
+        if lt not in by_nodes.setdefault(r["nodes"], []):
+            by_nodes[r["nodes"]].append(lt)
+    return "; ".join(f"{n} node(s): {', '.join(ls)}" for n, ls in sorted(by_nodes.items())) or "none"
 
 
 def _used(r: dict) -> int:
@@ -232,7 +325,7 @@ def _cpu_plan(facility, code, prefix, vals, run_type, build_id, nodes, gpus) -> 
 def plan(facility: str, code: str, run_type: str, system: dict, method: dict | None = None,
          build_id: str | None = None, nodes: int | None = None, optimize: str = "cost",
          steps: int | None = None, hfx_memory_mb: int | None = None,
-         gpus: int | None = None, device: str | None = None) -> dict:
+         gpus: int | None = None, device: str | None = None, layout: str | None = None) -> dict:
     if device not in (None, "gpu", "cpu"):
         raise ValueError('device must be "gpu" or "cpu"')
     if run_type not in RUN_TYPES:
@@ -245,11 +338,21 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
         raise ValueError("nodes must be at least 1")
     if hfx_memory_mb is not None and hfx_memory_mb < 1:
         raise ValueError("hfx_memory_mb is the input's HFX MAX_MEMORY per MPI rank, in MiB")
+    if layout is not None:
+        if not re.fullmatch(r"[1-9]\d*x[1-9]\d*", str(layout)):
+            raise ValueError(f'layout is "<ranks per node>x<threads per rank>", e.g. "16x7": {layout!r}')
+        if nodes is None and run_type != "benchmark":
+            raise ValueError("layout= needs nodes=: the layout is picked among the records at that node count")
     vals = packs.pack_values(facility, code)
     prefix = code.upper().replace("-", "_")
     launch = vals.get(f"{prefix}_LAUNCH")
     if not isinstance(launch, dict):
         raise ValueError(f"{facility}'s {code} pack values have no {prefix}_LAUNCH template")
+    if (layout is not None or run_type == "benchmark") and (gpus or device or vals.get(f"{prefix}_GPUS_PER_NODE")):
+        raise ValueError(f"layout= and run_type=\"benchmark\" are for CPU packs; {facility}'s {code} plan "
+                         "takes neither with gpus or device")
+    if run_type == "benchmark":
+        return _benchmark_plan(facility, code, prefix, vals, build_id, nodes, steps, layout)
     if vals.get(f"{prefix}_GPUS_PER_NODE"):
         if device == "cpu":
             return _cpu_plan(facility, code, prefix, vals, run_type, build_id, nodes, gpus)
@@ -315,6 +418,13 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
         group = min(sorted(near, key=newest, reverse=True), key=distance) if near else None
         match = "similar" if group else "none"
 
+    if layout is not None and match != "exact":
+        what = (f"only a similar system ({group[0]['system']['label']}) is recorded" if group else
+                "nothing of it is recorded")
+        raise ValueError(f"layout={layout} picks among the valid recorded layouts of {label or 'this system'} "
+                         f"with this method and run type ({run_type}), and {what}. Benchmark it first "
+                         '(launch_plan run_type="benchmark"), or omit layout.')
+
     memory = None
     if group:
         best = _per_node(group, by_cost=partial and optimize == "cost")
@@ -335,7 +445,24 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
                 options_for_choice = options
         else:
             options_for_choice = options
-        if nodes is not None:
+        picked = None
+        if layout is not None:
+            lr, lt = (int(x) for x in layout.split("x"))
+            at = [r for r in group if r["nodes"] == nodes and (r["ranks_per_node"], r["threads_per_rank"]) == (lr, lt)]
+            if not at:
+                bad = [r for r in records.query(facility, "benchmarks", {"code": code})
+                       if not r.get("valid") and r["run_type"] == timing_run_type
+                       and _same(r["system"]["label"], group[0]["system"]["label"])
+                       and r["nodes"] == nodes and (r["ranks_per_node"], r["threads_per_rank"]) == (lr, lt)]
+                raise ValueError(
+                    f"layout {layout} on {nodes} node(s) has no valid record for {group[0]['system']['label']} "
+                    f"({timing_run_type}, this method)"
+                    + (f" (its record {bad[0]['id']} is marked invalid)" if bad else "")
+                    + f". Recorded valid layouts: {_layouts_text(group)}. Pick one of them, or benchmark "
+                    "that layout first.")
+            picked = min(at, key=lambda r: r["metric"]["value"])
+            n = nodes
+        elif nodes is not None:
             n = min(best, key=lambda k: (abs(k - nodes), k))
             if n != nodes:
                 warnings.append(f"no timing on {nodes} node(s); layout taken from {n} node(s), no estimate")
@@ -349,14 +476,15 @@ def plan(facility: str, code: str, run_type: str, system: dict, method: dict | N
                 ok = [o for o in options_for_choice
                       if o["efficiency"] is not None and o["efficiency"] >= MIN_EFFICIENCY]
                 n = min(ok or options_for_choice, key=lambda o: o["value"])["nodes"]
-        chosen = best[n]
+        chosen = picked or best[n]
         R, T = chosen["ranks_per_node"], chosen["threads_per_rank"]
         nodes = nodes or n
         s = chosen["system"]
         from_sp = timing_run_type != run_type
         basis = {"match": match, "run_type": timing_run_type, "system": s["label"], "atoms": s["atoms"],
                  "method": chosen["method"], "record_ids": [chosen["id"]], "options": options,
-                 "why": ((f"cheapest layout (fewest core-seconds per unit) at {n} node(s)"
+                 "why": ((f"layout {layout} at {n} node(s), as asked (layout=)" if picked else
+                          f"cheapest layout (fewest core-seconds per unit) at {n} node(s)"
                           if partial and optimize == "cost" else f"fastest layout at {n} node(s)")
                          + f" of the recorded {s['label']} "
                          f"({s['atoms']} atoms, {chosen['method'].get('functional') or chosen['method'].get('model')})"

@@ -21,10 +21,15 @@ from pathlib import Path
 
 from hpc_agent_core import config
 from hpc_agent_core.middleware import norm_path, run_command
-from hpc_codes import packs, records
+from hpc_codes import packs, probe, records
 from hpc_codes.cp2k import bench_input as _bench
 
 PARSE_BENCH = Path(__file__).parent / "parse_bench.py"
+#: the benchmark skill's scripts (codes/cp2k/benchmark/scripts/ links here), rendered
+#: with the facility's pack values by bench_input(scripts=True)
+BENCH_SCRIPTS = Path(__file__).parent / "bench_scripts"
+BENCH_SCRIPT_NAMES = ("bench_job.sh", "run_layouts.sh", "stage1_smoke.sh", "stage2_scan.sh",
+                      "stage3_validate.sh", "dryrun.sh")
 KINDS = Path(__file__).parent / "kinds.py"
 _EOF = "HPC_CODES_EOF"
 
@@ -247,12 +252,15 @@ def check_input(facility: str, input_path: str, build_id: str | None = None) -> 
 
 
 def check_build(facility: str, build_id: str | None = None) -> dict:
-    pack_values(facility)
+    vals = pack_values(facility)
     config.require_facility_configuration(facility)
     build = resolve_build(facility, build_id)
     env = _home_path(build["env_script"])
     data = _home_path(build["data_dir"]) if build.get("data_dir") else "''"
-    body = (f"[ -f {env} ] && echo ENV=ok || echo ENV=missing; "
+    # the front-end Python and the login node's stack limit, before the build's env
+    body = (probe.python_lines(str(vals.get("CP2K_PYTHON") or "python3"))
+            + 'echo "STACK=$(ulimit -s)"; '
+            f"[ -f {env} ] && echo ENV=ok || echo ENV=missing; "
             f"[ -n {data} ] && {{ [ -d {data} ] && echo DATA=ok || echo DATA=missing; }}; "
             f"source {env} >/dev/null 2>&1; b=$(command -v cp2k.psmp); echo BIN=$b; "
             f'[ -n "$b" ] && {{ ldd "$b" | grep "not found" | sed "s/^/MISSING=/"; '
@@ -264,7 +272,16 @@ def check_build(facility: str, build_id: str | None = None) -> dict:
     flags = next((l.split(":", 1)[1].split() for l in lines if "cp2kflags" in l), [])
     missing = [l.split("=", 1)[1].split()[0] for l in lines if l.startswith("MISSING=")]
     binary = get("BIN") or None
+    py = probe.python_fields(lines)
+    guard = probe.guard_fields(facility)
     return {"build_id": build["build_id"], "env_script_ok": get("ENV") == "ok",
+            # informational (not part of ok): the helper scripts' Python, the login
+            # node's `ulimit -s` (KiB or "unlimited"; meta-GGA runs need a big stack),
+            # and whether the submit guard has a budget here (local config)
+            "python_path": py["path"], "python_version": py["version"], "python_ok": py["ok"],
+            "stack_limit": get("STACK") or None,
+            "guard_budget_present": guard["budget_present"],
+            "guard_budget_core_hours": guard["budget_core_hours"],
             "binary": binary, "version": version, "cp2kflags": flags, "missing_libs": missing,
             "data_dir_ok": get("DATA") == "ok" if build.get("data_dir") else None,
             "ok": bool(binary) and not missing and get("ENV") == "ok"
@@ -306,13 +323,34 @@ def kinds(facility: str, elements: list[str], basis: str | None = None,
     return {"build_id": build["build_id"], "data_dir": build["data_dir"], **result}
 
 
+def bench_scripts(vals: dict) -> dict[str, str]:
+    """The benchmark scripts rendered with a facility's pack values: every
+    {{NAME}} filled, parse_bench.py as it is. Refuses a value that would
+    break the scripts' quoting or a token left unfilled."""
+    launch = str(vals.get("CP2K_BENCH_LAUNCH") or "")
+    if not launch.strip() or "'" in launch:
+        raise ValueError("the pack value CP2K_BENCH_LAUNCH must be a launcher line without a single "
+                         f"quote, e.g. srun --ntasks={{R}} --cpus-per-task={{T}} ...: {launch!r}")
+    out = {}
+    for name in BENCH_SCRIPT_NAMES:
+        text = re.sub(r"\{\{(\w+)\}\}", lambda m: str(vals[m[1]]) if m[1] in vals and not isinstance(
+            vals[m[1]], (dict, list)) else m[0], (BENCH_SCRIPTS / name).read_text())
+        left = sorted(set(re.findall(r"\{\{\w+\}\}", text)))
+        if left:
+            raise ValueError(f"{name}: the pack values have nothing for {left}")
+        out[name] = text
+    out["parse_bench.py"] = PARSE_BENCH.read_text()
+    return out
+
+
 def bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
                 build_id: str | None = None, steps: int = 10, smoke_steps: int = 3,
                 xc: str = "revPBE", d3: str = "zero", cutoff: int = 450, rel_cutoff: int = 60,
                 basis: str = "DZVP-MOLOPT-SR-GTH", charge: int = 0,
-                overwrite: bool = False) -> dict:
-    pack_values(facility)
+                overwrite: bool = False, scripts: bool = False) -> dict:
+    vals = pack_values(facility)
     config.require_facility_configuration(facility)
+    rendered = bench_scripts(vals) if scripts else {}
     src = Path(xyz_path).expanduser()
     if not src.is_file():
         raise ValueError(f"{src} is not a file on this machine. For a file on a "
@@ -321,8 +359,10 @@ def bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
     _bench.check_args(name, xc, d3)
     elements = list(dict.fromkeys(_bench.read_extxyz(text)[1]))
     out = Path(out_dir).expanduser()
-    targets = [out / f"{name}.inp", out / f"{name}-smoke.inp"]
-    existing = [str(t) for t in targets if t.exists()]
+    # with the scripts, out_dir is the benchmark folder and the inputs go in inputs/
+    where = out / "inputs" if scripts else out
+    targets = [where / f"{name}.inp", where / f"{name}-smoke.inp"]
+    existing = [str(t) for t in [*targets, *(out / f for f in rendered)] if t.exists()]
     if existing and not overwrite:
         raise ValueError(f"{existing} exist; pass overwrite=true to replace them")
     k = kinds(facility, elements, basis, build_id)
@@ -330,10 +370,21 @@ def bench_input(facility: str, xyz_path: str, name: str, out_dir: str,
         raise ValueError(f"no {basis} kind in {k['data_dir']} for: {k['errors']}")
     texts, info = _bench.bench_inputs(text, src.name, name, k["kinds"], steps, smoke_steps,
                                       xc, d3, cutoff, rel_cutoff, charge)
-    out.mkdir(parents=True, exist_ok=True)
+    where.mkdir(parents=True, exist_ok=True)
     for fname, body in texts.items():
-        (out / fname).write_text(body)
-    return {"inputs": [str(t) for t in targets], "build_id": k["build_id"], **info}
+        (where / fname).write_text(body)
+    result = {"inputs": [str(t) for t in targets], "build_id": k["build_id"], **info}
+    if scripts:
+        for fname, body in rendered.items():
+            (out / fname).write_text(body)
+            (out / fname).chmod(0o755)
+        result["scripts"] = [str(out / f) for f in rendered]
+        result["submit_fields"] = {
+            "executable": "bash bench_job.sh",
+            "environment": {"SMOKE_INPUT": f"{name}-smoke.inp", "SCAN_INPUT": f"{name}.inp",
+                            "VALIDATE_INPUT": "none",
+                            "CP2K_ENV": resolve_build(facility, k["build_id"])["env_script"]}}
+    return result
 
 
 DRYRUN_CASES = ("pass", "fail_layout", "time_limit")

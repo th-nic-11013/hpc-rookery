@@ -2,6 +2,9 @@
 # CP2K ranks x threads benchmark on one exclusive node, as one job.
 # Copy this file into the benchmark folder, edit the BENCHMARK SETTINGS block, then
 # submit FROM THAT FOLDER (the folder becomes BENCH):  sbatch bench_job.sh
+# Every setting below is a default: a value already in the environment wins (submit_job
+# with executable "bash bench_job.sh" and the settings in its environment, from
+# launch_plan run_type="benchmark" and cp2k_bench_input scripts=true).
 # Stages run in order; each starts only if the one before passed:
 #   stage1_smoke.sh     SMOKE_INPUT in SMOKE_LAYOUTS
 #   stage2_scan.sh      SCAN_INPUT in SCAN_LAYOUTS
@@ -23,11 +26,11 @@
 #SBATCH --output=%x_%j.log
 
 #------- BENCHMARK SETTINGS (edit) -------#
-export BENCH_LIMIT_S=$(( 53 * 60 ))     # keep equal to --time above
+export BENCH_LIMIT_S=${BENCH_LIMIT_S:-$(( 53 * 60 ))}     # keep equal to --time above
 CP2K_ENV=${CP2K_ENV:?set CP2K_ENV to the env_script of the build (software_registry)}
-export SMOKE_INPUT=H2O-32.inp     SMOKE_TIMEOUT=120
-export SCAN_INPUT=H2O-64.inp      SCAN_TIMEOUT=240
-export VALIDATE_INPUT=H2O-128.inp VALIDATE_TIMEOUT=360    # or none
+export SMOKE_INPUT=${SMOKE_INPUT:-H2O-32.inp}         SMOKE_TIMEOUT=${SMOKE_TIMEOUT:-120}
+export SCAN_INPUT=${SCAN_INPUT:-H2O-64.inp}           SCAN_TIMEOUT=${SCAN_TIMEOUT:-240}
+export VALIDATE_INPUT=${VALIDATE_INPUT:-H2O-128.inp}  VALIDATE_TIMEOUT=${VALIDATE_TIMEOUT:-360}    # or none
 # export SMOKE_LAYOUTS="28x4 8x14"
 # export SCAN_LAYOUTS="112x1 56x2 28x4 16x7 8x14 4x28"
 # export VALIDATE_PICK=3

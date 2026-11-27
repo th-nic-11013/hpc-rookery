@@ -163,7 +163,17 @@ Set it up on the login node:
 mkdir -p ~/agent/work/cp2k-runs/<system>/bench/inputs
 ```
 
-`fs_upload` every file from `scripts/` into `bench/`, and the inputs into
+Shortest route, with the tools: `cp2k_bench_input(..., out_dir="<local bench>",
+scripts=true)` writes the inputs into `<local bench>/inputs/` and these
+scripts, already rendered for HOKUSAI BigWaterfall2 (HBW2), beside them; one `fs_upload`
+of the folder stages everything. `launch_plan(code="cp2k", run_type="benchmark",
+system=..., method=...)` then gives the signed one-node job spec, its
+duration and `benchmark.environment`; submit that `job_spec` with name,
+directory and the input result's `submit_fields` (executable, and its
+environment added to the spec's). Every BENCHMARK SETTING is a default
+that the job's environment overrides, so nothing needs editing.
+
+By hand: `fs_upload` every file from `scripts/` into `bench/`, and the inputs into
 `bench/inputs/`. Then edit **only the BENCHMARK SETTINGS block** of
 `bench/bench_job.sh`:
 - the inputs and the per-run timeouts;
@@ -177,7 +187,8 @@ first, or scan only 3–4 layouts.
 
 **Dry-run it before submitting.** `cp2k_bench_dryrun` runs the folder's
 `dryrun.sh` on the login node, in a scratch folder of its own, with a stub
-`srun`; the harness refuses to run unless that stub is first on `PATH`.
+`srun` (and a stub of the facility's benchmark launcher, `srun --mpi=pmix --ntasks={R} --cpus-per-task={T} {NODEOPT} --cpu-bind=verbose,cores --distribution=block:block`'s
+first word); the harness refuses to run unless the stubs are first on `PATH`.
 Pass the BENCHMARK SETTINGS as `settings`:
 
 ```text
@@ -209,8 +220,8 @@ spec sets the resources and the job runs in `directory`; the script's own
 `#SBATCH` lines are only for a manual `sbatch`. Then:
 - Tell the user the worst-case core-hours, and that an exclusive node can
   take hours to come free.
-- Use no `launcher`: the stage scripts start one `srun` step per layout
-  themselves.
+- Use no `launcher`: the stage scripts start one step per layout
+  themselves, with `srun --mpi=pmix --ntasks={R} --cpus-per-task={T} {NODEOPT} --cpu-bind=verbose,cores --distribution=block:block`.
 - Don't edit the stage scripts or inputs while the job is pending: the job
   reads them when it starts, not at submission.
 

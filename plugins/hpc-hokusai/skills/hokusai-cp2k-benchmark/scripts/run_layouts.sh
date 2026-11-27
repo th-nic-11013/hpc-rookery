@@ -6,10 +6,13 @@
 #   run_layout <input.inp> <ranks> <threads> <rep> <timeout_s>
 # Runs one CP2K step in ${BENCH}/runs/${SLURM_JOB_ID}/${STAGE}/<input>_<R>x<T>_r<rep>/
 # and appends "input ranks threads rep exit wall_s" to status.tsv in the stage folder.
-# Returns 0 only if srun exited 0 and cp2k.out has PROGRAM ENDED. 124: the timeout
-# killed it. 125: not started, because the job had too little time left for it.
+# Returns 0 only if the launcher exited 0 and cp2k.out has PROGRAM ENDED. 124: the
+# timeout killed it. 125: not started, because the job had too little time left for it.
 # Multi-node jobs export BENCH_NODES=N: the R ranks are then spread evenly, R/N per
 # node (R must be a multiple of N), with the same per-node binding.
+# The launcher is the facility's (pack value CP2K_BENCH_LAUNCH), with {R} ranks in all,
+# {T} threads per rank, {N} nodes, {RPN} ranks per node and {NODEOPT} (srun's
+# --nodes/--ntasks-per-node pair on a multi-node step, empty on one node) filled in.
 #
 #   stage_fail <message>
 # Ends the stage with exit 1; the job script then stops before the next stage.
@@ -17,6 +20,7 @@
 BENCH=${BENCH:?export BENCH (the benchmark folder) in the job script}
 STAGEDIR=${BENCH}/runs/${SLURM_JOB_ID:?run inside the Slurm job}/${STAGE:?set STAGE first}
 PY="/usr/bin/python3.12 -I ${BENCH}/parse_bench.py --cores=112"
+BENCH_LAUNCH='srun --mpi=pmix --ntasks={R} --cpus-per-task={T} {NODEOPT} --cpu-bind=verbose,cores --distribution=block:block'
 mkdir -p "${STAGEDIR}"
 [ -f "${STAGEDIR}/status.tsv" ] || printf "input\tranks\tthreads\trep\texit\twall_s\n" > "${STAGEDIR}/status.tsv"
 
@@ -47,14 +51,17 @@ run_layout() {
         nodeopt="--nodes=${BENCH_NODES} --ntasks-per-node=$(( R / BENCH_NODES ))"
     fi
 
+    local N=${BENCH_NODES:-1} launch=${BENCH_LAUNCH}
+    launch=${launch//\{RPN\}/$(( R / N ))}; launch=${launch//\{R\}/${R}}; launch=${launch//\{T\}/${T}}
+    launch=${launch//\{N\}/${N}}; launch=${launch//\{NODEOPT\}/${nodeopt}}
+
     mkdir -p "${dir}" && cp "${BENCH}/inputs/${inp}" "${dir}/" || return 1
     echo "=== $(date '+%F %T') ${name}: ${R} ranks x ${T} threads${nodeopt:+ (${nodeopt})}, rep ${rep}, timeout ${tmo} s"
+    # BENCH_RANKS: the layout for dryrun.sh's stub launcher; CP2K does not read it
     ( cd "${dir}" &&
-      OMP_NUM_THREADS=${T} OMP_PLACES=cores OMP_PROC_BIND=close \
+      OMP_NUM_THREADS=${T} OMP_PLACES=cores OMP_PROC_BIND=close BENCH_RANKS=${R} \
       timeout --signal=TERM --kill-after=30 "${tmo}" \
-      srun --mpi=pmix --ntasks="${R}" --cpus-per-task="${T}" ${nodeopt} \
-           --cpu-bind=verbose,cores --distribution=block:block \
-           cp2k.psmp -i "${inp}" -o cp2k.out 2> srun.err )
+      ${launch} cp2k.psmp -i "${inp}" -o cp2k.out 2> srun.err )
     status=$?
     t1=$(date +%s)
     if [ ${status} -eq 0 ] && ! grep -q "PROGRAM ENDED AT" "${dir}/cp2k.out" 2> /dev/null; then

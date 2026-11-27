@@ -17,6 +17,7 @@
     "CP2K_BUILD_CORES": "cores of the one-node build job",
     "CP2K_BUILD_JOBS": "make -j for the build, low enough that compiles fit in the job's memory",
     "CP2K_BUILD_WALLTIME": "walltime of the build job, HH:MM:SS",
-    "CP2K_LAUNCH": "launch_plan's job-spec templates: {pre_launch, launcher, environment}, with {R} ranks/node, {T} threads/rank, {N} nodes, {env_script} and other values by name"
+    "CP2K_LAUNCH": "launch_plan's job-spec templates: {pre_launch, launcher, environment}, with {R} ranks/node, {T} threads/rank, {N} nodes, {env_script} and other values by name",
+    "CP2K_BENCH_LAUNCH": "the benchmark scripts' launcher for one CP2K step (run_layouts.sh), with {R} ranks in all, {T} threads per rank, {N} nodes, {RPN} ranks per node and {NODEOPT} (srun's --nodes/--ntasks-per-node on a multi-node step, else empty), e.g. srun --mpi=pmix --ntasks={R} --cpus-per-task={T} {NODEOPT} ... or mpirun --map-by ppr:{RPN}:node:PE={T}; no single quote"
   }
 }

@@ -18,7 +18,7 @@ TESTS = ROOT / "tests"
 CODES_TOOLS = ['campaign_status', 'cp2k_bench_dryrun', 'cp2k_bench_input', 'cp2k_bench_parse', 'cp2k_bench_records',
                'cp2k_check_build', 'cp2k_check_input', 'cp2k_kinds', 'cp2k_record_from_run',
                'launch_plan', 'records_append', 'records_check', 'records_query',
-               'records_summarise_timings']
+               'records_summarise_timings', 'facility_probe']
 DOCS_TOOLS = ['list_doc_sections', 'read_doc_section', 'search_docs']
 
 
