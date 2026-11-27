@@ -87,6 +87,9 @@ repo-wide, not a per-machine template.
 - `render_job_script` — preview the fully-defaulted batch script without
   submitting and without touching the scheduler.
 - `get_drained_nodes` — nodes currently down/drained, and why.
+- `get_node_availability` — per node of one partition, idle cores and the
+  memory still allocatable, and which nodes can take a job of a given size
+  (a partly used node may have free cores but no memory). Slurm only.
 - `wait_for_jobs` — block (at most an hour per call) until jobs end,
   polling `get_statuses` no more than every 15 s; replaces hand-written
   `sleep`/`sacct` loops. Built on the same backend call as `get_job_statuses`.

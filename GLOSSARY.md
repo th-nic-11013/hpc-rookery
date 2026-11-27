@@ -55,6 +55,7 @@
 - **Metadynamics** — enhanced sampling that adds small energy "hills" where the CV has already been, so the system is pushed over barriers it would rarely cross on its own; well-tempered metadynamics shrinks the hills over time.
 - **metatensor / metatrain** — wrappers that connect machine-learned potentials to MD engines (for example a MACE model exported for LAMMPS).
 - **metatomic** — the model format and LAMMPS `pair_style` that let LAMMPS (and PLUMED) call an exported ML potential such as MACE.
+- **Mixed node** — a node with some cores allocated and some idle; get_resources counts it as allocated, get_node_availability shows its idle cores and the memory it can still allocate.
 - **MLMD** — molecular dynamics driven by a machine-learned interatomic potential (e.g. MACE) instead of DFT forces.
 - **MSD (mean-squared displacement)** — average squared distance atoms have moved after time t; a straight-line rise means diffusion, a plateau means atoms are caged.
 - **Multihead replay** — fine-tuning with two output heads at once: one for the new labels and one that keeps being trained on a sample of the foundation model's original data, so the model doesn't forget it.
@@ -87,6 +88,7 @@
 - **Run chaining** — starting a CP2K run from a previous run's outputs (its final structure and its `-RESTART.wfn`); hyogo's `guess_from` does the wavefunction half and refuses one that can't fit.
 - **Run state** — the agent-notes summary of one campaign (goal, current step, next step, what was tried, live jobs), kept on disk so an agent can resume after its context fills up.
 - **r²SCANh** — r²SCAN hybrid with 10 % exact exchange (r²SCAN0 has 25 %); hyogo preset `r2scanh`.
+- **Schedulable memory** — what Slurm can still hand to a new job on a node (its configured memory minus what running jobs asked for, capped per job by MaxMemPerNode), not the memory the OS reports free.
 - **Screened hybrid (HSE06)** — a hybrid whose exact exchange is switched off at long range, so it converges well in periodic solids.
 - **Scripted backend** — a stand-in "model" that replays fixed tool calls per stage, so the agent loop can be tested with no model and no cost.
 - **SessionStart hook** — a command Claude Code runs when a session opens; agent-notes uses it to print the project's notebook index.
